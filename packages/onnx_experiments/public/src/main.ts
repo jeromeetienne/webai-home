@@ -1,135 +1,157 @@
-import { env, pipeline, type TextGenerationPipeline } from '@huggingface/transformers';
+import {
+	AutoProcessor,
+	Gemma4ForConditionalGeneration,
+	env,
+	pipeline,
+	TextStreamer,
+	type TextGenerationPipeline,
+} from '@huggingface/transformers';
 
 type CacheEntry = {
-  body: ArrayBuffer;
-  headers: Record<string, string>;
-  status: number;
+	body: ArrayBuffer;
+	headers: Record<string, string>;
+	status: number;
 };
 
 type ProgressCallback = (progress: { loaded: number; total: number; progress: number }) => void;
 
 type IndexedDbCache = {
-  match: (key: string) => Promise<Response | undefined>;
-  put: (key: string, response: Response, progressCallback?: ProgressCallback) => Promise<void>;
+	match: (key: string) => Promise<Response | undefined>;
+	put: (key: string, response: Response, progressCallback?: ProgressCallback) => Promise<void>;
 };
 
 type Model = {
-  shortName: string;
-  fullName: string;
-  id: string;
-  accent: 'amber' | 'blue';
-  prompt: string;
+	shortName: string;
+	fullName: string;
+	id: string;
+	dtype: 'q4' | 'q4f16';
+	accent: 'amber' | 'blue';
+	kind: 'text' | 'gemma4';
+	prompt: string;
 };
 
 env.allowLocalModels = false;
 // Qwen's graph produces expected provider-assignment warnings during startup.
 // Keep actionable runtime errors visible without filling the browser console.
 function configureOnnxLogging() {
-  if (document.body.dataset.model === 'qwen') {
-    env.backends.onnx.logLevel = 'error';
-  }
+	if (document.body.dataset.model === 'qwen') {
+		env.backends.onnx.logLevel = 'error';
+	}
 }
 
 configureOnnxLogging();
 
 const indexedDbCache = createIndexedDbCache();
 if (indexedDbCache) {
-  env.useBrowserCache = false;
-  env.useCustomCache = true;
-  env.customCache = indexedDbCache;
+	env.useBrowserCache = false;
+	env.useCustomCache = true;
+	env.customCache = indexedDbCache;
 } else {
-  // Keep the existing persistent cache as a fallback for browsers where
-  // IndexedDB is unavailable or disabled.
-  env.useBrowserCache = true;
+	// Keep the existing persistent cache as a fallback for browsers where
+	// IndexedDB is unavailable or disabled.
+	env.useBrowserCache = true;
 }
 
 function createIndexedDbCache(): IndexedDbCache | null {
-  if (typeof indexedDB === 'undefined' || typeof Response === 'undefined') return null;
+	if (typeof indexedDB === 'undefined' || typeof Response === 'undefined') return null;
 
-  const databaseName = 'webai-onnx-experiments';
-  const storeName = 'model-files';
-  let databasePromise: Promise<IDBDatabase> | undefined;
+	const databaseName = 'webai-onnx-experiments';
+	const storeName = 'model-files';
+	let databasePromise: Promise<IDBDatabase> | undefined;
 
-  function openDatabase() {
-    if (!databasePromise) {
-      databasePromise = new Promise((resolve, reject) => {
-        const request = indexedDB.open(databaseName, 1);
-        request.onupgradeneeded = () => request.result.createObjectStore(storeName);
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(request.error);
-      });
-    }
-    return databasePromise;
-  }
+	function openDatabase() {
+		if (!databasePromise) {
+			databasePromise = new Promise((resolve, reject) => {
+				const request = indexedDB.open(databaseName, 1);
+				request.onupgradeneeded = () => request.result.createObjectStore(storeName);
+				request.onsuccess = () => resolve(request.result);
+				request.onerror = () => reject(request.error);
+			});
+		}
+		return databasePromise;
+	}
 
-  async function read(key: string): Promise<CacheEntry | undefined> {
-    const database = await openDatabase();
-    return new Promise((resolve, reject) => {
-      const request = database.transaction(storeName, 'readonly').objectStore(storeName).get(key);
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
-  }
+	async function read(key: string): Promise<CacheEntry | undefined> {
+		const database = await openDatabase();
+		return new Promise((resolve, reject) => {
+			const request = database.transaction(storeName, 'readonly').objectStore(storeName).get(key);
+			request.onsuccess = () => resolve(request.result);
+			request.onerror = () => reject(request.error);
+		});
+	}
 
-  async function write(key: string, value: CacheEntry): Promise<void> {
-    const database = await openDatabase();
-    return new Promise((resolve, reject) => {
-      const request = database.transaction(storeName, 'readwrite').objectStore(storeName).put(value, key);
-      request.onsuccess = () => resolve();
-      request.onerror = () => reject(request.error);
-    });
-  }
+	async function write(key: string, value: CacheEntry): Promise<void> {
+		const database = await openDatabase();
+		return new Promise((resolve, reject) => {
+			const request = database.transaction(storeName, 'readwrite').objectStore(storeName).put(value, key);
+			request.onsuccess = () => resolve();
+			request.onerror = () => reject(request.error);
+		});
+	}
 
-  return {
-    async match(key: string): Promise<Response | undefined> {
-      try {
-        const entry = await read(key);
-        if (!entry) return undefined;
-        return new Response(entry.body, {
-          status: entry.status,
-          headers: entry.headers,
-        });
-      } catch (error) {
-        console.warn('Unable to read the IndexedDB model cache:', error);
-        return undefined;
-      }
-    },
+	return {
+		async match(key: string): Promise<Response | undefined> {
+			try {
+				const entry = await read(key);
+				if (!entry) return undefined;
+				return new Response(entry.body, {
+					status: entry.status,
+					headers: entry.headers,
+				});
+			} catch (error) {
+				console.warn('Unable to read the IndexedDB model cache:', error);
+				return undefined;
+			}
+		},
 
-    async put(key: string, response: Response, progressCallback?: ProgressCallback): Promise<void> {
-      try {
-        const body = await response.arrayBuffer();
-        const headers: Record<string, string> = {};
-        response.headers.forEach((value, key) => {
-          headers[key] = value;
-        });
-        await write(key, {
-          body,
-          headers,
-          status: response.status,
-        });
-        progressCallback?.({ loaded: body.byteLength, total: body.byteLength, progress: 100 });
-      } catch (error) {
-        console.warn('Unable to write the IndexedDB model cache:', error);
-      }
-    },
-  };
+		async put(key: string, response: Response, progressCallback?: ProgressCallback): Promise<void> {
+			try {
+				const body = await response.arrayBuffer();
+				const headers: Record<string, string> = {};
+				response.headers.forEach((value, key) => {
+					headers[key] = value;
+				});
+				await write(key, {
+					body,
+					headers,
+					status: response.status,
+				});
+				progressCallback?.({ loaded: body.byteLength, total: body.byteLength, progress: 100 });
+			} catch (error) {
+				console.warn('Unable to write the IndexedDB model cache:', error);
+			}
+		},
+	};
 }
 
 const models: Record<string, Model> = {
-  qwen: {
-    shortName: 'Qwen2.5',
-    fullName: 'Qwen2.5-0.5B-Instruct',
-    id: 'onnx-community/Qwen2.5-0.5B-Instruct',
-    accent: 'amber',
-    prompt: 'Explain in two short sentences why running a language model in the browser can be useful.',
-  },
-  smollm: {
-    shortName: 'SmolLM2',
-    fullName: 'SmolLM2-360M-Instruct',
-    id: 'eduardoworrel/SmolLM2-360M-Instruct',
-    accent: 'blue',
-    prompt: 'Explain in two short sentences why running a language model in the browser can be useful.',
-  },
+	qwen: {
+		shortName: 'Qwen3',
+		fullName: 'Qwen3-0.6B-ONNX',
+		id: 'onnx-community/Qwen3-0.6B-ONNX',
+		dtype: 'q4f16',
+		accent: 'amber',
+		kind: 'text',
+		prompt: 'Explain in two short sentences why running a language model in the browser can be useful.',
+	},
+	smollm: {
+		shortName: 'SmolLM2',
+		fullName: 'SmolLM2-360M-Instruct',
+		id: 'eduardoworrel/SmolLM2-360M-Instruct',
+		dtype: 'q4',
+		accent: 'blue',
+		kind: 'text',
+		prompt: 'Explain in two short sentences why running a language model in the browser can be useful.',
+	},
+	gemma: {
+		shortName: 'Gemma 4',
+		fullName: 'E2B-it-ONNX',
+		id: 'onnx-community/gemma-4-E2B-it-ONNX',
+		dtype: 'q4',
+		accent: 'blue',
+		kind: 'gemma4',
+		prompt: 'Explain in two short sentences why running a language model in the browser can be useful.',
+	},
 };
 
 const model = models[document.body.dataset.model ?? ''];
@@ -139,8 +161,10 @@ const app = document.querySelector<HTMLElement>('#app');
 if (!app) throw new Error('The page must contain an #app element.');
 
 let generator: TextGenerationPipeline | undefined;
+let gemmaProcessor: Awaited<ReturnType<typeof AutoProcessor.from_pretrained>> | undefined;
+let gemmaModel: InstanceType<typeof Gemma4ForConditionalGeneration> | undefined;
 let loadStartedAt: number | undefined;
-let modelLoadPromise: Promise<TextGenerationPipeline> | undefined;
+let modelLoadPromise: Promise<TextGenerationPipeline | void> | undefined;
 
 app.innerHTML = `
   <main class="shell experiment-shell ${model.accent}">
@@ -149,7 +173,7 @@ app.innerHTML = `
       <span class="runtime-pill"><i></i><span id="runtime-label">Checking runtime</span></span>
     </header>
     <section class="hero">
-      <p class="eyebrow">Browser inference / field test ${model.accent === 'amber' ? '01' : '02'}</p>
+      <p class="eyebrow">Browser inference / field test ${model.kind === 'gemma4' ? '03' : model.accent === 'amber' ? '01' : '02'}</p>
       <h1>${model.shortName}<br /><em>${model.fullName}</em></h1>
       <p class="intro">A compact ONNX language model running locally in this browser. Load it once, then measure a real generation on your device.</p>
     </section>
@@ -162,7 +186,7 @@ app.innerHTML = `
       <textarea id="prompt" rows="3">${model.prompt}</textarea>
       <div class="controls">
         <button id="run-button" class="primary-button" type="button">Load model &amp; run inference <span>↗</span></button>
-        <span class="hint">48 new tokens · greedy decode</span>
+		<span class="hint">Streaming · stops at the end token</span>
       </div>
     </section>
     <section class="results" aria-live="polite">
@@ -180,9 +204,9 @@ app.innerHTML = `
 `;
 
 function getElement<T extends HTMLElement>(selector: string): T {
-  const element = document.querySelector<T>(selector);
-  if (!element) throw new Error(`The page must contain ${selector}.`);
-  return element;
+	const element = document.querySelector<T>(selector);
+	if (!element) throw new Error(`The page must contain ${selector}.`);
+	return element;
 }
 
 const button = getElement<HTMLButtonElement>('#run-button');
@@ -196,98 +220,138 @@ runtimeLabel.textContent = hasWebGPU ? 'WebGPU available' : 'WebAssembly fallbac
 backend.textContent = hasWebGPU ? 'WebGPU' : 'WebAssembly';
 
 function setStatus(message: string): void {
-  status.textContent = message;
+	status.textContent = message;
 }
 
 function getText(result: unknown): string {
-  if (!Array.isArray(result)) return '';
-  const first = result[0];
-  if (!first || typeof first !== 'object' || !('generated_text' in first)) return '';
+	if (!Array.isArray(result)) return '';
+	const first = result[0];
+	if (!first || typeof first !== 'object' || !('generated_text' in first)) return '';
 
-  const generated = first.generated_text;
-  if (Array.isArray(generated)) {
-    const lastMessage = generated.at(-1);
-    return lastMessage && typeof lastMessage === 'object' && 'content' in lastMessage && typeof lastMessage.content === 'string'
-      ? lastMessage.content
-      : '';
-  }
-  return typeof generated === 'string' ? generated : '';
+	const generated = first.generated_text;
+	if (Array.isArray(generated)) {
+		const lastMessage = generated.at(-1);
+		return lastMessage && typeof lastMessage === 'object' && 'content' in lastMessage && typeof lastMessage.content === 'string'
+			? lastMessage.content
+			: '';
+	}
+	return typeof generated === 'string' ? generated : '';
 }
 
-function loadModel(): Promise<TextGenerationPipeline> {
-  if (generator) return Promise.resolve(generator);
-  if (modelLoadPromise) return modelLoadPromise;
+function updateProgress(progress: { status?: string; file?: string; progress?: number }): void {
+	if (progress.status === 'progress' && progress.file) {
+		const percent = Number.isFinite(progress.progress) ? ` ${Math.round(progress.progress ?? 0)}%` : '';
+		setStatus(`Downloading ${progress.file}${percent}…`);
+	}
+}
 
-  // Reapply this immediately before session creation. ONNX Runtime reads the
-  // setting when its WebAssembly runtime starts, not when the page is built.
-  configureOnnxLogging();
-  setStatus(`Downloading ${model.fullName}. This can take a while on the first run…`);
-  loadStartedAt = performance.now();
-  modelLoadPromise = pipeline('text-generation', model.id, {
-    device: hasWebGPU ? 'webgpu' : 'wasm',
-    // The SmolLM2 ONNX graph expects float32 inputs. q4 keeps the
-    // quantised weights while avoiding the float16 input mismatch.
-    dtype: 'q4',
-    progress_callback: (progress) => {
-      if (progress.status === 'progress' && progress.file) {
-        const percent = Number.isFinite(progress.progress) ? ` ${Math.round(progress.progress)}%` : '';
-        setStatus(`Downloading ${progress.file}${percent}…`);
-      }
-    },
-  }).then((loadedGenerator) => {
-    generator = loadedGenerator;
-    getElement<HTMLElement>('#load-time').textContent = `${((performance.now() - (loadStartedAt ?? performance.now())) / 1000).toFixed(1)} s`;
-    setStatus('Model ready. Enter a prompt and run inference.');
-    button.disabled = false;
-    button.innerHTML = 'Run inference <span>↗</span>';
-    return loadedGenerator;
-  }).catch((error: unknown) => {
-    modelLoadPromise = undefined;
-    button.disabled = false;
-    button.innerHTML = 'Load model &amp; run inference <span>↗</span>';
-    throw error;
-  });
+async function loadGemma(): Promise<void> {
+	gemmaProcessor = await AutoProcessor.from_pretrained(model.id, { progress_callback: updateProgress });
+	gemmaModel = await Gemma4ForConditionalGeneration.from_pretrained(model.id, {
+		device: hasWebGPU ? 'webgpu' : 'wasm',
+		dtype: model.dtype,
+		progress_callback: updateProgress,
+	});
+}
 
-  return modelLoadPromise;
+function loadModel(): Promise<TextGenerationPipeline | void> {
+	if (generator) return Promise.resolve(generator);
+	if (model.kind === 'gemma4' && gemmaModel) return Promise.resolve();
+	if (modelLoadPromise) return modelLoadPromise;
+
+	// Reapply this immediately before session creation. ONNX Runtime reads the
+	// setting when its WebAssembly runtime starts, not when the page is built.
+	configureOnnxLogging();
+	setStatus(`Downloading ${model.fullName}. This can take a while on the first run…`);
+	loadStartedAt = performance.now();
+	modelLoadPromise = (model.kind === 'gemma4' ? loadGemma() : pipeline('text-generation', model.id, {
+		device: hasWebGPU ? 'webgpu' : 'wasm',
+		dtype: model.dtype,
+		progress_callback: updateProgress,
+	})).then((loadedGenerator) => {
+		if (loadedGenerator) generator = loadedGenerator;
+		getElement<HTMLElement>('#load-time').textContent = `${((performance.now() - (loadStartedAt ?? performance.now())) / 1000).toFixed(1)} s`;
+		setStatus('Model ready. Enter a prompt and run inference.');
+		button.disabled = false;
+		button.innerHTML = 'Run inference <span>↗</span>';
+		return loadedGenerator;
+	}).catch((error: unknown) => {
+		modelLoadPromise = undefined;
+		button.disabled = false;
+		button.innerHTML = 'Load model &amp; run inference <span>↗</span>';
+		throw error;
+	});
+
+	return modelLoadPromise;
 }
 
 button.addEventListener('click', async () => {
-  button.disabled = true;
-  button.innerHTML = 'Working… <span class="spinner"></span>';
-  output.classList.remove('placeholder');
-  output.textContent = '';
-  const totalStartedAt = performance.now();
-  try {
-    const loadedGenerator = await loadModel();
-    setStatus('Model is ready. Running inference…');
+	button.disabled = true;
+	button.innerHTML = 'Working… <span class="spinner"></span>';
+	output.classList.remove('placeholder');
+	output.textContent = '';
+	const totalStartedAt = performance.now();
+	try {
+		const loadedGenerator = await loadModel();
+		setStatus('Model is ready. Running inference…');
 
-    const generationStartedAt = performance.now();
-    const prompt = getElement<HTMLTextAreaElement>('#prompt').value;
-    const result = await loadedGenerator([{ role: 'user', content: prompt }], {
-      max_new_tokens: 48,
-      do_sample: false,
-      return_full_text: false,
-    });
-    const generationMs = performance.now() - generationStartedAt;
-    const answer = getText(result).trim();
-    const tokenCount = Math.max(1, answer.split(/\s+/).length);
-    output.textContent = answer || 'The model returned an empty answer.';
-    getElement<HTMLElement>('#generation-time').textContent = `${(generationMs / 1000).toFixed(2)} s`;
-    getElement<HTMLElement>('#speed').textContent = `${(tokenCount / (generationMs / 1000)).toFixed(1)} words/s`;
-      setStatus(`Complete in ${((performance.now() - totalStartedAt) / 1000).toFixed(1)} s. Model files remain in IndexedDB for later page loads.`);
-  } catch (error: unknown) {
-    console.error(error);
-    output.textContent = 'The experiment could not start. Check the browser console for details.';
-    setStatus(`Error: ${error instanceof Error ? error.message : 'unknown error'}`);
-  } finally {
-    button.disabled = false;
-    button.innerHTML = 'Run inference again <span>↗</span>';
-  }
+		const generationStartedAt = performance.now();
+		const prompt = getElement<HTMLTextAreaElement>('#prompt').value;
+		let streamedText = '';
+		const streamer = new TextStreamer(model.kind === 'gemma4' ? gemmaProcessor!.tokenizer : loadedGenerator!.tokenizer, {
+			skip_prompt: true,
+			skip_special_tokens: true,
+			callback_function: (chunk: string) => {
+				streamedText += chunk;
+				output.textContent = streamedText;
+			},
+		});
+		let answer = '';
+		if (model.kind === 'gemma4') {
+			const messages = [{ role: 'user', content: [{ type: 'text', text: prompt }] }];
+			const chatPrompt = gemmaProcessor!.apply_chat_template(messages, {
+				enable_thinking: false,
+				add_generation_prompt: true,
+			});
+			const inputs = await gemmaProcessor!(chatPrompt, undefined, undefined, { add_special_tokens: false });
+			const outputs = await gemmaModel!.generate({
+				...inputs,
+				max_new_tokens: 2048,
+				do_sample: false,
+				streamer,
+			});
+			const promptLength = inputs.input_ids.dims.at(-1) ?? 0;
+			answer = gemmaProcessor!.batch_decode(outputs.slice(null, [promptLength, null]), { skip_special_tokens: true })[0] ?? '';
+		} else {
+			const result = await loadedGenerator!([{ role: 'user', content: prompt }], {
+				// Keep a high safety bound in case the model never emits its end token.
+				max_new_tokens: 2048,
+				do_sample: false,
+				return_full_text: false,
+				tokenizer_encode_kwargs: { enable_thinking: false },
+				streamer,
+			});
+			answer = getText(result).trim();
+		}
+		const generationMs = performance.now() - generationStartedAt;
+		const tokenCount = Math.max(1, answer.split(/\s+/).length);
+		output.textContent = answer || streamedText || 'The model returned an empty answer.';
+		getElement<HTMLElement>('#generation-time').textContent = `${(generationMs / 1000).toFixed(2)} s`;
+		getElement<HTMLElement>('#speed').textContent = `${(tokenCount / (generationMs / 1000)).toFixed(1)} words/s`;
+		setStatus(`Complete in ${((performance.now() - totalStartedAt) / 1000).toFixed(1)} s. Model files remain in IndexedDB for later page loads.`);
+	} catch (error: unknown) {
+		console.error(error);
+		output.textContent = 'The experiment could not start. Check the browser console for details.';
+		setStatus(`Error: ${error instanceof Error ? error.message : 'unknown error'}`);
+	} finally {
+		button.disabled = false;
+		button.innerHTML = 'Run inference again <span>↗</span>';
+	}
 });
 
 button.disabled = true;
 button.innerHTML = 'Loading model… <span class="spinner"></span>';
 void loadModel().catch((error: unknown) => {
-  console.error(error);
-  setStatus(`Unable to load ${model.fullName}: ${error instanceof Error ? error.message : 'unknown error'}`);
+	console.error(error);
+	setStatus(`Unable to load ${model.fullName}: ${error instanceof Error ? error.message : 'unknown error'}`);
 });

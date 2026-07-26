@@ -10,6 +10,7 @@ export default defineConfig({
         home: resolve(import.meta.dirname, 'public/index.html'),
         qwen: resolve(import.meta.dirname, 'public/qwen.html'),
         smollm: resolve(import.meta.dirname, 'public/smollm.html'),
+        gemma: resolve(import.meta.dirname, 'public/gemma.html'),
       },
     },
   },
