@@ -1,0 +1,14 @@
+{
+  "name": "webai-home",
+  "private": true,
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "build": "npm run build --workspace @webai/protocol && npm run build --workspace @webai/admin-browser && npm run build --workspace @webai/central-server && npm run build --workspace @webai/task-client",
+    "dev:server": "npm run dev --workspace @webai/central-server",
+    "test": "npm run test --workspaces"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

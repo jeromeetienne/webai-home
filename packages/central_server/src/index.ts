@@ -1,0 +1,63 @@
+import { createServer } from "node:http";
+import { Command } from "commander";
+import { WebSocketServer, type WebSocket } from "ws";
+import { TaskInput, type ClientMessage, type Device, type ServerMessage, type StageName } from "@webai/protocol";
+import { DeviceRegistry } from "./registry.js";
+import { nextStage, TaskStore } from "./tasks.js";
+
+const options = new Command().option("-p, --port <number>", "HTTP and WebSocket port", "8787").parse().opts<{ port: string }>();
+const port = Number(options.port);
+const registry = new DeviceRegistry();
+const tasks = new TaskStore();
+const sockets = new Map<string, WebSocket>();
+
+function send(socket: WebSocket, message: ServerMessage): void { if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(message)); }
+function broadcast(message: ServerMessage): void { for (const socket of sockets.values()) send(socket, message); }
+function volunteerDevices(): Device[] { return registry.list().filter((device) => device.role === "volunteer"); }
+function updateDevices(): void { broadcast({ type: "devices", devices: volunteerDevices() }); }
+function assign(taskId: string, value: number, stage: StageName, excluded: string[] = []): void {
+  const device = registry.findVolunteer(stage, excluded);
+  if (!device) { tasks.update(taskId, { state: "failed", error: `No volunteer is available for ${stage}` }); broadcastTask(taskId); return; }
+  tasks.update(taskId, { state: "assigned" });
+  const socket = sockets.get(device.id);
+  if (socket) send(socket, { type: "stage.assign", taskId, stage, value });
+  broadcastTask(taskId);
+}
+function broadcastTask(taskId: string): void { const task = tasks.get(taskId); if (task) broadcast({ type: "task.updated", task }); }
+function handle(socket: WebSocket, deviceId: string, message: ClientMessage): void {
+  if (message.type === "register") {
+    const device: Device = { id: deviceId, name: message.name, role: message.role, capabilities: message.role === "volunteer" ? (message.capabilities ?? ["multiply", "add"]) : [], connectedAt: new Date().toISOString(), lastSeenAt: new Date().toISOString() };
+    registry.add(device); send(socket, { type: "registered", deviceId }); updateDevices(); return;
+  }
+  if (message.type === "task.submit") { const parsed = TaskInput.safeParse(message.input); if (!parsed.success) return send(socket, { type: "error", message: "Input must be a finite number" }); const task = tasks.create(parsed.data); send(socket, { type: "task.accepted", task }); assign(task.id, task.input.input * 1, "multiply"); return; }
+  if (message.type === "task.get") { const task = tasks.get(message.taskId); if (task) send(socket, { type: "task.updated", task }); else send(socket, { type: "error", message: "Task was not found" }); return; }
+  if (message.type === "stage.result") {
+    const device = registry.get(deviceId);
+    if (!device || device.role !== "volunteer") return send(socket, { type: "error", message: "Only volunteer browser tabs may return stage results" });
+    const task = tasks.get(message.taskId);
+    if (!task || nextStage(task) !== message.stage) return send(socket, { type: "error", message: "Unexpected stage result" });
+    const updated = tasks.addStage(task.id, { name: message.stage, value: message.value });
+    const upcoming = nextStage(updated);
+    if (upcoming) assign(updated.id, message.value, upcoming, [deviceId]); else tasks.update(updated.id, { state: "completed", result: message.value });
+    broadcastTask(updated.id); return;
+  }
+  if (message.type === "stage.failed") {
+    const device = registry.get(deviceId);
+    if (!device || device.role !== "volunteer") return send(socket, { type: "error", message: "Only volunteer browser tabs may fail a stage" });
+    tasks.update(message.taskId, { state: "failed", error: message.error }); broadcastTask(message.taskId); return;
+  }
+  if (message.type === "signal") { const target = sockets.get(message.to); if (target) send(target, { type: "signal", from: deviceId, data: message.data }); }
+}
+
+const adminPage = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>WebAI Administrator</title><style>body{font:16px system-ui;max-width:800px;margin:40px auto;padding:0 20px;color:#202124}h1{margin-bottom:4px}#status{color:#667085}li{margin:8px 0}pre{background:#f4f4f5;padding:16px;border-radius:8px;white-space:pre-wrap}</style></head><body><h1>WebAI Administrator</h1><p id="status">Connecting to the central server…</p><h2>Connected volunteer browser tabs</h2><ul id="devices"><li>Waiting for volunteer browser tabs.</li></ul><h2>Task updates</h2><pre id="tasks">No tasks yet.</pre><p><a href="/volunteer">Open a volunteer browser tab</a></p><script>const status=document.querySelector('#status'),devices=document.querySelector('#devices'),tasks=document.querySelector('#tasks');const socket=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host);socket.onopen=()=>socket.send(JSON.stringify({type:'register',role:'admin',name:'administrator'}));socket.onmessage=e=>{const m=JSON.parse(e.data);if(m.type==='registered')status.textContent='Connected to the central server.';if(m.type==='devices')devices.innerHTML=m.devices.filter(d=>d.role==='volunteer').map(d=>'<li>'+d.name+' (volunteer) — '+d.capabilities.join(', ')+'</li>').join('')||'<li>Waiting for volunteer browser tabs.</li>';if(m.type==='task.updated'||m.type==='task.accepted')tasks.textContent=JSON.stringify(m.task,null,2)};socket.onclose=()=>status.textContent='Disconnected from the central server.';</script></body></html>`;
+const volunteerPage = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>WebAI Volunteer</title><style>body{font:16px system-ui;max-width:800px;margin:40px auto;padding:0 20px}input,button{font:16px;padding:8px}pre{background:#f4f4f5;padding:16px;border-radius:8px}</style></head><body><h1>WebAI Volunteer</h1><label>Name <input id="name" value="browser-volunteer"></label> <button id="connect">Connect</button><pre id="log">Not connected.</pre><script>const log=v=>document.querySelector('#log').textContent+=JSON.stringify(v)+'\\n';document.querySelector('#connect').onclick=()=>{const s=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host);s.onopen=()=>s.send(JSON.stringify({type:'register',role:'volunteer',name:document.querySelector('#name').value,capabilities:['multiply','add']}));s.onmessage=e=>{const m=JSON.parse(e.data);log(m);if(m.type==='stage.assign'){const value=m.stage==='multiply'?m.value*2:m.value+7;s.send(JSON.stringify({type:'stage.result',taskId:m.taskId,stage:m.stage,value}))}}};</script></body></html>`;
+const httpServer = createServer((request, response) => {
+  if (request.url === "/" || request.url === "/admin") { response.setHeader("content-type", "text/html; charset=utf-8"); response.end(adminPage); return; }
+  if (request.url === "/volunteer") { response.setHeader("content-type", "text/html; charset=utf-8"); response.end(volunteerPage); return; }
+  response.setHeader("content-type", "application/json");
+  if (request.url === "/health") { response.end(JSON.stringify({ ok: true, devices: volunteerDevices().length })); return; }
+  response.statusCode = 404; response.end(JSON.stringify({ error: "Not found" }));
+});
+const websocketServer = new WebSocketServer({ server: httpServer });
+websocketServer.on("connection", (socket) => { const deviceId = crypto.randomUUID(); sockets.set(deviceId, socket); socket.on("message", (raw) => { try { handle(socket, deviceId, JSON.parse(raw.toString()) as ClientMessage); } catch { send(socket, { type: "error", message: "Invalid message" }); } }); socket.on("close", () => { sockets.delete(deviceId); registry.remove(deviceId); updateDevices(); }); });
+httpServer.listen(port, () => console.log(`Central server listening on http://localhost:${port}`));

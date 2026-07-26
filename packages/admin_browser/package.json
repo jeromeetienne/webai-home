@@ -1,0 +1,6 @@
+{
+  "name": "@webai/admin-browser",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": { "build": "tsc -p tsconfig.json" }
+}
