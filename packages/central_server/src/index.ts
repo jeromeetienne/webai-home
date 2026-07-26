@@ -16,7 +16,7 @@ function broadcast(message: ServerMessage): void { for (const socket of sockets.
 function volunteerDevices(): Device[] { return registry.list().filter((device) => device.role === "volunteer"); }
 function updateDevices(): void { broadcast({ type: "devices", devices: volunteerDevices() }); }
 function assign(taskId: string, value: number, stage: StageName, excluded: string[] = []): void {
-  const device = registry.findVolunteer(stage, excluded);
+  const device = registry.findVolunteer(stage, excluded) ?? registry.findVolunteer(stage);
   if (!device) { tasks.update(taskId, { state: "failed", error: `No volunteer is available for ${stage}` }); broadcastTask(taskId); return; }
   tasks.update(taskId, { state: "assigned" });
   const socket = sockets.get(device.id);
