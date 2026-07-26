@@ -157,10 +157,9 @@ const output = document.querySelector('#output');
 const runtimeLabel = document.querySelector('#runtime-label');
 const backend = document.querySelector('#backend');
 
-// Keep inference on WebAssembly while comparing output repeatability across
-// runs. WebGPU remains available for a later performance comparison.
-runtimeLabel.textContent = 'WebAssembly forced';
-backend.textContent = 'WebAssembly';
+const hasWebGPU = 'gpu' in navigator;
+runtimeLabel.textContent = hasWebGPU ? 'WebGPU available' : 'WebAssembly fallback';
+backend.textContent = hasWebGPU ? 'WebGPU' : 'WebAssembly';
 
 function setStatus(message) {
   status.textContent = message;
@@ -182,7 +181,7 @@ function loadModel() {
   setStatus(`Downloading ${model.fullName}. This can take a while on the first run…`);
   loadStartedAt = performance.now();
   modelLoadPromise = pipeline('text-generation', model.id, {
-    device: 'wasm',
+    device: hasWebGPU ? 'webgpu' : 'wasm',
     // The SmolLM2 ONNX graph expects float32 inputs. q4 keeps the
     // quantised weights while avoiding the float16 input mismatch.
     dtype: 'q4',
