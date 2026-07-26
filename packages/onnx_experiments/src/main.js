@@ -108,6 +108,7 @@ const models = {
 const model = models[document.body.dataset.model];
 let generator;
 let loadStartedAt;
+let modelLoadPromise;
 
 document.querySelector('#app').innerHTML = `
   <main class="shell experiment-shell ${model.accent}">
@@ -166,6 +167,40 @@ function getText(result) {
   return typeof generated === 'string' ? generated : '';
 }
 
+function loadModel() {
+  if (generator) return Promise.resolve(generator);
+  if (modelLoadPromise) return modelLoadPromise;
+
+  setStatus(`Downloading ${model.fullName}. This can take a while on the first run…`);
+  loadStartedAt = performance.now();
+  modelLoadPromise = pipeline('text-generation', model.id, {
+    device: hasWebGPU ? 'webgpu' : 'wasm',
+    // The SmolLM2 ONNX graph expects float32 inputs. q4 keeps the
+    // quantised weights while avoiding the float16 input mismatch.
+    dtype: 'q4',
+    progress_callback: (progress) => {
+      if (progress?.status === 'progress' && progress.file) {
+        const percent = Number.isFinite(progress.progress) ? ` ${Math.round(progress.progress)}%` : '';
+        setStatus(`Downloading ${progress.file}${percent}…`);
+      }
+    },
+  }).then((loadedGenerator) => {
+    generator = loadedGenerator;
+    document.querySelector('#load-time').textContent = `${((performance.now() - loadStartedAt) / 1000).toFixed(1)} s`;
+    setStatus('Model ready. Enter a prompt and run inference.');
+    button.disabled = false;
+    button.innerHTML = 'Run inference <span>↗</span>';
+    return loadedGenerator;
+  }).catch((error) => {
+    modelLoadPromise = undefined;
+    button.disabled = false;
+    button.innerHTML = 'Load model &amp; run inference <span>↗</span>';
+    throw error;
+  });
+
+  return modelLoadPromise;
+}
+
 button.addEventListener('click', async () => {
   button.disabled = true;
   button.innerHTML = 'Working… <span class="spinner"></span>';
@@ -173,29 +208,11 @@ button.addEventListener('click', async () => {
   output.textContent = '';
   const totalStartedAt = performance.now();
   try {
-    if (!generator) {
-      setStatus(`Downloading ${model.fullName}. This can take a while on the first run…`);
-      loadStartedAt = performance.now();
-      generator = await pipeline('text-generation', model.id, {
-        device: hasWebGPU ? 'webgpu' : 'wasm',
-        // The SmolLM2 ONNX graph expects float32 inputs. q4 keeps the
-        // quantised weights while avoiding the float16 input mismatch.
-        dtype: 'q4',
-        progress_callback: (progress) => {
-          if (progress?.status === 'progress' && progress.file) {
-            const percent = Number.isFinite(progress.progress) ? ` ${Math.round(progress.progress)}%` : '';
-            setStatus(`Downloading ${progress.file}${percent}…`);
-          }
-        },
-      });
-      document.querySelector('#load-time').textContent = `${((performance.now() - loadStartedAt) / 1000).toFixed(1)} s`;
-    } else {
-      setStatus('Model is cached. Running inference…');
-      document.querySelector('#load-time').textContent = 'cached';
-    }
+    const loadedGenerator = await loadModel();
+    setStatus('Model is ready. Running inference…');
 
     const generationStartedAt = performance.now();
-    const result = await generator([{ role: 'user', content: document.querySelector('#prompt').value }], {
+    const result = await loadedGenerator([{ role: 'user', content: document.querySelector('#prompt').value }], {
       max_new_tokens: 48,
       do_sample: false,
       return_full_text: false,
@@ -215,4 +232,11 @@ button.addEventListener('click', async () => {
     button.disabled = false;
     button.innerHTML = 'Run inference again <span>↗</span>';
   }
+});
+
+button.disabled = true;
+button.innerHTML = 'Loading model… <span class="spinner"></span>';
+void loadModel().catch((error) => {
+  console.error(error);
+  setStatus(`Unable to load ${model.fullName}: ${error?.message ?? 'unknown error'}`);
 });
