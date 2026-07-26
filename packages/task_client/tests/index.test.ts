@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseInput } from "./index.js";
+import { parseInput } from "../src/index.js";
 
 test("parses finite numeric input", () => {
   assert.equal(parseInput("12.5"), 12.5);

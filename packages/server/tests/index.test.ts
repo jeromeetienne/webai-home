@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { DeviceRegistry } from "./registry.js";
-import { nextStage, TaskStore } from "./tasks.js";
+import { DeviceRegistry } from "../src/registry.js";
+import { nextStage, TaskStore } from "../src/tasks.js";
 
 const volunteer = (deviceId: string, capabilities: ("multiply" | "add")[] = ["multiply", "add"]) => ({
   deviceId,

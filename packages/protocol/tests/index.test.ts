@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { StageName, TaskInput, TaskState } from "./index.js";
+import { StageName, TaskInput, TaskState } from "../src/index.js";
 
 test("accepts valid task input", () => {
   assert.deepEqual(TaskInput.parse({ input: 12.5 }), { input: 12.5 });

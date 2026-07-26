@@ -6,7 +6,7 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "dev": "tsx watch src/index.ts",
-    "test": "node --import tsx --test src/index.test.ts"
+    "test": "node --import tsx --test tests/index.test.ts"
   },
   "dependencies": {
     "@webai/protocol": "0.1.0",
