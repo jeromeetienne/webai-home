@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Tiny Iris classifier running locally with ONNX Runtime Web" />
+    <title>Tiny Iris ONNX Classifier</title>
+  </head>
+  <body>
+    <main class="container">
+      <h1>Tiny Iris ONNX Classifier</h1>
+      <p>Enter four flower measurements. Inference runs locally in your browser.</p>
+      <section class="status-panel"><strong>Model status:</strong> <span id="model-status">Loading…</span></section>
+
+      <form id="prediction-form">
+        <div class="input-grid">
+          <label>Sepal length <input id="sepal-length" type="number" step="0.1" value="5.1" required /></label>
+          <label>Sepal width <input id="sepal-width" type="number" step="0.1" value="3.5" required /></label>
+          <label>Petal length <input id="petal-length" type="number" step="0.1" value="1.4" required /></label>
+          <label>Petal width <input id="petal-width" type="number" step="0.1" value="0.2" required /></label>
+        </div>
+        <button id="predict-button" type="submit" disabled>Predict</button>
+      </form>
+
+      <section id="result" class="result" hidden>
+        <h2>Prediction</h2>
+        <p>Species: <strong id="predicted-class"></strong></p>
+        <div id="probabilities"></div>
+      </section>
+
+      <section class="examples">
+        <h2>Example inputs</h2>
+        <button class="example-button" type="button" data-values="5.1,3.5,1.4,0.2">Setosa-like</button>
+        <button class="example-button" type="button" data-values="6.0,2.9,4.5,1.5">Versicolor-like</button>
+        <button class="example-button" type="button" data-values="6.7,3.1,5.6,2.4">Virginica-like</button>
+      </section>
+    </main>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
