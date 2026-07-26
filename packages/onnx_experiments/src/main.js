@@ -4,9 +4,13 @@ import './styles.css';
 env.allowLocalModels = false;
 // Qwen's graph produces expected provider-assignment warnings during startup.
 // Keep actionable runtime errors visible without filling the browser console.
-if (document.body.dataset.model === 'qwen') {
-  env.backends.onnx.logLevel = 'error';
+function configureOnnxLogging() {
+  if (document.body.dataset.model === 'qwen') {
+    env.backends.onnx.logLevel = 'error';
+  }
 }
+
+configureOnnxLogging();
 
 const indexedDbCache = createIndexedDbCache();
 if (indexedDbCache) {
@@ -153,9 +157,10 @@ const output = document.querySelector('#output');
 const runtimeLabel = document.querySelector('#runtime-label');
 const backend = document.querySelector('#backend');
 
-const hasWebGPU = 'gpu' in navigator;
-runtimeLabel.textContent = hasWebGPU ? 'WebGPU available' : 'WebAssembly fallback';
-backend.textContent = hasWebGPU ? 'WebGPU' : 'WebAssembly';
+// Keep inference on WebAssembly while comparing output repeatability across
+// runs. WebGPU remains available for a later performance comparison.
+runtimeLabel.textContent = 'WebAssembly forced';
+backend.textContent = 'WebAssembly';
 
 function setStatus(message) {
   status.textContent = message;
@@ -171,10 +176,13 @@ function loadModel() {
   if (generator) return Promise.resolve(generator);
   if (modelLoadPromise) return modelLoadPromise;
 
+  // Reapply this immediately before session creation. ONNX Runtime reads the
+  // setting when its WebAssembly runtime starts, not when the page is built.
+  configureOnnxLogging();
   setStatus(`Downloading ${model.fullName}. This can take a while on the first run…`);
   loadStartedAt = performance.now();
   modelLoadPromise = pipeline('text-generation', model.id, {
-    device: hasWebGPU ? 'webgpu' : 'wasm',
+    device: 'wasm',
     // The SmolLM2 ONNX graph expects float32 inputs. q4 keeps the
     // quantised weights while avoiding the float16 input mismatch.
     dtype: 'q4',
