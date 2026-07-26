@@ -1,5 +1,22 @@
-body { font: 16px system-ui; max-width: 800px; margin: 40px auto; padding: 0 20px; color: #202124; }
-h1 { margin-bottom: 4px; }
-#status { color: #667085; }
-li { margin: 8px 0; }
-pre { background: #f4f4f5; padding: 16px; border-radius: 8px; white-space: pre-wrap; }
+body {
+    background: #f5f7fb;
+}
+
+.card {
+    border-radius: 1rem;
+}
+
+.card-header {
+    border-radius: 1rem 1rem 0 0 !important;
+}
+
+#devices .list-group-item {
+    background: transparent;
+    border-color: #edf0f5;
+}
+
+#tasks {
+    min-height: 220px;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
