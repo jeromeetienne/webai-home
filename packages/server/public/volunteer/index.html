@@ -10,7 +10,7 @@
 <body>
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm">
         <div class="container">
-            <a class="navbar-brand fw-semibold" href="/">WebAI</a>
+            <a class="navbar-brand fw-semibold" href="/">WebAI@home</a>
             <span class="navbar-text text-white-50">Volunteer browser</span>
         </div>
     </nav>
@@ -33,7 +33,10 @@
                         <p class="text-secondary">Give this browser a name, then connect it so WebAI can assign formula stages to the browser.</p>
                         <label class="form-label" for="name">Volunteer name</label>
                         <input class="form-control mb-3" id="name" value="browser-volunteer">
-                        <button class="btn btn-primary w-100" id="connect" type="button">Connect volunteer browser</button>
+                        <div class="d-grid gap-2">
+                            <button class="btn btn-primary" id="connect" type="button">Connect volunteer browser</button>
+                            <button class="btn btn-outline-danger d-none" id="disconnect" type="button">Disconnect</button>
+                        </div>
                     </div>
                 </section>
             </div>
