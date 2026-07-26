@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>WebAI Administrator</title>
+    <link rel="stylesheet" href="/admin/css/main.css">
+</head>
+<body>
+    <h1>WebAI Administrator</h1>
+    <button type="button" onclick="location.reload()">Reload</button>
+    <p id="status">Connecting to the central server…</p>
+    <h2>Connected volunteer browser tabs</h2>
+    <ul id="devices"><li>Waiting for volunteer browser tabs.</li></ul>
+    <h2>Task updates</h2>
+    <pre id="tasks">No tasks yet.</pre>
+    <p><a href="/volunteer">Open a volunteer browser tab</a></p>
+    <p><a href="/debug_iframe">Open the iframe debug page</a></p>
+    <script type="module" src="/admin/src/main.ts"></script>
+</body>
+</html>
