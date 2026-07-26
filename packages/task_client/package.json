@@ -2,7 +2,19 @@
   "name": "@webai/task-client",
   "version": "0.1.0",
   "type": "module",
-  "scripts": { "build": "tsc -p tsconfig.json", "dev": "tsx src/index.ts" },
-  "dependencies": { "@webai/protocol": "0.1.0", "commander": "^12.1.0", "ws": "^8.18.0" },
-  "devDependencies": { "@types/node": "^22.10.2", "@types/ws": "^8.5.13" }
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "dev": "tsx src/index.ts",
+    "test": "node --import tsx --test src/index.test.ts"
+  },
+  "dependencies": {
+    "@webai/protocol": "0.1.0",
+    "commander": "^12.1.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/ws": "^8.5.13"
+  }
 }

@@ -1,0 +1,17 @@
+body {
+    background: #f5f7fb;
+}
+
+.card {
+    border-radius: 1rem;
+}
+
+.card-header {
+    border-radius: 1rem 1rem 0 0 !important;
+}
+
+#log {
+    min-height: 220px;
+    white-space: pre-wrap;
+    word-break: break-word;
+}

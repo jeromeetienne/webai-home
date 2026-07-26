@@ -1,4 +1,4 @@
-# `@webai/central-server`
+# `@webai/server`
 
 Central HTTP and WebSocket server for the WebAI distributed formula pipeline.
 
@@ -15,7 +15,7 @@ npm run dev:server
 The default port is `8787`. Use `--port` or `-p` to choose another port:
 
 ```sh
-npm run dev --workspace @webai/central-server -- --port 9000
+npm run dev --workspace @webai/server -- --port 9000
 ```
 
 ## Pages and endpoints
@@ -30,6 +30,6 @@ Each HTML page and its assets are stored in its own directory under `public/`. B
 ## Build and test
 
 ```sh
-npm run build --workspace @webai/central-server
-npm run test --workspace @webai/central-server
+npm run build --workspace @webai/server
+npm run test --workspace @webai/server
 ```
