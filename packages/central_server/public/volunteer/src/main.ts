@@ -4,14 +4,10 @@ const log = (value) => {
 };
 const status = document.querySelector("#status");
 const nameInput = document.querySelector("#name");
-const connectButton = document.querySelector("#connect");
-let socket;
 nameInput.value = `browser-volunteer-${crypto.randomUUID().slice(0, 8)}`;
 
-connectButton.addEventListener("click", () => {
-  if (socket && (socket.readyState === WebSocket.CONNECTING || socket.readyState === WebSocket.OPEN)) return;
-  socket = new WebSocket(`${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}`);
-  connectButton.disabled = true;
+document.querySelector("#connect").addEventListener("click", () => {
+  const socket = new WebSocket(`${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}`);
   status.textContent = "Connecting";
   status.className = "badge text-bg-warning";
   socket.addEventListener("open", () => {
@@ -26,10 +22,5 @@ connectButton.addEventListener("click", () => {
     const value = message.stage === "multiply" ? message.value * 2 : message.value + 7;
     socket.send(JSON.stringify({ type: "stage.result", taskId: message.taskId, stage: message.stage, value }));
   });
-  socket.addEventListener("close", () => {
-    socket = undefined;
-    connectButton.disabled = false;
-    status.textContent = "Disconnected";
-    status.className = "badge text-bg-danger";
-  });
+  socket.addEventListener("close", () => { status.textContent = "Disconnected"; status.className = "badge text-bg-danger"; });
 });
