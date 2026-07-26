@@ -1,11 +1,4 @@
-import {
-	AutoProcessor,
-	Gemma4ForConditionalGeneration,
-	env,
-	pipeline,
-	TextStreamer,
-	type TextGenerationPipeline,
-} from '@huggingface/transformers';
+import { env, pipeline, TextStreamer, type TextGenerationPipeline } from '@huggingface/transformers';
 
 type CacheEntry = {
 	body: ArrayBuffer;
@@ -147,7 +140,7 @@ const models: Record<string, Model> = {
 		shortName: 'Gemma 4',
 		fullName: 'E2B-it-ONNX',
 		id: 'onnx-community/gemma-4-E2B-it-ONNX',
-		dtype: 'q4',
+		dtype: 'q4f16',
 		accent: 'blue',
 		kind: 'gemma4',
 		prompt: 'Explain in two short sentences why running a language model in the browser can be useful.',
@@ -161,10 +154,8 @@ const app = document.querySelector<HTMLElement>('#app');
 if (!app) throw new Error('The page must contain an #app element.');
 
 let generator: TextGenerationPipeline | undefined;
-let gemmaProcessor: Awaited<ReturnType<typeof AutoProcessor.from_pretrained>> | undefined;
-let gemmaModel: InstanceType<typeof Gemma4ForConditionalGeneration> | undefined;
 let loadStartedAt: number | undefined;
-let modelLoadPromise: Promise<TextGenerationPipeline | void> | undefined;
+let modelLoadPromise: Promise<TextGenerationPipeline> | undefined;
 
 app.innerHTML = `
   <main class="shell experiment-shell ${model.accent}">
@@ -238,25 +229,8 @@ function getText(result: unknown): string {
 	return typeof generated === 'string' ? generated : '';
 }
 
-function updateProgress(progress: { status?: string; file?: string; progress?: number }): void {
-	if (progress.status === 'progress' && progress.file) {
-		const percent = Number.isFinite(progress.progress) ? ` ${Math.round(progress.progress ?? 0)}%` : '';
-		setStatus(`Downloading ${progress.file}${percent}…`);
-	}
-}
-
-async function loadGemma(): Promise<void> {
-	gemmaProcessor = await AutoProcessor.from_pretrained(model.id, { progress_callback: updateProgress });
-	gemmaModel = await Gemma4ForConditionalGeneration.from_pretrained(model.id, {
-		device: hasWebGPU ? 'webgpu' : 'wasm',
-		dtype: model.dtype,
-		progress_callback: updateProgress,
-	});
-}
-
-function loadModel(): Promise<TextGenerationPipeline | void> {
+function loadModel(): Promise<TextGenerationPipeline> {
 	if (generator) return Promise.resolve(generator);
-	if (model.kind === 'gemma4' && gemmaModel) return Promise.resolve();
 	if (modelLoadPromise) return modelLoadPromise;
 
 	// Reapply this immediately before session creation. ONNX Runtime reads the
@@ -264,12 +238,17 @@ function loadModel(): Promise<TextGenerationPipeline | void> {
 	configureOnnxLogging();
 	setStatus(`Downloading ${model.fullName}. This can take a while on the first run…`);
 	loadStartedAt = performance.now();
-	modelLoadPromise = (model.kind === 'gemma4' ? loadGemma() : pipeline('text-generation', model.id, {
+	modelLoadPromise = pipeline('text-generation', model.id, {
 		device: hasWebGPU ? 'webgpu' : 'wasm',
 		dtype: model.dtype,
-		progress_callback: updateProgress,
-	})).then((loadedGenerator) => {
-		if (loadedGenerator) generator = loadedGenerator;
+		progress_callback: (progress) => {
+			if (progress.status === 'progress' && progress.file) {
+				const percent = Number.isFinite(progress.progress) ? ` ${Math.round(progress.progress)}%` : '';
+				setStatus(`Downloading ${progress.file}${percent}…`);
+			}
+		},
+	}).then((loadedGenerator) => {
+		generator = loadedGenerator;
 		getElement<HTMLElement>('#load-time').textContent = `${((performance.now() - (loadStartedAt ?? performance.now())) / 1000).toFixed(1)} s`;
 		setStatus('Model ready. Enter a prompt and run inference.');
 		button.disabled = false;
@@ -298,7 +277,7 @@ button.addEventListener('click', async () => {
 		const generationStartedAt = performance.now();
 		const prompt = getElement<HTMLTextAreaElement>('#prompt').value;
 		let streamedText = '';
-		const streamer = new TextStreamer(model.kind === 'gemma4' ? gemmaProcessor!.tokenizer : loadedGenerator!.tokenizer, {
+		const streamer = new TextStreamer(loadedGenerator.tokenizer, {
 			skip_prompt: true,
 			skip_special_tokens: true,
 			callback_function: (chunk: string) => {
@@ -306,33 +285,15 @@ button.addEventListener('click', async () => {
 				output.textContent = streamedText;
 			},
 		});
-		let answer = '';
-		if (model.kind === 'gemma4') {
-			const messages = [{ role: 'user', content: [{ type: 'text', text: prompt }] }];
-			const chatPrompt = gemmaProcessor!.apply_chat_template(messages, {
-				enable_thinking: false,
-				add_generation_prompt: true,
-			});
-			const inputs = await gemmaProcessor!(chatPrompt, undefined, undefined, { add_special_tokens: false });
-			const outputs = await gemmaModel!.generate({
-				...inputs,
-				max_new_tokens: 2048,
-				do_sample: false,
-				streamer,
-			});
-			const promptLength = inputs.input_ids.dims.at(-1) ?? 0;
-			answer = gemmaProcessor!.batch_decode(outputs.slice(null, [promptLength, null]), { skip_special_tokens: true })[0] ?? '';
-		} else {
-			const result = await loadedGenerator!([{ role: 'user', content: prompt }], {
-				// Keep a high safety bound in case the model never emits its end token.
-				max_new_tokens: 2048,
-				do_sample: false,
-				return_full_text: false,
-				tokenizer_encode_kwargs: { enable_thinking: false },
-				streamer,
-			});
-			answer = getText(result).trim();
-		}
+		const result = await loadedGenerator([{ role: 'user', content: prompt }], {
+			// Keep a high safety bound in case the model never emits its end token.
+			max_new_tokens: 2048,
+			do_sample: false,
+			return_full_text: false,
+			tokenizer_encode_kwargs: { enable_thinking: false },
+			streamer,
+		});
+		const answer = getText(result).trim();
 		const generationMs = performance.now() - generationStartedAt;
 		const tokenCount = Math.max(1, answer.split(/\s+/).length);
 		output.textContent = answer || streamedText || 'The model returned an empty answer.';
