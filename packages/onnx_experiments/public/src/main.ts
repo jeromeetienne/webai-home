@@ -1,0 +1,293 @@
+import { env, pipeline, type TextGenerationPipeline } from '@huggingface/transformers';
+
+type CacheEntry = {
+  body: ArrayBuffer;
+  headers: Record<string, string>;
+  status: number;
+};
+
+type ProgressCallback = (progress: { loaded: number; total: number; progress: number }) => void;
+
+type IndexedDbCache = {
+  match: (key: string) => Promise<Response | undefined>;
+  put: (key: string, response: Response, progressCallback?: ProgressCallback) => Promise<void>;
+};
+
+type Model = {
+  shortName: string;
+  fullName: string;
+  id: string;
+  accent: 'amber' | 'blue';
+  prompt: string;
+};
+
+env.allowLocalModels = false;
+// Qwen's graph produces expected provider-assignment warnings during startup.
+// Keep actionable runtime errors visible without filling the browser console.
+function configureOnnxLogging() {
+  if (document.body.dataset.model === 'qwen') {
+    env.backends.onnx.logLevel = 'error';
+  }
+}
+
+configureOnnxLogging();
+
+const indexedDbCache = createIndexedDbCache();
+if (indexedDbCache) {
+  env.useBrowserCache = false;
+  env.useCustomCache = true;
+  env.customCache = indexedDbCache;
+} else {
+  // Keep the existing persistent cache as a fallback for browsers where
+  // IndexedDB is unavailable or disabled.
+  env.useBrowserCache = true;
+}
+
+function createIndexedDbCache(): IndexedDbCache | null {
+  if (typeof indexedDB === 'undefined' || typeof Response === 'undefined') return null;
+
+  const databaseName = 'webai-onnx-experiments';
+  const storeName = 'model-files';
+  let databasePromise: Promise<IDBDatabase> | undefined;
+
+  function openDatabase() {
+    if (!databasePromise) {
+      databasePromise = new Promise((resolve, reject) => {
+        const request = indexedDB.open(databaseName, 1);
+        request.onupgradeneeded = () => request.result.createObjectStore(storeName);
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+    }
+    return databasePromise;
+  }
+
+  async function read(key: string): Promise<CacheEntry | undefined> {
+    const database = await openDatabase();
+    return new Promise((resolve, reject) => {
+      const request = database.transaction(storeName, 'readonly').objectStore(storeName).get(key);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async function write(key: string, value: CacheEntry): Promise<void> {
+    const database = await openDatabase();
+    return new Promise((resolve, reject) => {
+      const request = database.transaction(storeName, 'readwrite').objectStore(storeName).put(value, key);
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  return {
+    async match(key: string): Promise<Response | undefined> {
+      try {
+        const entry = await read(key);
+        if (!entry) return undefined;
+        return new Response(entry.body, {
+          status: entry.status,
+          headers: entry.headers,
+        });
+      } catch (error) {
+        console.warn('Unable to read the IndexedDB model cache:', error);
+        return undefined;
+      }
+    },
+
+    async put(key: string, response: Response, progressCallback?: ProgressCallback): Promise<void> {
+      try {
+        const body = await response.arrayBuffer();
+        const headers: Record<string, string> = {};
+        response.headers.forEach((value, key) => {
+          headers[key] = value;
+        });
+        await write(key, {
+          body,
+          headers,
+          status: response.status,
+        });
+        progressCallback?.({ loaded: body.byteLength, total: body.byteLength, progress: 100 });
+      } catch (error) {
+        console.warn('Unable to write the IndexedDB model cache:', error);
+      }
+    },
+  };
+}
+
+const models: Record<string, Model> = {
+  qwen: {
+    shortName: 'Qwen2.5',
+    fullName: 'Qwen2.5-0.5B-Instruct',
+    id: 'onnx-community/Qwen2.5-0.5B-Instruct',
+    accent: 'amber',
+    prompt: 'Explain in two short sentences why running a language model in the browser can be useful.',
+  },
+  smollm: {
+    shortName: 'SmolLM2',
+    fullName: 'SmolLM2-360M-Instruct',
+    id: 'eduardoworrel/SmolLM2-360M-Instruct',
+    accent: 'blue',
+    prompt: 'Explain in two short sentences why running a language model in the browser can be useful.',
+  },
+};
+
+const model = models[document.body.dataset.model ?? ''];
+if (!model) throw new Error('The page must specify a supported model in the body data-model attribute.');
+
+const app = document.querySelector<HTMLElement>('#app');
+if (!app) throw new Error('The page must contain an #app element.');
+
+let generator: TextGenerationPipeline | undefined;
+let loadStartedAt: number | undefined;
+let modelLoadPromise: Promise<TextGenerationPipeline> | undefined;
+
+app.innerHTML = `
+  <main class="shell experiment-shell ${model.accent}">
+    <header class="topbar">
+      <a class="back-link" href="./">← All experiments</a>
+      <span class="runtime-pill"><i></i><span id="runtime-label">Checking runtime</span></span>
+    </header>
+    <section class="hero">
+      <p class="eyebrow">Browser inference / field test ${model.accent === 'amber' ? '01' : '02'}</p>
+      <h1>${model.shortName}<br /><em>${model.fullName}</em></h1>
+      <p class="intro">A compact ONNX language model running locally in this browser. Load it once, then measure a real generation on your device.</p>
+    </section>
+    <section class="test-panel" aria-labelledby="test-heading">
+      <div class="panel-heading">
+        <div><p class="section-label">Test prompt</p><h2 id="test-heading">A small question, a useful answer.</h2></div>
+        <span class="model-tag">${model.id}</span>
+      </div>
+      <label class="sr-only" for="prompt">Prompt</label>
+      <textarea id="prompt" rows="3">${model.prompt}</textarea>
+      <div class="controls">
+        <button id="run-button" class="primary-button" type="button">Load model &amp; run inference <span>↗</span></button>
+        <span class="hint">48 new tokens · greedy decode</span>
+      </div>
+    </section>
+    <section class="results" aria-live="polite">
+      <div class="result-copy"><p class="section-label">Output</p><p id="output" class="output-text placeholder">Run the experiment to see the model's answer.</p></div>
+      <div class="metrics">
+        <div class="metric"><span>Model load</span><strong id="load-time">—</strong></div>
+        <div class="metric"><span>Generation</span><strong id="generation-time">—</strong></div>
+        <div class="metric"><span>Output rate</span><strong id="speed">—</strong></div>
+        <div class="metric"><span>Backend</span><strong id="backend">—</strong></div>
+      </div>
+    </section>
+    <p id="status" class="status">Ready. The first run downloads the ONNX weights; later page loads use IndexedDB.</p>
+    <footer><span>ONNX Runtime Web + Transformers.js</span><span>Local inference · no prompt upload</span></footer>
+  </main>
+`;
+
+function getElement<T extends HTMLElement>(selector: string): T {
+  const element = document.querySelector<T>(selector);
+  if (!element) throw new Error(`The page must contain ${selector}.`);
+  return element;
+}
+
+const button = getElement<HTMLButtonElement>('#run-button');
+const status = getElement<HTMLElement>('#status');
+const output = getElement<HTMLElement>('#output');
+const runtimeLabel = getElement<HTMLElement>('#runtime-label');
+const backend = getElement<HTMLElement>('#backend');
+
+const hasWebGPU = 'gpu' in navigator;
+runtimeLabel.textContent = hasWebGPU ? 'WebGPU available' : 'WebAssembly fallback';
+backend.textContent = hasWebGPU ? 'WebGPU' : 'WebAssembly';
+
+function setStatus(message: string): void {
+  status.textContent = message;
+}
+
+function getText(result: unknown): string {
+  if (!Array.isArray(result)) return '';
+  const first = result[0];
+  if (!first || typeof first !== 'object' || !('generated_text' in first)) return '';
+
+  const generated = first.generated_text;
+  if (Array.isArray(generated)) {
+    const lastMessage = generated.at(-1);
+    return lastMessage && typeof lastMessage === 'object' && 'content' in lastMessage && typeof lastMessage.content === 'string'
+      ? lastMessage.content
+      : '';
+  }
+  return typeof generated === 'string' ? generated : '';
+}
+
+function loadModel(): Promise<TextGenerationPipeline> {
+  if (generator) return Promise.resolve(generator);
+  if (modelLoadPromise) return modelLoadPromise;
+
+  // Reapply this immediately before session creation. ONNX Runtime reads the
+  // setting when its WebAssembly runtime starts, not when the page is built.
+  configureOnnxLogging();
+  setStatus(`Downloading ${model.fullName}. This can take a while on the first run…`);
+  loadStartedAt = performance.now();
+  modelLoadPromise = pipeline('text-generation', model.id, {
+    device: hasWebGPU ? 'webgpu' : 'wasm',
+    // The SmolLM2 ONNX graph expects float32 inputs. q4 keeps the
+    // quantised weights while avoiding the float16 input mismatch.
+    dtype: 'q4',
+    progress_callback: (progress) => {
+      if (progress.status === 'progress' && progress.file) {
+        const percent = Number.isFinite(progress.progress) ? ` ${Math.round(progress.progress)}%` : '';
+        setStatus(`Downloading ${progress.file}${percent}…`);
+      }
+    },
+  }).then((loadedGenerator) => {
+    generator = loadedGenerator;
+    getElement<HTMLElement>('#load-time').textContent = `${((performance.now() - (loadStartedAt ?? performance.now())) / 1000).toFixed(1)} s`;
+    setStatus('Model ready. Enter a prompt and run inference.');
+    button.disabled = false;
+    button.innerHTML = 'Run inference <span>↗</span>';
+    return loadedGenerator;
+  }).catch((error: unknown) => {
+    modelLoadPromise = undefined;
+    button.disabled = false;
+    button.innerHTML = 'Load model &amp; run inference <span>↗</span>';
+    throw error;
+  });
+
+  return modelLoadPromise;
+}
+
+button.addEventListener('click', async () => {
+  button.disabled = true;
+  button.innerHTML = 'Working… <span class="spinner"></span>';
+  output.classList.remove('placeholder');
+  output.textContent = '';
+  const totalStartedAt = performance.now();
+  try {
+    const loadedGenerator = await loadModel();
+    setStatus('Model is ready. Running inference…');
+
+    const generationStartedAt = performance.now();
+    const prompt = getElement<HTMLTextAreaElement>('#prompt').value;
+    const result = await loadedGenerator([{ role: 'user', content: prompt }], {
+      max_new_tokens: 48,
+      do_sample: false,
+      return_full_text: false,
+    });
+    const generationMs = performance.now() - generationStartedAt;
+    const answer = getText(result).trim();
+    const tokenCount = Math.max(1, answer.split(/\s+/).length);
+    output.textContent = answer || 'The model returned an empty answer.';
+    getElement<HTMLElement>('#generation-time').textContent = `${(generationMs / 1000).toFixed(2)} s`;
+    getElement<HTMLElement>('#speed').textContent = `${(tokenCount / (generationMs / 1000)).toFixed(1)} words/s`;
+      setStatus(`Complete in ${((performance.now() - totalStartedAt) / 1000).toFixed(1)} s. Model files remain in IndexedDB for later page loads.`);
+  } catch (error: unknown) {
+    console.error(error);
+    output.textContent = 'The experiment could not start. Check the browser console for details.';
+    setStatus(`Error: ${error instanceof Error ? error.message : 'unknown error'}`);
+  } finally {
+    button.disabled = false;
+    button.innerHTML = 'Run inference again <span>↗</span>';
+  }
+});
+
+button.disabled = true;
+button.innerHTML = 'Loading model… <span class="spinner"></span>';
+void loadModel().catch((error: unknown) => {
+  console.error(error);
+  setStatus(`Unable to load ${model.fullName}: ${error instanceof Error ? error.message : 'unknown error'}`);
+});
