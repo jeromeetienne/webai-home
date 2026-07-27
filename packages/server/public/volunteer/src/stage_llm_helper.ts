@@ -1,6 +1,6 @@
 import * as OnnxRuntimeWeb from "onnxruntime-web";
 import { Tokenizer } from "@huggingface/tokenizers";
-import type { EncodedTensor, LlmStagePayload, StageName } from "@webai/protocol";
+import { StagePayloadFactory, type EncodedTensor, type LlmStagePayload, type StageName } from "@webai/protocol";
 
 /**
  * Adapts the proven shard-loading and tensor-handling logic from
@@ -131,21 +131,21 @@ export class StageLlmHelper {
 			const done = nextToken === EOS_TOKEN_ID || state.generatedIds.length >= MAX_NEW_TOKENS;
 			if (done) {
 				StageLlmHelper.clearTask(taskId);
-				return { text, done: true };
+				return StagePayloadFactory.llmDone(text);
 			}
-			return { text, inputIds: [nextToken], position: position + inputIds.length, done: false };
+			return StagePayloadFactory.llmContinue(text, nextToken, position + inputIds.length);
 		}
 
 		const boundaryNames = SHARD_BOUNDARIES[shardIndex + 1];
 		if (!boundaryNames) throw new Error(`Missing boundary definition after shard ${shardIndex + 1}.`);
-		return {
-			tensors: {
+		return StagePayloadFactory.llmHandoff(
+			{
 				[boundaryNames.normalized]: StageLlmHelper.encodeTensor(outputs[boundaryNames.normalized]),
 				[boundaryNames.residual]: StageLlmHelper.encodeTensor(outputs[boundaryNames.residual]),
 			},
 			inputIds,
 			position,
-		};
+		);
 	}
 
 	/**

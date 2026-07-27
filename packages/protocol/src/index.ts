@@ -85,11 +85,13 @@ export type ServerMessage =
 export const DeviceRole = z.enum(["volunteer", "admin"]);
 export type DeviceRole = z.infer<typeof DeviceRole>;
 
-export interface Device { 
-  deviceId: string; 
-  name: string; 
-  deviceRole: DeviceRole; 
+export interface Device {
+  deviceId: string;
+  name: string;
+  deviceRole: DeviceRole;
   stageNames: StageName[];
-  connectedAt: string; 
-  lastSeenAt: string; 
+  connectedAt: string;
+  lastSeenAt: string;
 }
+
+export { StagePayloadFactory } from "./stage_payload_factory.js";

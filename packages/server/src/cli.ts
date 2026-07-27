@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { Command } from "commander";
 import { WebSocketServer, type WebSocket } from "ws";
 import {
+	StagePayloadFactory,
 	TaskInput,
 	type ClientMessage,
 	type Device,
@@ -174,9 +175,9 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 			task,
 		});
 		if (parsed.data.taskType === "task_type_llm") {
-			assign(task.taskId, { text: parsed.data.input }, "stage_llm_shard1");
+			assign(task.taskId, StagePayloadFactory.llmPrompt(parsed.data.input), "stage_llm_shard1");
 		} else {
-			assign(task.taskId, parsed.data.input, "stage_formula_multiply");
+			assign(task.taskId, StagePayloadFactory.formula(parsed.data.input), "stage_formula_multiply");
 		}
 		return;
 	}
