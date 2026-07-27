@@ -15,7 +15,7 @@ const taskTypeByCliType: Record<"formula" | "llm", TaskType> = {
 };
 
 export class MainHelper {
-	static parseInput(value: string | undefined): number {
+	static parseInputFormula(value: string | undefined): number {
 		const input = Number(value);
 		if (Number.isFinite(input) === false) {
 			throw new Error("Input must be a finite number");
@@ -23,6 +23,19 @@ export class MainHelper {
 		return input;
 	}
 
+	static parseInputLLM(value: string | undefined): string {
+		if (typeof value !== "string" || value.trim() === "") {
+			throw new Error("Input must be a non-empty string");
+		}
+		return value;
+	}
+
+	///////////////////////////////////////////////////////////////////////////////
+	///////////////////////////////////////////////////////////////////////////////
+	//	
+	///////////////////////////////////////////////////////////////////////////////
+	///////////////////////////////////////////////////////////////////////////////
+	
 	static async run(args: string[] = process.argv.slice(2)): Promise<void> {
 		// Create a command-line interface using Commander
 		const command = new Commander.Command().argument("<input>", "value to process — a number for --type formula, free text for --type llm")
@@ -38,7 +51,7 @@ export class MainHelper {
 		const taskType = taskTypeByCliType[options.type];
 
 		// Parse the input argument according to the task type
-		const input = taskType === "task_type_formula" ? MainHelper.parseInput(command.args[0]) : command.args[0];
+		const input = taskType === "task_type_formula" ? MainHelper.parseInputFormula(command.args[0]) : MainHelper.parseInputLLM(command.args[0]);
 
 		// Connect to the central server and submit a task
 		const socket = new WebSocket(options.url);
