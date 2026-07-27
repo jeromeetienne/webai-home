@@ -358,14 +358,14 @@ const httpServer = createHttpServer((request, response) => {
 
 	// onnxruntime-web fetches its WebAssembly runtime by URL rather than through an import, so
 	// it needs to be served explicitly, same as the existing _onnx_experiments prototype does
-	// for itself (see that package's vite.config.js).
+	// for itself (see that package's vite.config.js). Resolve the package through Node's own
+	// module resolution rather than a hardcoded relative path — npm workspaces may hoist
+	// onnxruntime-web to the repo root's node_modules instead of nesting it under this
+	// package, depending on what else is installed.
 	const ortAssetNames = ["ort-wasm-simd-threaded.jsep.mjs", "ort-wasm-simd-threaded.jsep.wasm"];
 	const ortAssetName = pathname.slice(1);
 	if (ortAssetNames.includes(ortAssetName)) {
-		const ortDistDirectory = join(
-			dirname(fileURLToPath(import.meta.url)),
-			"../node_modules/onnxruntime-web/dist",
-		);
+		const ortDistDirectory = dirname(fileURLToPath(import.meta.resolve("onnxruntime-web")));
 		response.setHeader("content-type", ortAssetName.endsWith(".wasm") ? "application/wasm" : "text/javascript");
 		response.end(readFileSync(join(ortDistDirectory, ortAssetName)));
 		return;
