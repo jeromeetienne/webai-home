@@ -17,16 +17,16 @@ import {
 
 // local imports
 import { DeviceRegistry } from "./libs/device_registry.js";
-import { nextStage, TaskStore } from "./libs/task_store.js";
+import { TaskStore } from "./libs/task_store.js";
 
 const options = new Command()
 	.option("-p, --port <number>", "HTTP and WebSocket port", "8787")
 	.parse()
 	.opts<{ port: string }>();
 const port = Number(options.port);
-const registry = new DeviceRegistry();
-const tasks = new TaskStore();
-const sockets = new Map<string, WebSocket>();
+const deviceRegistry = new DeviceRegistry();
+const taskStore = new TaskStore();
+const socketMap = new Map<string, WebSocket>();
 
 /**
  * Sends a server message when a WebSocket is still open.
@@ -46,7 +46,7 @@ function send(socket: WebSocket, message: ServerMessage): void {
  * @param message - The server message to broadcast.
  */
 function broadcast(message: ServerMessage): void {
-	for (const socket of sockets.values()) {
+	for (const socket of socketMap.values()) {
 		send(socket, message);
 	}
 }
@@ -57,7 +57,7 @@ function broadcast(message: ServerMessage): void {
  * @returns The currently connected volunteer devices.
  */
 function volunteerDevices(): Device[] {
-	return registry.list().filter((device) => device.role === "volunteer");
+	return deviceRegistry.list().filter((device) => device.deviceRole === "volunteer");
 }
 
 /**
@@ -84,17 +84,17 @@ function assign(
 	stage: StageName,
 	excluded: string[] = [],
 ): void {
-	const device = registry.findVolunteer(stage, excluded) ?? registry.findVolunteer(stage);
+	const device = deviceRegistry.findVolunteer(stage, excluded) ?? deviceRegistry.findVolunteer(stage);
 	if (!device) {
-		tasks.update(taskId, {
+		taskStore.update(taskId, {
 			state: "failed",
 			error: `No volunteer is available for ${stage}`,
 		});
 		broadcastTask(taskId);
 		return;
 	}
-	tasks.update(taskId, { state: "assigned" });
-	const socket = sockets.get(device.deviceId);
+	taskStore.update(taskId, { state: "assigned" });
+	const socket = socketMap.get(device.deviceId);
 	if (socket) {
 		send(socket, {
 			type: "stage.assign",
@@ -112,7 +112,7 @@ function assign(
  * @param taskId - The task identifier to broadcast.
  */
 function broadcastTask(taskId: string): void {
-	const task = tasks.get(taskId);
+	const task = taskStore.get(taskId);
 	if (task) {
 		broadcast({
 			type: "task.updated",
@@ -131,25 +131,25 @@ function broadcastTask(taskId: string): void {
 function handle(socket: WebSocket, deviceId: string, message: ClientMessage): void {
 	if (message.type === "register") {
 		const existingDevice = message.role === "volunteer"
-			? registry.findByName(message.name, "volunteer")
+			? deviceRegistry.findByName(message.name, "volunteer")
 			: undefined;
 		if (existingDevice && existingDevice.deviceId !== deviceId) {
-			registry.remove(existingDevice.deviceId);
-			const existingSocket = sockets.get(existingDevice.deviceId);
-			sockets.delete(existingDevice.deviceId);
+			deviceRegistry.remove(existingDevice.deviceId);
+			const existingSocket = socketMap.get(existingDevice.deviceId);
+			socketMap.delete(existingDevice.deviceId);
 			existingSocket?.close(1000, "Replaced by a newer connection with the same volunteer name");
 		}
 		const device: Device = {
 			deviceId,
 			name: message.name,
-			role: message.role,
+			deviceRole: message.role,
 			stageNames: message.role === "volunteer"
 				? (message.stageNames ?? ["stage_formula_multiply", "stage_formula_add"])
 				: [],
 			connectedAt: new Date().toISOString(),
 			lastSeenAt: new Date().toISOString(),
 		};
-		registry.add(device);
+		deviceRegistry.add(device);
 		send(socket, {
 			type: "registered",
 			deviceId,
@@ -174,7 +174,7 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 			});
 			return;
 		}
-		const task = tasks.create(parsed.data);
+		const task = taskStore.create(parsed.data);
 		send(socket, {
 			type: "task.accepted",
 			task,
@@ -184,7 +184,7 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 	}
 
 	if (message.type === "task.get") {
-		const task = tasks.get(message.taskId);
+		const task = taskStore.get(message.taskId);
 		if (task) {
 			send(socket, {
 				type: "task.updated",
@@ -200,31 +200,31 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 	}
 
 	if (message.type === "stage.result") {
-		const device = registry.get(deviceId);
-		if (!device || device.role !== "volunteer") {
+		const device = deviceRegistry.get(deviceId);
+		if (!device || device.deviceRole !== "volunteer") {
 			send(socket, {
 				type: "error",
 				message: "Only volunteer browser tabs may return stage results",
 			});
 			return;
 		}
-		const task = tasks.get(message.taskId);
-		if (!task || nextStage(task) !== message.stage) {
+		const task = taskStore.get(message.taskId);
+		if (!task || TaskStore.nextStage(task) !== message.stage) {
 			send(socket, {
 				type: "error",
 				message: "Unexpected stage result",
 			});
 			return;
 		}
-		const updated = tasks.addStage(task.taskId, {
+		const updated = taskStore.addStage(task.taskId, {
 			name: message.stage,
 			value: message.value,
 		});
-		const upcoming = nextStage(updated);
+		const upcoming = TaskStore.nextStage(updated);
 		if (upcoming) {
 			assign(updated.taskId, message.value, upcoming, [deviceId]);
 		} else {
-			tasks.update(updated.taskId, {
+			taskStore.update(updated.taskId, {
 				state: "completed",
 				result: message.value,
 			});
@@ -234,15 +234,15 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 	}
 
 	if (message.type === "stage.failed") {
-		const device = registry.get(deviceId);
-		if (!device || device.role !== "volunteer") {
+		const device = deviceRegistry.get(deviceId);
+		if (!device || device.deviceRole !== "volunteer") {
 			send(socket, {
 				type: "error",
 				message: "Only volunteer browser tabs may fail a stage",
 			});
 			return;
 		}
-		tasks.update(message.taskId, {
+		taskStore.update(message.taskId, {
 			state: "failed",
 			error: message.error,
 		});
@@ -251,7 +251,7 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 	}
 
 	if (message.type === "signal") {
-		const target = sockets.get(message.to);
+		const target = socketMap.get(message.to);
 		if (target) {
 			send(target, {
 				type: "signal",
@@ -359,7 +359,7 @@ const httpServer = createHttpServer((request, response) => {
 const websocketServer = new WebSocketServer({ server: httpServer });
 websocketServer.on("connection", (socket) => {
 	const deviceId = `device-${crypto.randomUUID()}`;
-	sockets.set(deviceId, socket);
+	socketMap.set(deviceId, socket);
 	socket.on("message", (raw) => {
 		try {
 			handle(socket, deviceId, JSON.parse(raw.toString()) as ClientMessage);
@@ -371,8 +371,8 @@ websocketServer.on("connection", (socket) => {
 		}
 	});
 	socket.on("close", () => {
-		sockets.delete(deviceId);
-		registry.remove(deviceId);
+		socketMap.delete(deviceId);
+		deviceRegistry.remove(deviceId);
 		updateDevices();
 	});
 });

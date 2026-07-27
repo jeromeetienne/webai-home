@@ -1,7 +1,8 @@
 export { };
+import type { DeviceRole } from "@webai/protocol";
 
 type DeviceSummary = {
-	role: string;
+	deviceRole: DeviceRole;
 	name: string;
 	stageNames: string[];
 };
@@ -34,7 +35,7 @@ const getElement = (selector: string): HTMLElement => {
 			statusBadgeEl.className = "badge rounded-pill text-bg-success";
 		}
 		if (message.type === "devices" && message.devices) {
-			devicesEl.innerHTML = message.devices.filter((device: DeviceSummary) => device.role === "volunteer").map((device: DeviceSummary) => `<li>${device.name} (volunteer) — ${device.stageNames.join(", ")}</li>`).join("") || "<li>Waiting for volunteer browser tabs.</li>";
+			devicesEl.innerHTML = message.devices.filter((device: DeviceSummary) => device.deviceRole === "volunteer").map((device: DeviceSummary) => `<li>${device.name} (volunteer) — ${device.stageNames.join(", ")}</li>`).join("") || "<li>Waiting for volunteer browser tabs.</li>";
 		}
 		if ((message.type === "task.updated" || message.type === "task.accepted") && message.task){
 			tasksEl.textContent = JSON.stringify(message.task, null, 2);

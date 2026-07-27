@@ -48,8 +48,8 @@ export class DeviceRegistry {
 	 * @param role - The device role to match.
 	 * @returns The matching device, or `undefined` when no device matches.
 	 */
-	findByName(name: string, role: Device["role"]): Device | undefined {
-		return this.list().find((device) => device.name === name && device.role === role);
+	findByName(name: string, role: Device["deviceRole"]): Device | undefined {
+		return this.list().find((device) => device.name === name && device.deviceRole === role);
 	}
 
 	/**
@@ -62,7 +62,7 @@ export class DeviceRegistry {
 	findVolunteer(stage: StageName, excluded: string[] = []): Device | undefined {
 		return this.list().find(
 			(device) =>
-				device.role === "volunteer" &&
+				device.deviceRole === "volunteer" &&
 				device.stageNames.includes(stage) &&
 				!excluded.includes(device.deviceId),
 		);

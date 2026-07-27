@@ -47,9 +47,13 @@ export type ServerMessage =
   | { type: "devices"; devices: Device[] }
   | { type: "error"; message: string };
 
+export const DeviceRole = z.enum(["volunteer", "admin"]);
+export type DeviceRole = z.infer<typeof DeviceRole>;
+
 export interface Device { 
   deviceId: string; 
-  name: string; role: "volunteer" | "admin"; 
+  name: string; 
+  deviceRole: DeviceRole; 
   stageNames: StageName[];
   connectedAt: string; 
   lastSeenAt: string; 

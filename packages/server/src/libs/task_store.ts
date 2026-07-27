@@ -74,20 +74,20 @@ export class TaskStore {
 			completedStages: [...task.completedStages, stage],
 		});
 	}
-}
 
-/**
- * Determines the next processing stage for a task.
- *
- * @param task - The task whose completed stages are inspected.
- * @returns The next stage, or `undefined` when all stages are complete.
- */
-export function nextStage(task: Task): StageName | undefined {
-	if (task.completedStages.length === 0) {
-		return "stage_formula_multiply";
+	/**
+	 * Determines the next processing stage for a task.
+	 *
+	 * @param task - The task whose completed stages are inspected.
+	 * @returns The next stage, or `undefined` when all stages are complete.
+	 */
+	static nextStage(task: Task): StageName | undefined {
+		if (task.completedStages.length === 0) {
+			return "stage_formula_multiply";
+		}
+		if (task.completedStages.length === 1) {
+			return "stage_formula_add";
+		}
+		return undefined;
 	}
-	if (task.completedStages.length === 1) {
-		return "stage_formula_add";
-	}
-	return undefined;
 }
