@@ -23,3 +23,9 @@ test("restricts task states and stage names", () => {
   assert.equal(StageName.safeParse("stage_formula_multiply").success, true);
   assert.equal(StageName.safeParse("divide").success, false);
 });
+
+test("accepts the three LLM shard stage names", () => {
+  assert.equal(StageName.safeParse("stage_llm_shard1").success, true);
+  assert.equal(StageName.safeParse("stage_llm_shard2").success, true);
+  assert.equal(StageName.safeParse("stage_llm_shard3").success, true);
+});

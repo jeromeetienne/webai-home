@@ -78,16 +78,27 @@ export class TaskStore {
 	/**
 	 * Determines the next processing stage for a task.
 	 *
+	 * The formula sequence runs each of its two stages once. The LLM sequence instead
+	 * cycles through its three shards once per generated token, looping back to
+	 * `stage_llm_shard1` after `stage_llm_shard3` until that shard's result payload
+	 * reports `done: true` (an end-of-sequence token or the token limit was reached).
+	 *
 	 * @param task - The task whose completed stages are inspected.
 	 * @returns The next stage, or `undefined` when all stages are complete.
 	 */
 	static nextStage(task: Task): StageName | undefined {
-		if (task.completedStages.length === 0) {
-			return "stage_formula_multiply";
+		if (task.input.taskType === "task_type_formula") {
+			const stageSequence: StageName[] = ["stage_formula_multiply", "stage_formula_add"];
+			return stageSequence[task.completedStages.length];
 		}
-		if (task.completedStages.length === 1) {
-			return "stage_formula_add";
-		}
-		return undefined;
+
+		const stageSequence: StageName[] = ["stage_llm_shard1", "stage_llm_shard2", "stage_llm_shard3"];
+		const lastCompleted = task.completedStages.at(-1);
+		const lastValue = lastCompleted?.value;
+		const isGenerationDone = lastCompleted?.name === "stage_llm_shard3"
+			&& typeof lastValue === "object"
+			&& lastValue?.done === true;
+		if (isGenerationDone) return undefined;
+		return stageSequence[task.completedStages.length % stageSequence.length];
 	}
 }
