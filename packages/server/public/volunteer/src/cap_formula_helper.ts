@@ -1,5 +1,4 @@
-/** The formula stage assigned to a volunteer browser. */
-export type StageName = "multiply" | "add";
+import type { StageName } from "@webai/protocol";
 
 /** Formula-stage capabilities and computation for a volunteer browser. */
 export class CapFormulaHelper {

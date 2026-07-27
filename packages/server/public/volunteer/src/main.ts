@@ -1,7 +1,8 @@
 /** Keep this browser script as a module so its declarations stay local to the page. */
 export { };
 
-import { CapFormulaHelper, type StageName } from "./cap_formula_helper";
+import type { StageName } from "@webai/protocol";
+import { CapFormulaHelper } from "./cap_formula_helper";
 
 /** A message received from the central server. */
 type ServerMessage = {
