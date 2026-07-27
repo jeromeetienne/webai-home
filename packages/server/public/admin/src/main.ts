@@ -3,7 +3,7 @@ export { };
 type DeviceSummary = {
 	role: string;
 	name: string;
-	capabilities: string[];
+	stageNames: string[];
 };
 
 type ServerMessage = {
@@ -34,7 +34,7 @@ const getElement = (selector: string): HTMLElement => {
 			statusBadgeEl.className = "badge rounded-pill text-bg-success";
 		}
 		if (message.type === "devices" && message.devices) {
-			devicesEl.innerHTML = message.devices.filter((device: DeviceSummary) => device.role === "volunteer").map((device: DeviceSummary) => `<li>${device.name} (volunteer) — ${device.capabilities.join(", ")}</li>`).join("") || "<li>Waiting for volunteer browser tabs.</li>";
+			devicesEl.innerHTML = message.devices.filter((device: DeviceSummary) => device.role === "volunteer").map((device: DeviceSummary) => `<li>${device.name} (volunteer) — ${device.stageNames.join(", ")}</li>`).join("") || "<li>Waiting for volunteer browser tabs.</li>";
 		}
 		if ((message.type === "task.updated" || message.type === "task.accepted") && message.task){
 			tasksEl.textContent = JSON.stringify(message.task, null, 2);

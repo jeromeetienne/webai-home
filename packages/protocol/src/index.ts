@@ -3,11 +3,8 @@ import { z } from "zod";
 export const TaskState = z.enum(["queued", "assigned", "running", "completed", "failed", "cancelled"]);
 export type TaskState = z.infer<typeof TaskState>;
 
-export const StageName = z.enum(["multiply", "add"]);
+export const StageName = z.enum(["stage_formula_multiply", "stage_formula_add"]);
 export type StageName = z.infer<typeof StageName>;
-
-export const Capability = z.enum(["cap_formula_multiply", "cap_formula_add"]);
-export type Capability = z.infer<typeof Capability>;
 
 export const TaskInput = z.object({ input: z.number().finite() });
 export type TaskInput = z.infer<typeof TaskInput>;
@@ -28,7 +25,7 @@ export interface Task {
 }
 
 export type ClientMessage =
-  | { type: "register"; role: "volunteer" | "admin"; name: string; capabilities?: Capability[] }
+  | { type: "register"; role: "volunteer" | "admin"; name: string; stageNames?: StageName[] }
   | { type: "task.submit"; input: TaskInput }
   | { type: "task.get"; taskId: string }
   | { type: "stage.result"; taskId: string; stage: StageName; value: number }
@@ -47,7 +44,7 @@ export type ServerMessage =
 export interface Device { 
   deviceId: string; 
   name: string; role: "volunteer" | "admin"; 
-  capabilities: Capability[]; 
+  stageNames: StageName[];
   connectedAt: string; 
   lastSeenAt: string; 
 }

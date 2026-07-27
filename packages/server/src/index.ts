@@ -143,8 +143,8 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 			deviceId,
 			name: message.name,
 			role: message.role,
-			capabilities: message.role === "volunteer"
-				? (message.capabilities ?? ["cap_formula_multiply", "cap_formula_add"])
+			stageNames: message.role === "volunteer"
+				? (message.stageNames ?? ["stage_formula_multiply", "stage_formula_add"])
 				: [],
 			connectedAt: new Date().toISOString(),
 			lastSeenAt: new Date().toISOString(),
@@ -172,7 +172,7 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 			type: "task.accepted",
 			task,
 		});
-		assign(task.taskId, task.input.input * 1, "multiply");
+		assign(task.taskId, task.input.input * 1, "stage_formula_multiply");
 		return;
 	}
 

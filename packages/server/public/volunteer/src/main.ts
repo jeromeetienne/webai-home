@@ -1,8 +1,8 @@
 /** Keep this browser script as a module so its declarations stay local to the page. */
 export { };
 
-import type { StageName } from "@webai/protocol";
-import { CapFormulaHelper } from "./cap_formula_helper";
+import type { StageName, ClientMessage } from "@webai/protocol";
+import { StageFormulaHelper } from "./stage_formula_helper";
 
 /** A message received from the central server. */
 type ServerMessage = {
@@ -81,15 +81,24 @@ const log = (value: unknown): void => {
 	const disconnectButtonEl: HTMLButtonElement = getButton("#disconnect");
 	/** The active WebSocket connection, when the volunteer browser is connected. */
 	let socket: WebSocket | undefined;
+
+	// Set a random name for the volunteer browser, so multiple volunteers can be opened in the same browser without name conflicts.
 	nameInputEl.value = `browser-volunteer-${crypto.randomUUID().slice(0, 8)}`;
 
 	/** Opens a WebSocket connection when the connect button is clicked. */
 	connectButtonEl.addEventListener("click", (): void => {
+
+		// Do not open a new connection if one is already open or in the process of opening.
 		if (socket && socket.readyState !== WebSocket.CLOSED) return;
+
+		// Open a WebSocket connection to the central server.
 		socket = new WebSocket(`${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}`);
+
+		// update ui
 		statusEl.textContent = "Connecting";
 		statusEl.className = "badge text-bg-warning";
 		connectButtonEl.disabled = true;
+
 		/** Updates the page and registers the volunteer browser after connection. */
 		socket.addEventListener("open", (): void => {
 			statusEl.textContent = "Connected";
@@ -97,8 +106,15 @@ const log = (value: unknown): void => {
 			connectButtonEl.classList.add("d-none");
 			disconnectButtonEl.classList.remove("d-none");
 			nameInputEl.disabled = true;
-			socket?.send(JSON.stringify({ type: "register", role: "volunteer", name: nameInputEl.value, capabilities: CapFormulaHelper.capabilities }));
+			const message: ClientMessage = {
+				type: "register",
+				role: "volunteer",
+				name: nameInputEl.value,
+				stageNames: StageFormulaHelper.stageNames
+			};
+			socket?.send(JSON.stringify(message));
 		});
+
 		/** Handles messages received from the central server. */
 		socket.addEventListener("message", (event: MessageEvent): void => {
 			/** The decoded server message. */
@@ -106,9 +122,16 @@ const log = (value: unknown): void => {
 			log(message);
 			if (message.type !== "stage.assign" || message.stage === undefined || message.value === undefined || message.taskId === undefined) return;
 			/** The result produced by this volunteer browser for the assigned stage. */
-			const value: number = CapFormulaHelper.compute(message.stage, message.value);
-			socket?.send(JSON.stringify({ type: "stage.result", taskId: message.taskId, stage: message.stage, value }));
+			const value: number = StageFormulaHelper.compute(message.stage, message.value);
+			const resultMessage: ClientMessage = { 
+				type: "stage.result", 
+				taskId: message.taskId, 
+				stage: message.stage, 
+				value 
+			};
+			socket?.send(JSON.stringify(resultMessage));
 		});
+
 		/** Restores the disconnected state when the WebSocket closes. */
 		socket.addEventListener("close", (): void => {
 			statusEl.textContent = "Disconnected";
@@ -123,6 +146,8 @@ const log = (value: unknown): void => {
 
 	/** Closes the WebSocket connection when the disconnect button is clicked. */
 	disconnectButtonEl.addEventListener("click", (): void => {
-		if (socket) socket.close(1000, "Disconnected by volunteer");
+		if (socket) {
+			socket.close(1000, "Disconnected by volunteer");
+		}
 	});
 })();
