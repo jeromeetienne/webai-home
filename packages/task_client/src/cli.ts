@@ -27,7 +27,7 @@ export class MainHelper {
 		// Create a command-line interface using Commander
 		const command = new Commander.Command().argument("<input>", "value to process — a number for --type formula, free text for --type llm")
 			.option("-u, --url <url>", "central server WebSocket URL", "ws://localhost:8787")
-			.option("-t, --type <type>", "task type: formula or llm", "formula");
+			.option("-t, --type <type>", "task type: formula or llm");
 		command.parse([process.argv[0], process.argv[1] ?? "", ...args]);
 
 		// Parse the command-line arguments

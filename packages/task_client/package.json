@@ -3,6 +3,8 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "sample:formula": "node --import tsx src/cli.ts --type formula 5 | jq",
+    "sample:llm": "node --import tsx src/cli.ts --type llm 'What is the capital of France?'",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "dev": "tsx src/cli.ts",
