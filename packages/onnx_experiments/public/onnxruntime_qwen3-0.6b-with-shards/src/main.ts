@@ -21,13 +21,13 @@ class MainHelper {
     </header>
     <section class="hero">
       <p class="eyebrow">Browser inference / field test 04</p>
-      <h1>Qwen3<br /><em>onnxruntime_qwen3-0.6b</em></h1>
-      <p class="intro">Qwen3-0.6B-ONNX running through ONNX Runtime Web directly in this browser. The tokenizer and model session are loaded without Transformers.js.</p>
+      <h1>Qwen3<br /><em>onnxruntime_qwen3-0.6b-with-shards</em></h1>
+    <p class="intro">Qwen3-0.6B-ONNX running as three explicit layer shards through ONNX Runtime Web. Each shard has its own session and passes activations to the next shard.</p>
     </section>
     <section class="test-panel" aria-labelledby="test-heading">
       <div class="panel-heading">
         <div><p class="section-label">Test prompt</p><h2 id="test-heading">A small question, a useful answer.</h2></div>
-        <span class="model-tag">${MODEL_ID} · model_q4f16.onnx</span>
+        <span class="model-tag">${MODEL_ID} · 3 ONNX shards</span>
       </div>
       <label class="sr-only" for="prompt">Prompt</label>
       <textarea id="prompt" rows="3">Explain in two short sentences why running a language model in the browser can be useful.</textarea>
@@ -45,7 +45,7 @@ class MainHelper {
         <div class="metric"><span>Backend</span><strong id="backend">—</strong></div>
       </div>
     </section>
-    <p id="status" class="status">Ready. The first run downloads the 570 MB quantized ONNX model.</p>
+    <p id="status" class="status">Ready. The first run downloads the three quantized ONNX shards.</p>
     <footer><span>ONNX Runtime Web + Hugging Face Tokenizers</span><span>Local inference · no prompt upload</span></footer>
   </main>
 `;

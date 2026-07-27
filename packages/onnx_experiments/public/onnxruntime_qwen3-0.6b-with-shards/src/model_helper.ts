@@ -3,8 +3,12 @@ import { Tokenizer } from '@huggingface/tokenizers';
 
 /** Hugging Face identifier for the Qwen3 model used by this experiment. */
 export const MODEL_ID = 'onnx-community/Qwen3-0.6B-ONNX';
-/** Direct URL for the quantized ONNX model file. */
-const MODEL_URL = `https://huggingface.co/${MODEL_ID}/resolve/main/onnx/model_q4f16.onnx`;
+/** URLs for the three independently executable ONNX model shards. */
+const SHARD_URLS = [
+	'/onnxruntime_qwen3-0.6b-with-shards/shards/shard-1.onnx',
+	'/onnxruntime_qwen3-0.6b-with-shards/shards/shard-2.onnx',
+	'/onnxruntime_qwen3-0.6b-with-shards/shards/shard-3.onnx',
+] as const;
 /** Direct URL for the tokenizer vocabulary and merge configuration. */
 const TOKENIZER_URL = `https://huggingface.co/${MODEL_ID}/resolve/main/tokenizer.json`;
 /** Direct URL for the tokenizer settings. */
@@ -16,9 +20,7 @@ const MAX_NEW_TOKENS = 160;
 /** IndexedDB database name for the downloaded model. */
 const MODEL_CACHE_NAME = 'onnxruntime-qwen3-models';
 /** IndexedDB schema version for the model cache. */
-const MODEL_CACHE_VERSION = 1;
-/** IndexedDB key derived from the model URL. */
-const MODEL_CACHE_KEY = MODEL_URL;
+const MODEL_CACHE_VERSION = 2;
 
 /** Static architecture values used by the console layer summary and cache-shape helpers. */
 const qwen3Config = {
@@ -35,13 +37,33 @@ const qwen3Config = {
 /** The named tensors passed to and returned from the ONNX model. */
 type TensorMap = Record<string, OnnxRuntimeWeb.Tensor>;
 
+type ShardSession = OnnxRuntimeWeb.InferenceSession;
+
+const SHARD_BOUNDARIES = [
+	undefined,
+	{
+		normalized: '/model/layers.9/input_layernorm/output_0',
+		residual: '/model/layers.9/input_layernorm/output_3',
+	},
+	{
+		normalized: '/model/layers.19/input_layernorm/output_0',
+		residual: '/model/layers.19/input_layernorm/output_3',
+	},
+] as const;
+
 OnnxRuntimeWeb.env.wasm.wasmPaths = '/';
-OnnxRuntimeWeb.env.logLevel = 'error';
+// ONNX Runtime reports provider-placement warnings through the browser's
+// error console even though inference can continue. Keep only fatal runtime
+// messages visible so the console does not make successful shard loading look
+// like a failure.
+OnnxRuntimeWeb.env.logLevel = 'fatal';
 
 /** Provides model loading, caching, tensor handling, and text generation. */
 export class ModelHelper {
-	/** Active ONNX Runtime Web session, once the model has loaded. */
-	static session: OnnxRuntimeWeb.InferenceSession | undefined;
+	/** The final shard session, retained for the page's ready-state check. */
+	static session: ShardSession | undefined;
+	/** The three ordered shard sessions: input, middle, and output. */
+	static shardSessions: ShardSession[] = [];
 	/** Tokenizer instance, once tokenizer data has loaded. */
 	static tokenizer: Tokenizer | undefined;
 	/** Shared promise that prevents concurrent model loads. */
@@ -70,8 +92,27 @@ export class ModelHelper {
 			{ order: qwen3Config.layers + 2, type: 'output head', name: 'Language-model head', details: `hidden size ${qwen3Config.hiddenSize} → vocabulary` },
 		];
 
-		console.groupCollapsed(`${MODEL_ID}: complete ordered model layer summary`);
+		const partitions = [
+			{ shard: 'Shard 1', responsibility: 'Token embedding + decoder layers 0–8 + layer 9 input normalisation' },
+			{ shard: 'Shard 2', responsibility: 'Decoder layers 9–18 + layer 19 input normalisation' },
+			{ shard: 'Shard 3', responsibility: 'Decoder layers 19–27 + final RMSNorm + language-model output head' },
+		];
+		const shardLayerRows = [
+			{ shard: 'Shard 1', order: 0, component: 'Token embedding' },
+			...Array.from({ length: 9 }, (_, layer) => ({ shard: 'Shard 1', order: layer + 1, component: `Decoder layer ${layer}` })),
+			{ shard: 'Shard 1', order: 10, component: 'Input normalisation for decoder layer 9' },
+			...Array.from({ length: 10 }, (_, layer) => ({ shard: 'Shard 2', order: layer + 11, component: `Decoder layer ${layer + 9}` })),
+			{ shard: 'Shard 2', order: 21, component: 'Input normalisation for decoder layer 19' },
+			...Array.from({ length: 9 }, (_, layer) => ({ shard: 'Shard 3', order: layer + 22, component: `Decoder layer ${layer + 19}` })),
+			{ shard: 'Shard 3', order: 31, component: 'Final normalisation' },
+			{ shard: 'Shard 3', order: 32, component: 'Language-model output head' },
+		];
+		console.groupCollapsed(`${MODEL_ID}: three-shard pipeline`);
+		console.table(partitions);
+		console.table(shardLayerRows);
+		console.groupCollapsed('Complete ordered model layer summary');
 		console.table(layers);
+		console.groupEnd();
 		console.groupEnd();
 	}
 
@@ -83,7 +124,9 @@ export class ModelHelper {
 	private static openModelDatabase(): Promise<IDBDatabase> {
 		return new Promise((resolve, reject) => {
 			const request = indexedDB.open(MODEL_CACHE_NAME, MODEL_CACHE_VERSION);
-			request.onupgradeneeded = () => request.result.createObjectStore('models');
+			request.onupgradeneeded = () => {
+				if (!request.result.objectStoreNames.contains('models')) request.result.createObjectStore('models');
+			};
 			request.onsuccess = () => resolve(request.result);
 			request.onerror = () => reject(request.error ?? new Error('Could not open the model cache.'));
 		});
@@ -94,11 +137,11 @@ export class ModelHelper {
 	 *
 	 * @returns A promise for the cached model bytes, or `undefined` when unavailable.
 	 */
-	private static async readCachedModel(): Promise<ArrayBuffer | undefined> {
+	private static async readCachedModel(cacheKey: string): Promise<ArrayBuffer | undefined> {
 		try {
 			const database = await ModelHelper.openModelDatabase();
 			return await new Promise<ArrayBuffer | undefined>((resolve, reject) => {
-				const request = database.transaction('models', 'readonly').objectStore('models').get(MODEL_CACHE_KEY);
+				const request = database.transaction('models', 'readonly').objectStore('models').get(cacheKey);
 				request.onsuccess = () => resolve(request.result as ArrayBuffer | undefined);
 				request.onerror = () => reject(request.error ?? new Error('Could not read the model cache.'));
 			}).finally(() => database.close());
@@ -111,15 +154,15 @@ export class ModelHelper {
 	/**
 	 * Stores the downloaded model bytes in IndexedDB for later page loads.
 	 *
-	 * @param model Complete ONNX model file as an array buffer.
+	 * @param model ONNX model file as an array buffer.
 	 * @returns A promise that resolves after the cache write finishes.
 	 */
-	private static async cacheModel(model: ArrayBuffer): Promise<void> {
+	private static async cacheModel(model: ArrayBuffer, cacheKey: string): Promise<void> {
 		try {
 			const database = await ModelHelper.openModelDatabase();
 			await new Promise<void>((resolve, reject) => {
 				const transaction = database.transaction('models', 'readwrite');
-				transaction.objectStore('models').put(model, MODEL_CACHE_KEY);
+				transaction.objectStore('models').put(model, cacheKey);
 				transaction.oncomplete = () => resolve();
 				transaction.onerror = () => reject(transaction.error ?? new Error('Could not write the model cache.'));
 			}).finally(() => database.close());
@@ -133,28 +176,34 @@ export class ModelHelper {
 	 *
 	 * @returns A promise containing the model bytes and cache source information.
 	 */
-	private static async fetchModelBytes(): Promise<{ bytes: ArrayBuffer; cached: boolean }> {
-		const cachedModel = await ModelHelper.readCachedModel();
-		if (cachedModel) return { bytes: cachedModel, cached: true };
+	private static async fetchModelBytes(url: string, onStatus?: (message: string) => void): Promise<{ bytes: ArrayBuffer; cached: boolean }> {
+		const cacheKey = url;
+		const cachedModel = await ModelHelper.readCachedModel(cacheKey);
+		if (cachedModel) {
+			onStatus?.('cached');
+			return { bytes: cachedModel, cached: true };
+		}
 
-		const response = await fetch(MODEL_URL);
+		onStatus?.('downloading');
+		const response = await fetch(url);
 		if (!response.ok) throw new Error(`Model download failed (${response.status}).`);
 		const bytes = await response.arrayBuffer();
-		await ModelHelper.cacheModel(bytes);
+		await ModelHelper.cacheModel(bytes, cacheKey);
+		onStatus?.('downloaded');
 		return { bytes, cached: false };
 	}
 
 	/**
-	 * Loads the tokenizer and creates the ONNX Runtime Web session once per page.
+	 * Loads the tokenizer and creates the three ONNX Runtime Web shard sessions once per page.
 	 *
 	 * @param onStatus Optional callback for loading and readiness messages.
 	 * @returns A promise that resolves when the tokenizer and model session are ready.
 	 */
 	static async loadModel(onStatus?: (message: string) => void): Promise<void> {
-		if (ModelHelper.session && ModelHelper.tokenizer) return;
+		if (ModelHelper.shardSessions.length === 3 && ModelHelper.tokenizer) return;
 		if (ModelHelper.loadPromise) return ModelHelper.loadPromise;
 
-		onStatus?.(`Loading ${MODEL_ID}. The first load can take a while…`);
+		onStatus?.(`Loading the three ${MODEL_ID} shards. The first load can take a while…`);
 		const hasWebGPU = 'gpu' in navigator;
 		ModelHelper.loadPromise = Promise.all([
 			fetch(TOKENIZER_URL).then(async (response) => {
@@ -165,17 +214,26 @@ export class ModelHelper {
 				if (!response.ok) throw new Error(`Tokenizer configuration download failed (${response.status}).`);
 				return response.json();
 			}),
-			ModelHelper.fetchModelBytes(),
-		]).then(async ([tokenizerJson, tokenizerConfig, model]) => {
+			...SHARD_URLS.map((url, index) => ModelHelper.fetchModelBytes(url, (state) => onStatus?.(`Shard ${index + 1}/3 ${state}.`))),
+		]).then(async ([tokenizerJson, tokenizerConfig, ...shards]) => {
 			ModelHelper.tokenizer = new Tokenizer(tokenizerJson, tokenizerConfig);
-			ModelHelper.session = await OnnxRuntimeWeb.InferenceSession.create(model.bytes, {
-				executionProviders: hasWebGPU ? ['webgpu', 'wasm'] : ['wasm'],
-				graphOptimizationLevel: 'all',
-			});
-			if (!ModelHelper.session.inputNames.includes('input_ids') || !ModelHelper.session.inputNames.includes('attention_mask') || !ModelHelper.session.inputNames.includes('position_ids')) {
-				throw new Error(`Unexpected Qwen3 inputs: ${ModelHelper.session.inputNames.join(', ')}`);
+			const sessions: ShardSession[] = [];
+			for (const [index, shard] of shards.entries()) {
+				onStatus?.(`Compiling shard ${index + 1}/3…`);
+				sessions.push(await OnnxRuntimeWeb.InferenceSession.create(shard.bytes, {
+					executionProviders: hasWebGPU ? ['webgpu', 'wasm'] : ['wasm'],
+					graphOptimizationLevel: 'all',
+				}));
 			}
-			onStatus?.(`${model.cached ? 'Cached model' : 'Model downloaded and cached'} ready. ${ModelHelper.session.inputNames.length} inputs and ${ModelHelper.session.outputNames.length} outputs detected.`);
+			ModelHelper.shardSessions = sessions;
+			ModelHelper.session = ModelHelper.shardSessions[2];
+			for (const [index, session] of ModelHelper.shardSessions.entries()) {
+				if (!session.inputNames.includes('attention_mask') || !session.inputNames.includes('position_ids')) {
+					throw new Error(`Unexpected Qwen3 shard ${index + 1} inputs: ${session.inputNames.join(', ')}`);
+				}
+			}
+			const cachedCount = shards.filter((shard) => shard.cached).length;
+			onStatus?.(`${cachedCount === 3 ? 'Cached shards' : 'Three shards loaded and cached'} ready. The pipeline has 3 independent sessions.`);
 		}).catch((error: unknown) => {
 			ModelHelper.loadPromise = undefined;
 			throw error;
@@ -245,8 +303,8 @@ export class ModelHelper {
 	 * @param outputs All tensors returned by the ONNX model.
 	 * @returns The model's logits tensor.
 	 */
-	private static findLogits(outputs: TensorMap): OnnxRuntimeWeb.Tensor {
-		const logitsName = ModelHelper.session?.outputNames.find((name) => name === 'logits' || name.endsWith('.logits'));
+	private static findLogits(session: ShardSession, outputs: TensorMap): OnnxRuntimeWeb.Tensor {
+		const logitsName = session.outputNames.find((name) => name === 'logits' || name.endsWith('.logits'));
 		const logits = logitsName ? outputs[logitsName] : undefined;
 		if (!logits) throw new Error(`The model did not return logits. Outputs: ${Object.keys(outputs).join(', ')}`);
 		return logits;
@@ -260,14 +318,16 @@ export class ModelHelper {
 	 * @param cache Key-value tensors returned by the previous model call, if any.
 	 * @returns Named input tensors for ONNX Runtime.
 	 */
-	private static buildFeeds(inputIds: number[], position: number, cache: TensorMap | undefined): TensorMap {
-		if (!ModelHelper.session) throw new Error('The ONNX Runtime Web session is not loaded.');
+	private static buildFeeds(session: ShardSession, inputIds: number[], position: number, cache: TensorMap | undefined, boundary?: TensorMap): TensorMap {
 		const feeds: TensorMap = {
 			input_ids: ModelHelper.int64(inputIds, [1, inputIds.length]),
 			attention_mask: ModelHelper.int64(Array.from({ length: position + inputIds.length }, () => 1), [1, position + inputIds.length]),
 			position_ids: ModelHelper.int64(Array.from({ length: inputIds.length }, (_, index) => position + index), [1, inputIds.length]),
 		};
-		for (const name of ModelHelper.session.inputNames.filter((inputName) => inputName.startsWith('past_key_values.'))) {
+		if (boundary) {
+			for (const name of Object.keys(boundary)) feeds[name] = boundary[name];
+		}
+		for (const name of session.inputNames.filter((inputName) => inputName.startsWith('past_key_values.'))) {
 			feeds[name] = cache?.[name] ?? ModelHelper.emptyCache(name);
 		}
 		return feeds;
@@ -281,21 +341,36 @@ export class ModelHelper {
 	 * @returns Generated text and the number of generated tokens.
 	 */
 	static async generate(prompt: string, onToken: (text: string) => void): Promise<{ text: string; tokens: number }> {
-		if (!ModelHelper.session || !ModelHelper.tokenizer) throw new Error('The model is not loaded.');
+		if (ModelHelper.shardSessions.length !== 3 || !ModelHelper.tokenizer) throw new Error('The three model shards are not loaded.');
 		const formattedPrompt = `<|im_start|>user\n${prompt}<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n`;
 		const encoded = ModelHelper.tokenizer.encode(formattedPrompt);
 		const generated: number[] = [];
-		let cache: TensorMap | undefined;
+		const caches: Array<TensorMap | undefined> = [undefined, undefined, undefined];
 		let position = 0;
 		for (let step = 0; step < MAX_NEW_TOKENS; step += 1) {
 			const inputIds = step === 0 ? encoded.ids : [generated.at(-1) as number];
-			const outputs = await ModelHelper.session.run(ModelHelper.buildFeeds(inputIds, position, cache));
-			const nextToken = ModelHelper.getNextToken(ModelHelper.findLogits(outputs));
-			cache = Object.fromEntries(Object.entries(outputs).filter(([name]) => name.startsWith('present.')).map(([name, value]) => [name.replace('present', 'past_key_values'), value]));
-			generated.push(nextToken);
+			let boundary: TensorMap | undefined;
+			for (const [index, session] of ModelHelper.shardSessions.entries()) {
+				const outputs = await session.run(ModelHelper.buildFeeds(session, inputIds, position, caches[index], boundary));
+				caches[index] = Object.fromEntries(Object.entries(outputs)
+					.filter(([name]) => name.startsWith('present.'))
+					.map(([name, value]) => [name.replace('present', 'past_key_values'), value]));
+				if (index < 2) {
+					const boundaryNames = SHARD_BOUNDARIES[index + 1];
+					if (!boundaryNames) throw new Error(`Missing boundary definition after shard ${index + 1}.`);
+					boundary = {
+						[boundaryNames.normalized]: outputs[boundaryNames.normalized],
+						[boundaryNames.residual]: outputs[boundaryNames.residual],
+					};
+				}
+				if (index === 2) {
+					const nextToken = ModelHelper.getNextToken(ModelHelper.findLogits(session, outputs));
+					generated.push(nextToken);
+					if (nextToken === EOS_TOKEN_ID) break;
+					onToken(ModelHelper.tokenizer.decode(generated, { skip_special_tokens: true }));
+				}
+			}
 			position += inputIds.length;
-			if (nextToken === EOS_TOKEN_ID) break;
-			onToken(ModelHelper.tokenizer.decode(generated, { skip_special_tokens: true }));
 		}
 		return { text: ModelHelper.tokenizer.decode(generated, { skip_special_tokens: true }).trim(), tokens: generated.length };
 	}
