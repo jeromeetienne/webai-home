@@ -1,8 +1,7 @@
 /** Keep this browser script as a module so its declarations stay local to the page. */
 export { };
 
-/** The formula stage assigned to a volunteer browser. */
-type StageName = "multiply" | "add";
+import { CapFormulaHelper, type StageName } from "./cap_formula_helper";
 
 /** A message received from the central server. */
 type ServerMessage = {
@@ -79,8 +78,6 @@ const log = (value: unknown): void => {
 	const connectButtonEl: HTMLButtonElement = getButton("#connect");
 	/** The button that closes the volunteer browser connection. */
 	const disconnectButtonEl: HTMLButtonElement = getButton("#disconnect");
-	/** The capabilities advertised to the central server. */
-	const capabilitiesEl: [string, string] = ["cap_formula_multiply", "cap_formula_add"];
 	/** The active WebSocket connection, when the volunteer browser is connected. */
 	let socket: WebSocket | undefined;
 	nameInputEl.value = `browser-volunteer-${crypto.randomUUID().slice(0, 8)}`;
@@ -99,7 +96,7 @@ const log = (value: unknown): void => {
 			connectButtonEl.classList.add("d-none");
 			disconnectButtonEl.classList.remove("d-none");
 			nameInputEl.disabled = true;
-			socket?.send(JSON.stringify({ type: "register", role: "volunteer", name: nameInputEl.value, capabilities: capabilitiesEl }));
+			socket?.send(JSON.stringify({ type: "register", role: "volunteer", name: nameInputEl.value, capabilities: CapFormulaHelper.capabilities }));
 		});
 		/** Handles messages received from the central server. */
 		socket.addEventListener("message", (event: MessageEvent): void => {
@@ -108,7 +105,7 @@ const log = (value: unknown): void => {
 			log(message);
 			if (message.type !== "stage.assign" || message.stage === undefined || message.value === undefined || message.taskId === undefined) return;
 			/** The result produced by this volunteer browser for the assigned stage. */
-			const value: number = message.stage === "multiply" ? message.value * 2 : message.value + 7;
+			const value: number = CapFormulaHelper.compute(message.stage, message.value);
 			socket?.send(JSON.stringify({ type: "stage.result", taskId: message.taskId, stage: message.stage, value }));
 		});
 		/** Restores the disconnected state when the WebSocket closes. */
