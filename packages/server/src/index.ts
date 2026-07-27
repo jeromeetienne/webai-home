@@ -1,12 +1,17 @@
+// node imports
 import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+
+// npm imports
 import { Command } from "commander";
 import { WebSocketServer, type WebSocket } from "ws";
 import { TaskInput, type ClientMessage, type Device, type ServerMessage, type StageName } from "@webai/protocol";
-import { DeviceRegistry } from "./registry.js";
-import { nextStage, TaskStore } from "./tasks.js";
+
+// local imports
+import { DeviceRegistry } from "./libs/device_registry.js";
+import { nextStage, TaskStore } from "./libs/task_store.js";
 
 const options = new Command().option("-p, --port <number>", "HTTP and WebSocket port", "8787").parse().opts<{ port: string }>();
 const port = Number(options.port);
@@ -39,7 +44,9 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 		const device: Device = { deviceId, name: message.name, role: message.role, capabilities: message.role === "volunteer" ? (message.capabilities ?? ["cap_formula_multiply", "cap_formula_add"]) : [], connectedAt: new Date().toISOString(), lastSeenAt: new Date().toISOString() };
 		registry.add(device); send(socket, { type: "registered", deviceId }); updateDevices(); return;
 	}
-	if (message.type === "task.submit") { const parsed = TaskInput.safeParse(message.input); if (!parsed.success) return send(socket, { type: "error", message: "Input must be a finite number" }); const task = tasks.create(parsed.data); send(socket, { type: "task.accepted", task }); assign(task.taskId, task.input.input * 1, "multiply"); return; }
+	if (message.type === "task.submit") {
+		const parsed = TaskInput.safeParse(message.input); if (!parsed.success) return send(socket, { type: "error", message: "Input must be a finite number" }); const task = tasks.create(parsed.data); send(socket, { type: "task.accepted", task }); assign(task.taskId, task.input.input * 1, "multiply"); return;
+	}
 	if (message.type === "task.get") { const task = tasks.get(message.taskId); if (task) send(socket, { type: "task.updated", task }); else send(socket, { type: "error", message: "Task was not found" }); return; }
 	if (message.type === "stage.result") {
 		const device = registry.get(deviceId);
