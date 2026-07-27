@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "vite build && tsc -p tsconfig.json",
+    "start": "NODE_ENV=production node dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "dev": "tsx watch src/index.ts",
     "test": "node --import tsx --test tests/index.test.ts"
@@ -16,6 +17,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
-    "@types/ws": "^8.5.13"
+    "@types/ws": "^8.5.13",
+    "vite": "^6.4.3"
   }
 }
