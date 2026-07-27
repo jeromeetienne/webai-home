@@ -36,7 +36,7 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
       sockets.delete(existingDevice.deviceId);
       existingSocket?.close(1000, "Replaced by a newer connection with the same volunteer name");
     }
-    const device: Device = { deviceId, name: message.name, role: message.role, capabilities: message.role === "volunteer" ? (message.capabilities ?? ["multiply", "add"]) : [], connectedAt: new Date().toISOString(), lastSeenAt: new Date().toISOString() };
+    const device: Device = { deviceId, name: message.name, role: message.role, capabilities: message.role === "volunteer" ? (message.capabilities ?? ["cap_formula_multiply", "cap_formula_add"]) : [], connectedAt: new Date().toISOString(), lastSeenAt: new Date().toISOString() };
     registry.add(device); send(socket, { type: "registered", deviceId }); updateDevices(); return;
   }
   if (message.type === "task.submit") { const parsed = TaskInput.safeParse(message.input); if (!parsed.success) return send(socket, { type: "error", message: "Input must be a finite number" }); const task = tasks.create(parsed.data); send(socket, { type: "task.accepted", task }); assign(task.taskId, task.input.input * 1, "multiply"); return; }

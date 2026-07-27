@@ -3,7 +3,7 @@ import test from "node:test";
 import { DeviceRegistry } from "../src/registry.js";
 import { nextStage, TaskStore } from "../src/tasks.js";
 
-const volunteer = (deviceId: string, capabilities: ("multiply" | "add")[] = ["multiply", "add"]) => ({
+const volunteer = (deviceId: string, capabilities: ("cap_formula_multiply" | "cap_formula_add")[] = ["cap_formula_multiply", "cap_formula_add"]) => ({
   deviceId,
   name: `volunteer-${deviceId}`,
   role: "volunteer" as const,
@@ -14,8 +14,8 @@ const volunteer = (deviceId: string, capabilities: ("multiply" | "add")[] = ["mu
 
 test("finds volunteers by capability and excludes devices", () => {
   const registry = new DeviceRegistry();
-  registry.add(volunteer("one", ["multiply"]));
-  registry.add(volunteer("two", ["add"]));
+  registry.add(volunteer("one", ["cap_formula_multiply"]));
+  registry.add(volunteer("two", ["cap_formula_add"]));
 
   assert.equal(registry.findVolunteer("multiply")?.deviceId, "one");
   assert.equal(registry.findVolunteer("multiply", ["one"]), undefined);

@@ -1,4 +1,4 @@
-import type { Device } from "@webai/protocol";
+import type { Capability, Device, StageName } from "@webai/protocol";
 
 export class DeviceRegistry {
   private readonly devices = new Map<string, Device>();
@@ -10,7 +10,8 @@ export class DeviceRegistry {
   findByName(name: string, role: Device["role"]): Device | undefined {
     return this.list().find((device) => device.name === name && device.role === role);
   }
-  findVolunteer(stage: "multiply" | "add", excluded: string[] = []): Device | undefined {
-    return this.list().find((device) => device.role === "volunteer" && device.capabilities.includes(stage) && !excluded.includes(device.deviceId));
+  findVolunteer(stage: StageName, excluded: string[] = []): Device | undefined {
+    const capability: Capability = stage === "multiply" ? "cap_formula_multiply" : "cap_formula_add";
+    return this.list().find((device) => device.role === "volunteer" && device.capabilities.includes(capability) && !excluded.includes(device.deviceId));
   }
 }

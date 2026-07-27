@@ -6,6 +6,9 @@ export type TaskState = z.infer<typeof TaskState>;
 export const StageName = z.enum(["multiply", "add"]);
 export type StageName = z.infer<typeof StageName>;
 
+export const Capability = z.enum(["cap_formula_multiply", "cap_formula_add"]);
+export type Capability = z.infer<typeof Capability>;
+
 export const TaskInput = z.object({ input: z.number().finite() });
 export type TaskInput = z.infer<typeof TaskInput>;
 
@@ -13,7 +16,7 @@ export interface StageResult { name: StageName; value: number; }
 export interface Task { taskId: string; input: TaskInput; state: TaskState; completedStages: StageResult[]; result?: number; error?: string; createdAt: string; updatedAt: string; }
 
 export type ClientMessage =
-  | { type: "register"; role: "volunteer" | "admin"; name: string; capabilities?: StageName[] }
+  | { type: "register"; role: "volunteer" | "admin"; name: string; capabilities?: Capability[] }
   | { type: "task.submit"; input: TaskInput }
   | { type: "task.get"; taskId: string }
   | { type: "stage.result"; taskId: string; stage: StageName; value: number }
@@ -29,4 +32,4 @@ export type ServerMessage =
   | { type: "devices"; devices: Device[] }
   | { type: "error"; message: string };
 
-export interface Device { deviceId: string; name: string; role: "volunteer" | "admin"; capabilities: StageName[]; connectedAt: string; lastSeenAt: string; }
+export interface Device { deviceId: string; name: string; role: "volunteer" | "admin"; capabilities: Capability[]; connectedAt: string; lastSeenAt: string; }
