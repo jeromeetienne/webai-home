@@ -40,3 +40,26 @@ test("creates tasks and advances through both stages", () => {
   assert.equal(TaskStore.nextStage(completed), undefined);
   assert.equal(store.get(task.taskId)?.result, 17);
 });
+
+test("loops an LLM task through its three shards once per generated token", () => {
+  const store = new TaskStore();
+  const task = store.create({ taskType: "task_type_llm", input: "What is the capital of France?" });
+
+  assert.equal(TaskStore.nextStage(task), "stage_llm_shard1");
+
+  let current = task;
+  for (const stage of ["stage_llm_shard1", "stage_llm_shard2"] as const) {
+    current = store.addStage(current.taskId, { name: stage, value: { tensors: {} } });
+  }
+  assert.equal(TaskStore.nextStage(current), "stage_llm_shard3");
+
+  const afterFirstToken = store.addStage(current.taskId, { name: "stage_llm_shard3", value: { text: "The", done: false } });
+  assert.equal(TaskStore.nextStage(afterFirstToken), "stage_llm_shard1");
+
+  current = afterFirstToken;
+  for (const stage of ["stage_llm_shard1", "stage_llm_shard2"] as const) {
+    current = store.addStage(current.taskId, { name: stage, value: { tensors: {} } });
+  }
+  const afterSecondToken = store.addStage(current.taskId, { name: "stage_llm_shard3", value: { text: "The capital", done: true } });
+  assert.equal(TaskStore.nextStage(afterSecondToken), undefined);
+});

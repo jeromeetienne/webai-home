@@ -1,8 +1,9 @@
 /** Keep this browser script as a module so its declarations stay local to the page. */
 export { };
 
-import type { StageName, ClientMessage } from "@webai/protocol";
+import type { StageName, StagePayload, ClientMessage } from "@webai/protocol";
 import { StageFormulaHelper } from "./stage_formula_helper";
+import { StageLlmHelper } from "./stage_llm_helper";
 
 /** A message received from the central server. */
 type ServerMessage = {
@@ -10,10 +11,10 @@ type ServerMessage = {
 	type: string;
 	/** The task identifier for a stage message. */
 	taskId?: string;
-	/** The formula stage for a stage message. */
+	/** The stage for a stage message. */
 	stage?: StageName;
-	/** The numeric value for a stage message. */
-	value?: number;
+	/** The value for a stage message: a plain number for formula stages, or an LLM payload. */
+	value?: StagePayload;
 };
 
 /**
@@ -110,7 +111,7 @@ const log = (value: unknown): void => {
 				type: "register",
 				role: "volunteer",
 				name: nameInputEl.value,
-				stageNames: StageFormulaHelper.stageNames
+				stageNames: [...StageFormulaHelper.stageNames, ...StageLlmHelper.stageNames]
 			};
 			socket?.send(JSON.stringify(message));
 		});
@@ -121,15 +122,36 @@ const log = (value: unknown): void => {
 			const message: ServerMessage = JSON.parse(event.data as string) as ServerMessage;
 			log(message);
 			if (message.type !== "stage.assign" || message.stage === undefined || message.value === undefined || message.taskId === undefined) return;
-			/** The result produced by this volunteer browser for the assigned stage. */
-			const value: number = StageFormulaHelper.compute(message.stage, message.value);
-			const resultMessage: ClientMessage = { 
-				type: "stage.result", 
-				taskId: message.taskId, 
-				stage: message.stage, 
-				value 
-			};
-			socket?.send(JSON.stringify(resultMessage));
+			/** The task identifier and stage captured for the async result below. */
+			const { taskId, stage, value } = message;
+			/** Whether the assigned stage is one of this browser's LLM shards, as opposed to a formula stage. */
+			const isLlmStage = StageLlmHelper.stageNames.includes(stage);
+			/** Computes the result for the assigned stage and sends it back once ready. */
+			const computeResult: Promise<StagePayload> = isLlmStage
+				? StageLlmHelper.compute(stage, taskId, value as Exclude<StagePayload, number>)
+				: Promise.resolve(StageFormulaHelper.compute(stage, value as number));
+			computeResult
+				.then((value) => {
+					const resultMessage: ClientMessage = {
+						type: "stage.result",
+						taskId,
+						stage,
+						value
+					};
+					socket?.send(JSON.stringify(resultMessage));
+				})
+				.catch((error: unknown) => {
+					// A failed LLM stage abandons the task; drop its in-memory key-value cache
+					// rather than leaving it in memory for a task that will never resume.
+					if (isLlmStage) StageLlmHelper.clearTask(taskId);
+					const failedMessage: ClientMessage = {
+						type: "stage.failed",
+						taskId,
+						stage,
+						error: error instanceof Error ? error.message : String(error),
+					};
+					socket?.send(JSON.stringify(failedMessage));
+				});
 		});
 
 		/** Restores the disconnected state when the WebSocket closes. */

@@ -1,5 +1,5 @@
 // node imports
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createServer as createHttpServer, type ServerResponse } from "node:http";
 import { dirname, extname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,11 +8,13 @@ import { fileURLToPath } from "node:url";
 import { Command } from "commander";
 import { WebSocketServer, type WebSocket } from "ws";
 import {
+	StagePayloadFactory,
 	TaskInput,
 	type ClientMessage,
 	type Device,
 	type ServerMessage,
 	type StageName,
+	type StagePayload,
 } from "@webai/protocol";
 
 // local imports
@@ -80,7 +82,7 @@ function updateDevices(): void {
  */
 function assign(
 	taskId: string,
-	value: number,
+	value: StagePayload,
 	stage: StageName,
 	excluded: string[] = [],
 ): void {
@@ -167,19 +169,16 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 			});
 			return;
 		}
-		if (parsed.data.taskType === "task_type_llm") {
-			send(socket, {
-				type: "error",
-				message: "LLM tasks are not runnable yet",
-			});
-			return;
-		}
 		const task = taskStore.create(parsed.data);
 		send(socket, {
 			type: "task.accepted",
 			task,
 		});
-		assign(task.taskId, parsed.data.input * 1, "stage_formula_multiply");
+		if (parsed.data.taskType === "task_type_llm") {
+			assign(task.taskId, StagePayloadFactory.llmPrompt(parsed.data.input), "stage_llm_shard1");
+		} else {
+			assign(task.taskId, StagePayloadFactory.formula(parsed.data.input), "stage_formula_multiply");
+		}
 		return;
 	}
 
@@ -222,7 +221,12 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 		});
 		const upcoming = TaskStore.nextStage(updated);
 		if (upcoming) {
-			assign(updated.taskId, message.value, upcoming, [deviceId]);
+			// An LLM task's shards must all run on the same device: later shards need the
+			// key-value cache and hand-off tensors this device already holds in memory.
+			// The formula pipeline instead prefers handing the next stage to a different
+			// device, to demonstrate multiple volunteers cooperating on one task.
+			const excluded = updated.input.taskType === "task_type_llm" ? [] : [deviceId];
+			assign(updated.taskId, message.value, upcoming, excluded);
 		} else {
 			taskStore.update(updated.taskId, {
 				state: "completed",
@@ -329,6 +333,43 @@ const httpServer = createHttpServer((request, response) => {
 		request.url ?? "/",
 		`http://${request.headers.host ?? "localhost"}`,
 	).pathname;
+
+	// The qwen3-0.6b shard files are large, gitignored, and generated once as an explicit setup
+	// step (see packages/_onnx_experiments/tools/verify_qwen3_shards.mjs) into that package's
+	// own public directory. Rather than duplicate ~860 MB into packages/server too, the
+	// volunteer page fetches them straight from there, dev-server only, at the same URL the
+	// existing onnxruntime_qwen3-0.6b-with-shards prototype already uses for itself.
+	const shardMatch = /^\/onnxruntime_qwen3-0\.6b-with-shards\/shards\/shard-([123])\.onnx$/.exec(pathname);
+	if (shardMatch) {
+		const shardDirectory = join(
+			dirname(fileURLToPath(import.meta.url)),
+			"../../_onnx_experiments/public/onnxruntime_qwen3-0.6b-with-shards/shards",
+		);
+		const shardPath = join(shardDirectory, `shard-${shardMatch[1]}.onnx`);
+		if (!existsSync(shardPath)) {
+			response.statusCode = 404;
+			response.end(`Shard file not found at ${shardPath}. Generate the qwen3-0.6b shards into packages/_onnx_experiments first.`);
+			return;
+		}
+		response.setHeader("content-type", "application/octet-stream");
+		response.end(readFileSync(shardPath));
+		return;
+	}
+
+	// onnxruntime-web fetches its WebAssembly runtime by URL rather than through an import, so
+	// it needs to be served explicitly, same as the existing _onnx_experiments prototype does
+	// for itself (see that package's vite.config.js).
+	const ortAssetNames = ["ort-wasm-simd-threaded.jsep.mjs", "ort-wasm-simd-threaded.jsep.wasm"];
+	const ortAssetName = pathname.slice(1);
+	if (ortAssetNames.includes(ortAssetName)) {
+		const ortDistDirectory = join(
+			dirname(fileURLToPath(import.meta.url)),
+			"../node_modules/onnxruntime-web/dist",
+		);
+		response.setHeader("content-type", ortAssetName.endsWith(".wasm") ? "application/wasm" : "text/javascript");
+		response.end(readFileSync(join(ortDistDirectory, ortAssetName)));
+		return;
+	}
 
 	const pageSourcePath = pageRoutes[pathname];
 	if (pageSourcePath) {
