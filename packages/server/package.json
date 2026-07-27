@@ -4,10 +4,10 @@
   "type": "module",
   "scripts": {
     "build": "vite build && tsc -p tsconfig.json",
-    "start": "NODE_ENV=production node dist/index.js",
+    "start": "NODE_ENV=production node dist/cli.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "dev": "tsx watch src/index.ts",
-    "test": "node --import tsx --test tests/index.test.ts"
+    "dev": "tsx watch src/cli.ts",
+    "test": "node --import tsx --test tests/cli.test.ts"
   },
   "dependencies": {
     "@webai/protocol": "0.1.0",
