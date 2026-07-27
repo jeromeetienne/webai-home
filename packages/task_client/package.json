@@ -5,7 +5,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "dev": "tsx src/index.ts",
+    "dev": "tsx src/cli.ts",
     "test": "node --import tsx --test tests/index.test.ts"
   },
   "dependencies": {

@@ -6,7 +6,13 @@ export type TaskState = z.infer<typeof TaskState>;
 export const StageName = z.enum(["stage_formula_multiply", "stage_formula_add"]);
 export type StageName = z.infer<typeof StageName>;
 
-export const TaskInput = z.object({ input: z.number().finite() });
+export const TaskType = z.enum(["task_type_formula", "task_type_llm"]);
+export type TaskType = z.infer<typeof TaskType>;
+
+export const TaskInput = z.discriminatedUnion("taskType", [
+  z.object({ taskType: z.literal("task_type_formula"), input: z.number().finite() }),
+  z.object({ taskType: z.literal("task_type_llm"), input: z.string() }),
+]);
 export type TaskInput = z.infer<typeof TaskInput>;
 
 export interface StageResult { 

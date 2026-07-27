@@ -24,7 +24,7 @@ test("finds volunteers by capability and excludes devices", () => {
 
 test("creates tasks and advances through both stages", () => {
   const store = new TaskStore();
-  const task = store.create({ input: 5 });
+  const task = store.create({ taskType: "task_type_formula", input: 5 });
 
   assert.equal(task.state, "queued");
   assert.equal(nextStage(task), "stage_formula_multiply");

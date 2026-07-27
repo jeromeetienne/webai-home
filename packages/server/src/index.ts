@@ -163,7 +163,14 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 		if (!parsed.success) {
 			send(socket, {
 				type: "error",
-				message: "Input must be a finite number",
+				message: "Input must match the shape expected for its task type",
+			});
+			return;
+		}
+		if (parsed.data.taskType === "task_type_llm") {
+			send(socket, {
+				type: "error",
+				message: "LLM tasks are not runnable yet",
 			});
 			return;
 		}
@@ -172,7 +179,7 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 			type: "task.accepted",
 			task,
 		});
-		assign(task.taskId, task.input.input * 1, "stage_formula_multiply");
+		assign(task.taskId, parsed.data.input * 1, "stage_formula_multiply");
 		return;
 	}
 

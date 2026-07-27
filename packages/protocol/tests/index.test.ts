@@ -3,12 +3,18 @@ import test from "node:test";
 import { StageName, TaskInput, TaskState } from "../src/index.js";
 
 test("accepts valid task input", () => {
-  assert.deepEqual(TaskInput.parse({ input: 12.5 }), { input: 12.5 });
+  assert.deepEqual(TaskInput.parse({ taskType: "task_type_formula", input: 12.5 }), { taskType: "task_type_formula", input: 12.5 });
+  assert.deepEqual(TaskInput.parse({ taskType: "task_type_llm", input: "hello" }), { taskType: "task_type_llm", input: "hello" });
 });
 
 test("rejects non-finite task input", () => {
-  assert.equal(TaskInput.safeParse({ input: Number.NaN }).success, false);
-  assert.equal(TaskInput.safeParse({ input: Infinity }).success, false);
+  assert.equal(TaskInput.safeParse({ taskType: "task_type_formula", input: Number.NaN }).success, false);
+  assert.equal(TaskInput.safeParse({ taskType: "task_type_formula", input: Infinity }).success, false);
+});
+
+test("rejects task input that does not match its task type", () => {
+  assert.equal(TaskInput.safeParse({ taskType: "task_type_llm", input: 5 }).success, false);
+  assert.equal(TaskInput.safeParse({ taskType: "task_type_formula", input: "5" }).success, false);
 });
 
 test("restricts task states and stage names", () => {
