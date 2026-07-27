@@ -12,8 +12,20 @@ export type Capability = z.infer<typeof Capability>;
 export const TaskInput = z.object({ input: z.number().finite() });
 export type TaskInput = z.infer<typeof TaskInput>;
 
-export interface StageResult { name: StageName; value: number; }
-export interface Task { taskId: string; input: TaskInput; state: TaskState; completedStages: StageResult[]; result?: number; error?: string; createdAt: string; updatedAt: string; }
+export interface StageResult { 
+  name: StageName; 
+  value: number; 
+}
+export interface Task { 
+  taskId: string; 
+  input: TaskInput; 
+  state: TaskState; 
+  completedStages: StageResult[]; 
+  result?: number; 
+  error?: string; 
+  createdAt: string; 
+  updatedAt: string; 
+}
 
 export type ClientMessage =
   | { type: "register"; role: "volunteer" | "admin"; name: string; capabilities?: Capability[] }
@@ -32,4 +44,10 @@ export type ServerMessage =
   | { type: "devices"; devices: Device[] }
   | { type: "error"; message: string };
 
-export interface Device { deviceId: string; name: string; role: "volunteer" | "admin"; capabilities: Capability[]; connectedAt: string; lastSeenAt: string; }
+export interface Device { 
+  deviceId: string; 
+  name: string; role: "volunteer" | "admin"; 
+  capabilities: Capability[]; 
+  connectedAt: string; 
+  lastSeenAt: string; 
+}
