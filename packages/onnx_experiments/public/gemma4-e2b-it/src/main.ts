@@ -160,7 +160,7 @@ let modelLoadPromise: Promise<TextGenerationPipeline> | undefined;
 app.innerHTML = `
   <main class="shell experiment-shell ${model.accent}">
     <header class="topbar">
-      <a class="back-link" href="./">← All experiments</a>
+      <a class="back-link" href="../">← All experiments</a>
       <span class="runtime-pill"><i></i><span id="runtime-label">Checking runtime</span></span>
     </header>
     <section class="hero">

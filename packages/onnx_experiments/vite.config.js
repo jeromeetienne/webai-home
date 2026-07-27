@@ -8,9 +8,9 @@ export default defineConfig({
     rollupOptions: {
       input: {
         home: resolve(import.meta.dirname, 'public/index.html'),
-        qwen: resolve(import.meta.dirname, 'public/qwen.html'),
-        smollm: resolve(import.meta.dirname, 'public/smollm.html'),
-        gemma: resolve(import.meta.dirname, 'public/gemma.html'),
+        qwen: resolve(import.meta.dirname, 'public/qwen3-0.6b/index.html'),
+        smollm: resolve(import.meta.dirname, 'public/smoll2-360m/index.html'),
+        gemma: resolve(import.meta.dirname, 'public/gemma4-e2b-it/index.html'),
       },
     },
   },
