@@ -1,7 +1,14 @@
 import { MODEL_ID, ModelHelper } from './model_helper';
 import { UiHelper } from './ui_helper';
 
+
+/** Builds the page, connects the user interface to the model, and starts loading. */
 class MainHelper {
+	/**
+	 * Builds the Qwen3 experiment page and starts loading the model.
+	 *
+	 * @returns A promise that resolves after the page handlers and initial load have been started.
+	 */
 	static async main(): Promise<void> {
 		const app = document.querySelector<HTMLElement>('#app');
 		if (!app) throw new Error('The page must contain an #app element.');
