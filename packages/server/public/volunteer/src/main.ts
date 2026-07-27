@@ -1,64 +1,130 @@
-/** @typedef {"multiply" | "add"} StageName */
+/** Keep this browser script as a module so its declarations stay local to the page. */
+export { };
+
+/** The formula stage assigned to a volunteer browser. */
+type StageName = "multiply" | "add";
+
+/** A message received from the central server. */
+type ServerMessage = {
+	/** The message category. */
+	type: string;
+	/** The task identifier for a stage message. */
+	taskId?: string;
+	/** The formula stage for a stage message. */
+	stage?: StageName;
+	/** The numeric value for a stage message. */
+	value?: number;
+};
 
 /**
- * @typedef {Object} ServerMessage
- * @property {string} type
- * @property {string} [deviceId]
- * @property {string} [taskId]
- * @property {StageName} [stage]
- * @property {number} [value]
- * @property {string} [peerId]
+ * Finds a required HTML element.
+ *
+ * @param selector CSS selector for the required element.
+ * @returns The matching HTML element.
+ * @throws If the selector does not match an HTML element.
  */
+const getElement = (selector: string): HTMLElement => {
+	/** The element returned by the document query. */
+	const element: Element | null = document.querySelector(selector);
+	if (!(element instanceof HTMLElement)) throw new Error(`Element ${selector} was not found`);
+	return element;
+};
 
 /**
- * @param {unknown} value
- * @returns {void}
+ * Finds a required HTML input element.
+ *
+ * @param selector CSS selector for the required input element.
+ * @returns The matching HTML input element.
+ * @throws If the selector does not match an HTML input element.
  */
-const log = (value) => {
-	const output = /** @type {HTMLElement} */ (document.querySelector("#log"));
+const getInput = (selector: string): HTMLInputElement => {
+	/** The element returned by the document query. */
+	const element: Element | null = document.querySelector(selector);
+	if (!(element instanceof HTMLInputElement)) throw new Error(`Input ${selector} was not found`);
+	return element;
+};
+
+/**
+ * Finds a required HTML button element.
+ *
+ * @param selector CSS selector for the required button element.
+ * @returns The matching HTML button element.
+ * @throws If the selector does not match an HTML button element.
+ */
+const getButton = (selector: string): HTMLButtonElement => {
+	/** The element returned by the document query. */
+	const element: Element | null = document.querySelector(selector);
+	if (!(element instanceof HTMLButtonElement)) throw new Error(`Button ${selector} was not found`);
+	return element;
+};
+
+/**
+ * Writes a value to the volunteer browser log.
+ *
+ * @param value The value to format and append to the log.
+ */
+const log = (value: unknown): void => {
+	/** The log element shown on the volunteer page. */
+	const output: HTMLElement = getElement("#log");
 	output.textContent += `${output.textContent === "No messages yet." ? "" : "\n"}${JSON.stringify(value, null, 2)}`;
 };
-const status = /** @type {HTMLElement} */ (document.querySelector("#status"));
-const nameInput = /** @type {HTMLInputElement} */ (document.querySelector("#name"));
-const connectButton = /** @type {HTMLButtonElement} */ (document.querySelector("#connect"));
-const disconnectButton = /** @type {HTMLButtonElement} */ (document.querySelector("#disconnect"));
-/** @type {WebSocket | undefined} */
-let socket;
-nameInput.value = `browser-volunteer-${crypto.randomUUID().slice(0, 8)}`;
 
-connectButton.addEventListener("click", () => {
-	if (socket && socket.readyState !== WebSocket.CLOSED) return;
-	socket = new WebSocket(`${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}`);
-	status.textContent = "Connecting";
-	status.className = "badge text-bg-warning";
-	connectButton.disabled = true;
-	socket.addEventListener("open", () => {
-		status.textContent = "Connected";
-		status.className = "badge text-bg-success";
-		connectButton.classList.add("d-none");
-		disconnectButton.classList.remove("d-none");
-		nameInput.disabled = true;
-		socket?.send(JSON.stringify({ type: "register", role: "volunteer", name: nameInput.value, capabilities: ["cap_formula_multiply", "cap_formula_add"] }));
-	});
-	socket.addEventListener("message", (event) => {
-		/** @type {ServerMessage} */
-		const message = JSON.parse(event.data);
-		log(message);
-		if (message.type !== "stage.assign") return;
-		const value = message.stage === "multiply" ? /** @type {number} */ (message.value) * 2 : /** @type {number} */ (message.value) + 7;
-		socket?.send(JSON.stringify({ type: "stage.result", taskId: message.taskId, stage: message.stage, value }));
-	});
-	socket.addEventListener("close", () => {
-		status.textContent = "Disconnected";
-		status.className = "badge text-bg-danger";
-		connectButton.classList.remove("d-none");
-		connectButton.disabled = false;
-		disconnectButton.classList.add("d-none");
-		nameInput.disabled = false;
-		socket = undefined;
-	});
-});
+/** Starts the volunteer browser user interface. */
+((): void => {
+	/** The connection status element. */
+	const statusEl: HTMLElement = getElement("#status");
+	/** The input containing the volunteer browser name. */
+	const nameInputEl: HTMLInputElement = getInput("#name");
+	/** The button that opens the volunteer browser connection. */
+	const connectButtonEl: HTMLButtonElement = getButton("#connect");
+	/** The button that closes the volunteer browser connection. */
+	const disconnectButtonEl: HTMLButtonElement = getButton("#disconnect");
+	/** The capabilities advertised to the central server. */
+	const capabilitiesEl: [string, string] = ["cap_formula_multiply", "cap_formula_add"];
+	/** The active WebSocket connection, when the volunteer browser is connected. */
+	let socket: WebSocket | undefined;
+	nameInputEl.value = `browser-volunteer-${crypto.randomUUID().slice(0, 8)}`;
 
-disconnectButton.addEventListener("click", () => {
-	if (socket) socket.close(1000, "Disconnected by volunteer");
-});
+	/** Opens a WebSocket connection when the connect button is clicked. */
+	connectButtonEl.addEventListener("click", (): void => {
+		if (socket && socket.readyState !== WebSocket.CLOSED) return;
+		socket = new WebSocket(`${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}`);
+		statusEl.textContent = "Connecting";
+		statusEl.className = "badge text-bg-warning";
+		connectButtonEl.disabled = true;
+		/** Updates the page and registers the volunteer browser after connection. */
+		socket.addEventListener("open", (): void => {
+			statusEl.textContent = "Connected";
+			statusEl.className = "badge text-bg-success";
+			connectButtonEl.classList.add("d-none");
+			disconnectButtonEl.classList.remove("d-none");
+			nameInputEl.disabled = true;
+			socket?.send(JSON.stringify({ type: "register", role: "volunteer", name: nameInputEl.value, capabilities: capabilitiesEl }));
+		});
+		/** Handles messages received from the central server. */
+		socket.addEventListener("message", (event: MessageEvent): void => {
+			/** The decoded server message. */
+			const message: ServerMessage = JSON.parse(event.data as string) as ServerMessage;
+			log(message);
+			if (message.type !== "stage.assign" || message.stage === undefined || message.value === undefined || message.taskId === undefined) return;
+			/** The result produced by this volunteer browser for the assigned stage. */
+			const value: number = message.stage === "multiply" ? message.value * 2 : message.value + 7;
+			socket?.send(JSON.stringify({ type: "stage.result", taskId: message.taskId, stage: message.stage, value }));
+		});
+		/** Restores the disconnected state when the WebSocket closes. */
+		socket.addEventListener("close", (): void => {
+			statusEl.textContent = "Disconnected";
+			statusEl.className = "badge text-bg-danger";
+			connectButtonEl.classList.remove("d-none");
+			connectButtonEl.disabled = false;
+			disconnectButtonEl.classList.add("d-none");
+			nameInputEl.disabled = false;
+			socket = undefined;
+		});
+	});
+
+	/** Closes the WebSocket connection when the disconnect button is clicked. */
+	disconnectButtonEl.addEventListener("click", (): void => {
+		if (socket) socket.close(1000, "Disconnected by volunteer");
+	});
+})();

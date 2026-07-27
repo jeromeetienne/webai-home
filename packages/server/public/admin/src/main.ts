@@ -1,22 +1,48 @@
-const status = document.querySelector("#status");
-const statusBadge = document.querySelector("#status-badge");
-const devices = document.querySelector("#devices");
-const tasks = document.querySelector("#tasks");
-const socket = new WebSocket(`${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}`);
+export { };
 
-socket.addEventListener("open", () => socket.send(JSON.stringify({ type: "register", role: "admin", name: "administrator" })));
-socket.addEventListener("message", (event) => {
-  const message = JSON.parse(event.data);
-  if (message.type === "registered") {
-    status.textContent = "Connected to the central server.";
-    statusBadge.textContent = "Connected";
-    statusBadge.className = "badge rounded-pill text-bg-success";
-  }
-  if (message.type === "devices") devices.innerHTML = message.devices.filter((device) => device.role === "volunteer").map((device) => `<li>${device.name} (volunteer) — ${device.capabilities.join(", ")}</li>`).join("") || "<li>Waiting for volunteer browser tabs.</li>";
-  if (message.type === "task.updated" || message.type === "task.accepted") tasks.textContent = JSON.stringify(message.task, null, 2);
-});
-socket.addEventListener("close", () => {
-  status.textContent = "Disconnected from the central server.";
-  statusBadge.textContent = "Disconnected";
-  statusBadge.className = "badge rounded-pill text-bg-danger";
-});
+type DeviceSummary = {
+	role: string;
+	name: string;
+	capabilities: string[];
+};
+
+type ServerMessage = {
+	type: string;
+	devices?: DeviceSummary[];
+	task?: object;
+};
+
+const getElement = (selector: string): HTMLElement => {
+	const element: Element | null = document.querySelector(selector);
+	if (!(element instanceof HTMLElement)) throw new Error(`Element ${selector} was not found`);
+	return element;
+};
+
+((): void => {
+	const statusEl: HTMLElement = getElement("#status");
+	const statusBadgeEl: HTMLElement = getElement("#status-badge");
+	const devicesEl: HTMLElement = getElement("#devices");
+	const tasksEl: HTMLElement = getElement("#tasks");
+	const socketEl: WebSocket = new WebSocket(`${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}`);
+
+	socketEl.addEventListener("open", (): void => socketEl.send(JSON.stringify({ type: "register", role: "admin", name: "administrator" })));
+	socketEl.addEventListener("message", (event: MessageEvent): void => {
+		const message: ServerMessage = JSON.parse(event.data as string) as ServerMessage;
+		if (message.type === "registered") {
+			statusEl.textContent = "Connected to the central server.";
+			statusBadgeEl.textContent = "Connected";
+			statusBadgeEl.className = "badge rounded-pill text-bg-success";
+		}
+		if (message.type === "devices" && message.devices) {
+			devicesEl.innerHTML = message.devices.filter((device: DeviceSummary) => device.role === "volunteer").map((device: DeviceSummary) => `<li>${device.name} (volunteer) — ${device.capabilities.join(", ")}</li>`).join("") || "<li>Waiting for volunteer browser tabs.</li>";
+		}
+		if ((message.type === "task.updated" || message.type === "task.accepted") && message.task){
+			tasksEl.textContent = JSON.stringify(message.task, null, 2);
+		}
+	});
+	socketEl.addEventListener("close", (): void => {
+		statusEl.textContent = "Disconnected from the central server.";
+		statusBadgeEl.textContent = "Disconnected";
+		statusBadgeEl.className = "badge rounded-pill text-bg-danger";
+	});
+})();
