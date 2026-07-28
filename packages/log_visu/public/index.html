@@ -66,13 +66,27 @@
 			</aside>
 		</main>
 
-		<div class="keyboard-help container-fluid py-2" id="keyboard-help" hidden>
-			<div class="alert alert-secondary mb-0 py-2" role="status">
-				<strong>Keyboard controls:</strong>
-				<span class="ms-2"><kbd>Space</kbd> play/pause</span>
-				<span class="ms-2"><kbd>←</kbd> / <kbd>→</kbd> seek 5 seconds</span>
-				<span class="ms-2"><kbd>1</kbd>–<kbd>7</kbd> set speed</span>
-				<span class="ms-2"><kbd>?</kbd> hide help</span>
+		<button class="d-none" type="button" id="keyboard-help-trigger" data-bs-toggle="modal" data-bs-target="#keyboard-help-modal">Show keyboard help</button>
+		<div class="modal fade" id="keyboard-help-modal" tabindex="-1" aria-labelledby="keyboard-help-title" aria-hidden="true">
+			<div class="modal-dialog modal-dialog-centered">
+				<div class="modal-content text-dark">
+					<div class="modal-header">
+						<h2 class="modal-title fs-5" id="keyboard-help-title">Keyboard controls</h2>
+						<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+					</div>
+					<div class="modal-body">
+						<dl class="row mb-0">
+							<dt class="col-sm-3"><kbd>Space</kbd></dt>
+							<dd class="col-sm-9">Play or pause playback</dd>
+							<dt class="col-sm-3"><kbd>←</kbd> / <kbd>→</kbd></dt>
+							<dd class="col-sm-9">Seek backward or forward 5 seconds</dd>
+							<dt class="col-sm-3"><kbd>1</kbd>–<kbd>7</kbd></dt>
+							<dd class="col-sm-9">Set the playback speed</dd>
+							<dt class="col-sm-3"><kbd>?</kbd></dt>
+							<dd class="col-sm-9 mb-0">Open or close this help</dd>
+						</dl>
+					</div>
+				</div>
 			</div>
 		</div>
 
@@ -112,5 +126,6 @@
 	</div>
 
 	<script type="module" src="./src/main.ts"></script>
+	<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

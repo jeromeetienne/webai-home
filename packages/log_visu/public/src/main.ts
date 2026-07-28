@@ -40,7 +40,8 @@ class LogVisuApp {
 	private readonly showSignalingEl: HTMLInputElement;
 	private readonly vizMainEl: HTMLElement;
 	private readonly playbackBarEl: HTMLElement;
-	private readonly keyboardHelpEl: HTMLElement;
+	private readonly keyboardHelpTriggerEl: HTMLButtonElement;
+	private readonly keyboardHelpModalEl: HTMLElement;
 	private readonly playPauseButtonEl: HTMLButtonElement;
 	private readonly stopButtonEl: HTMLButtonElement;
 	private readonly speedSelectEl: HTMLSelectElement;
@@ -68,7 +69,8 @@ class LogVisuApp {
 		this.showSignalingEl = LogVisuApp._getElement<HTMLInputElement>("#show-signaling");
 		this.vizMainEl = LogVisuApp._getElement("#viz-main");
 		this.playbackBarEl = LogVisuApp._getElement("#playback-bar");
-		this.keyboardHelpEl = LogVisuApp._getElement("#keyboard-help");
+		this.keyboardHelpTriggerEl = LogVisuApp._getElement<HTMLButtonElement>("#keyboard-help-trigger");
+		this.keyboardHelpModalEl = LogVisuApp._getElement("#keyboard-help-modal");
 		this.playPauseButtonEl = LogVisuApp._getElement<HTMLButtonElement>("#play-pause-button");
 		this.stopButtonEl = LogVisuApp._getElement<HTMLButtonElement>("#stop-button");
 		this.speedSelectEl = LogVisuApp._getElement<HTMLSelectElement>("#speed-select");
@@ -138,7 +140,11 @@ class LogVisuApp {
 			if (LogVisuApp._isFormControl(event.target)) return;
 			if (event.key === "?") {
 				event.preventDefault();
-				this.keyboardHelpEl.hidden = !this.keyboardHelpEl.hidden;
+				if (this.keyboardHelpModalEl.classList.contains("show")) {
+					this.keyboardHelpModalEl.querySelector<HTMLButtonElement>("[data-bs-dismiss='modal']")?.click();
+				} else {
+					this.keyboardHelpTriggerEl.click();
+				}
 				return;
 			}
 			const speedKeyIndex: number = ["Digit1", "Digit2", "Digit3", "Digit4", "Digit5", "Digit6", "Digit7"].indexOf(event.code);

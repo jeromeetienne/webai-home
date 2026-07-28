@@ -164,14 +164,6 @@ html, body {
 	gap: 0.75rem;
 }
 
-.keyboard-help {
-	border-top: 1px solid var(--border);
-}
-
-.keyboard-help kbd {
-	color: var(--bs-dark);
-}
-
 .playback-bar button {
 	width: 2.5rem;
 	height: 2.25rem;
