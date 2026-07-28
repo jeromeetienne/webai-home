@@ -161,8 +161,8 @@ export class TimelineView {
 		circleEl.setAttribute("cx", String(x));
 		circleEl.setAttribute("cy", String(y));
 		circleEl.setAttribute("r", String(NODE_RADIUS));
-		circleEl.setAttribute("fill", actor.column === "center" ? "#0ea5e9" : "#334155");
-		circleEl.setAttribute("stroke", "#e2e8f0");
+		circleEl.setAttribute("fill", actor.column === "center" ? "#0d9fe8" : "#dce6f5");
+		circleEl.setAttribute("stroke", actor.column === "center" ? "#0877c9" : "#9fb0c8");
 		circleEl.setAttribute("stroke-width", "1.5");
 		this.svgEl.appendChild(circleEl);
 
