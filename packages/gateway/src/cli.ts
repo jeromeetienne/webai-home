@@ -107,13 +107,18 @@ function workerDevices(): Device[] {
 	return deviceRegistry.list().filter((device) => device.deviceRole === "worker");
 }
 
+/** Returns every registered device for gateway observers and status updates. */
+function connectedDevices(): Device[] {
+	return deviceRegistry.list();
+}
+
 /**
  * Broadcasts the current worker device list to connected clients.
  */
 function updateDevices(): void {
 	broadcast({
 		type: "devices",
-		devices: workerDevices(),
+		devices: connectedDevices(),
 	});
 }
 
@@ -178,7 +183,7 @@ function broadcastTask(taskId: string): void {
 function handle(socket: WebSocket, deviceId: string, message: ClientMessage): void {
 	if (message.type === "observe") {
 		observerDeviceIds.add(deviceId);
-		send(socket, { type: "devices", devices: workerDevices() }, counterpartFor(deviceId));
+		send(socket, { type: "devices", devices: connectedDevices() }, counterpartFor(deviceId));
 		return;
 	}
 	if (message.type === "register") {

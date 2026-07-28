@@ -52,7 +52,7 @@
         </div>
 
         <div class="row g-4">
-            <div class="col-lg-5">
+            <div class="col-lg-6">
                 <section class="card border-0 shadow-sm h-100">
                     <div class="card-header bg-white border-0 pt-4 px-4">
                         <div class="d-flex justify-content-between align-items-center">
@@ -61,7 +61,20 @@
                         </div>
                     </div>
                     <div class="card-body px-4">
-                        <div id="devices"><p class="text-secondary mb-0">Waiting for worker browser tabs.</p></div>
+                        <div id="workers"><p class="text-secondary mb-0">Waiting for worker browser tabs.</p></div>
+                    </div>
+                </section>
+            </div>
+            <div class="col-lg-6">
+                <section class="card border-0 shadow-sm h-100">
+                    <div class="card-header bg-white border-0 pt-4 px-4">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <h2 class="h5 mb-0">Connected consumers</h2>
+                            <span class="badge text-bg-light border"><span id="consumer-count">0</span> connected</span>
+                        </div>
+                    </div>
+                    <div class="card-body px-4">
+                        <div id="consumers"><p class="text-secondary mb-0">No consumers are connected.</p></div>
                     </div>
                 </section>
             </div>
@@ -76,6 +89,19 @@
                 </section>
             </div>
         </div>
+
+        <section class="card border-0 shadow-sm mt-4">
+            <div class="card-header bg-white border-0 pt-4 px-4">
+                <div class="d-flex justify-content-between align-items-center">
+                    <h2 class="h5 mb-0">Enabled stages</h2>
+                    <span class="badge text-bg-light border"><span id="stage-count">0</span> total</span>
+                </div>
+            </div>
+            <div class="card-body px-4">
+                <p class="small text-secondary" id="stage-description">Percentages use all advertised worker stage capabilities as the denominator.</p>
+                <div id="stages"><p class="text-secondary mb-0">No worker stages are enabled.</p></div>
+            </div>
+        </section>
 
         <section class="card border-0 shadow-sm mt-4">
             <div class="card-header bg-white border-0 pt-4 px-4">

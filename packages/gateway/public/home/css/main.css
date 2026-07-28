@@ -39,3 +39,11 @@ body {
 .event-item:last-child {
     border-bottom: 0;
 }
+
+.stage-stat {
+    margin-bottom: 1rem;
+}
+
+.stage-stat:last-child {
+    margin-bottom: 0;
+}

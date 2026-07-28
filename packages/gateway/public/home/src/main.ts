@@ -1,5 +1,6 @@
 export { };
 import type { Device, DeviceRole, Task } from "@webai/protocol";
+import { splitDevices, stageStatistics } from "../../../src/dashboard.js";
 
 type DeviceSummary = {
 	deviceId: string;
@@ -47,9 +48,13 @@ const getElement = (selector: string): HTMLElement => {
 ((): void => {
 	const statusEl: HTMLElement = getElement("#status");
 	const statusBadgeEl: HTMLElement = getElement("#status-badge");
-	const devicesEl: HTMLElement = getElement("#devices");
+	const workersEl: HTMLElement = getElement("#workers");
+	const consumersEl: HTMLElement = getElement("#consumers");
 	const tasksEl: HTMLElement = getElement("#tasks");
 	const workerCountEl: HTMLElement = getElement("#worker-count");
+	const consumerCountEl: HTMLElement = getElement("#consumer-count");
+	const stageCountEl: HTMLElement = getElement("#stage-count");
+	const stagesEl: HTMLElement = getElement("#stages");
 	const eventsEl: HTMLElement = getElement("#events");
 	const events: DashboardEvent[] = [];
 	const addEvent = (event: DashboardEvent): void => {
@@ -68,9 +73,16 @@ const getElement = (selector: string): HTMLElement => {
 	socketEl.addEventListener("message", (event: MessageEvent): void => {
 		const message: GatewayMessage = JSON.parse(event.data as string) as GatewayMessage;
 		if (message.type === "devices" && message.devices) {
-			const workers = message.devices.filter((device: DeviceSummary) => device.deviceRole === "worker");
+			const devices = splitDevices(message.devices);
+			const workers = devices.worker;
+			const consumers = devices.consumer;
 			workerCountEl.textContent = String(workers.length);
-			devicesEl.innerHTML = workers.map((device: DeviceSummary) => `<article class="worker-item"><div class="d-flex justify-content-between gap-3"><h3 class="h6 mb-1">${escapeHtml(device.name)}</h3><span class="badge text-bg-success">Connected</span></div><dl class="row small mb-0"><dt class="col-4 text-secondary">Worker ID</dt><dd class="col-8 text-break">${escapeHtml(device.deviceId)}</dd><dt class="col-4 text-secondary">Stages</dt><dd class="col-8"><div class="d-flex flex-wrap gap-1">${device.stageNames.map((stageName) => `<span class="badge text-bg-light border">${escapeHtml(stageName)}</span>`).join("")}</div></dd><dt class="col-4 text-secondary">Connected</dt><dd class="col-8">${escapeHtml(formatTime(device.connectedAt))}</dd></dl></article>`).join("") || '<p class="text-secondary mb-0">No worker browsers are connected.</p>';
+			consumerCountEl.textContent = String(consumers.length);
+			workersEl.innerHTML = workers.map((device: DeviceSummary) => connectionMarkup(device, true)).join("") || '<p class="text-secondary mb-0">No worker browsers are connected.</p>';
+			consumersEl.innerHTML = consumers.map((device: DeviceSummary) => connectionMarkup(device, false)).join("") || '<p class="text-secondary mb-0">No consumers are connected.</p>';
+			const statistics = stageStatistics(workers);
+			stageCountEl.textContent = String(statistics.total);
+			stagesEl.innerHTML = statistics.stages.map((stage) => `<div class="stage-stat"><div class="d-flex justify-content-between"><span>${escapeHtml(stage.stageName)}</span><span class="text-secondary">${stage.count} worker${stage.count === 1 ? "" : "s"} · ${stage.percentage.toFixed(1)}%</span></div><div class="progress" role="progressbar" aria-label="${escapeHtml(stage.stageName)} percentage" aria-valuenow="${stage.percentage}" aria-valuemin="0" aria-valuemax="100"><div class="progress-bar" style="width: ${stage.percentage}%"></div></div></div>`).join("") || '<p class="text-secondary mb-0">No worker stages are enabled.</p>';
 			addEvent({ type: "Worker list updated", timestamp: new Date().toISOString(), details: `${workers.length} connected worker${workers.length === 1 ? "" : "s"}` });
 		}
 		if ((message.type === "task.updated" || message.type === "task.accepted") && message.task){
@@ -85,3 +97,8 @@ const getElement = (selector: string): HTMLElement => {
 		statusBadgeEl.className = "badge rounded-pill text-bg-danger";
 	});
 })();
+
+function connectionMarkup(device: DeviceSummary, includeStages: boolean): string {
+	const stages = includeStages ? `<dt class="col-4 text-secondary">Stages</dt><dd class="col-8"><div class="d-flex flex-wrap gap-1">${device.stageNames.map((stageName) => `<span class="badge text-bg-light border">${escapeHtml(stageName)}</span>`).join("")}</div></dd>` : "";
+	return `<article class="worker-item"><div class="d-flex justify-content-between gap-3"><h3 class="h6 mb-1">${escapeHtml(device.name)}</h3><span class="badge text-bg-success">Connected</span></div><dl class="row small mb-0"><dt class="col-4 text-secondary">Device ID</dt><dd class="col-8 text-break">${escapeHtml(device.deviceId)}</dd>${stages}<dt class="col-4 text-secondary">Connected</dt><dd class="col-8">${escapeHtml(formatTime(device.connectedAt))}</dd><dt class="col-4 text-secondary">Last seen</dt><dd class="col-8">${escapeHtml(formatTime(device.lastSeenAt))}</dd></dl></article>`;
+}

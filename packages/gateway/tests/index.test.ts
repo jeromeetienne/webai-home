@@ -5,6 +5,7 @@ import test from "node:test";
 // local imports
 import { DeviceRegistry } from "../src/libs/device_registry.js";
 import { TaskStore } from "../src/libs/task_store.js";
+import { splitDevices, stageStatistics } from "../src/dashboard.js";
 
 const worker = (deviceId: string, stageNames: ("stage_formula_multiply" | "stage_formula_add")[] = ["stage_formula_multiply", "stage_formula_add"]) => ({
   deviceId,
@@ -13,6 +14,39 @@ const worker = (deviceId: string, stageNames: ("stage_formula_multiply" | "stage
   stageNames,
   connectedAt: "2026-01-01T00:00:00.000Z",
   lastSeenAt: "2026-01-01T00:00:00.000Z",
+});
+
+const consumer = (deviceId: string) => ({
+  deviceId,
+  name: `consumer-${deviceId}`,
+  deviceRole: "consumer" as const,
+  stageNames: [] as [],
+  connectedAt: "2026-01-01T00:00:00.000Z",
+  lastSeenAt: "2026-01-01T00:00:00.000Z",
+});
+
+test("dashboard payload keeps workers and consumers available as separate groups", () => {
+  const devices = splitDevices([worker("one"), consumer("two")]);
+
+  assert.deepEqual(devices.worker.map((device) => device.deviceId), ["one"]);
+  assert.deepEqual(devices.consumer.map((device) => device.deviceId), ["two"]);
+});
+
+test("calculates enabled-stage percentages using all advertised capabilities", () => {
+  const statistics = stageStatistics([
+    worker("one", ["stage_formula_multiply", "stage_formula_add"]),
+    worker("two", ["stage_formula_multiply"]),
+  ]);
+
+  assert.equal(statistics.total, 3);
+  assert.deepEqual(statistics.stages.map(({ stageName, count, percentage }) => ({
+    stageName,
+    count,
+    percentage: Number(percentage.toFixed(1)),
+  })), [
+    { stageName: "stage_formula_add", count: 1, percentage: 33.3 },
+    { stageName: "stage_formula_multiply", count: 2, percentage: 66.7 },
+  ]);
 });
 
 test("finds workers by capability and excludes devices", () => {
