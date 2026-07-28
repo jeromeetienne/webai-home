@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+	<title>WebAI Message Flow Visualizer</title>
+	<link rel="stylesheet" href="./css/style.css" />
+</head>
+<body>
+	<div class="app">
+		<header class="app-header">
+			<h1>WebAI Message Flow Visualizer</h1>
+			<p class="subtitle">
+				Watch requests travel from a client to the central server, and from the server out to
+				the volunteer browsers that carry out the work.
+			</p>
+		</header>
+
+		<section class="load-bar">
+			<label class="drop-zone" id="drop-zone" for="log-file-input">
+				<span id="drop-zone-label">Drop a server log file (.jsonl) here, or click to choose one</span>
+				<input type="file" id="log-file-input" accept=".jsonl,.log,.txt" />
+			</label>
+			<div class="stats-readout" id="stats-readout">No log file loaded yet.</div>
+		</section>
+
+		<section class="range-bar" id="range-bar" hidden>
+			<label>
+				From
+				<input type="datetime-local" id="range-from" step="0.001" />
+			</label>
+			<label>
+				To
+				<input type="datetime-local" id="range-to" step="0.001" />
+			</label>
+			<label class="checkbox-label">
+				<input type="checkbox" id="show-chatter" />
+				Show connection chatter (register / devices)
+			</label>
+			<label class="checkbox-label">
+				<input type="checkbox" id="show-signaling" />
+				Show peer signaling
+			</label>
+		</section>
+
+		<main class="viz-main" id="viz-main" hidden>
+			<div class="viz-canvas">
+				<svg id="timeline-svg" class="timeline-svg" xmlns="http://www.w3.org/2000/svg"></svg>
+			</div>
+			<aside class="event-log-panel">
+				<h2>Event log</h2>
+				<div class="event-log-list" id="event-log-list"></div>
+			</aside>
+		</main>
+
+		<footer class="playback-bar" id="playback-bar" hidden>
+			<button type="button" id="play-pause-button">Play</button>
+			<select id="speed-select">
+				<option value="0.5">0.5×</option>
+				<option value="1" selected>1×</option>
+				<option value="2">2×</option>
+				<option value="5">5×</option>
+				<option value="20">20×</option>
+			</select>
+			<input type="range" id="scrubber" min="0" max="1000" value="0" />
+			<span class="time-readout" id="time-readout">--:--:--.---</span>
+		</footer>
+	</div>
+
+	<script type="module" src="./src/main.ts"></script>
+</body>
+</html>

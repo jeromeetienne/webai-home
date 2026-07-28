@@ -1,0 +1,83 @@
+import { z } from "zod";
+import type { LogEntry } from "@webai/protocol/message_logger";
+
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+//	Types
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+/** The result of parsing a `.jsonl` log file: the entries that parsed, and any lines that did not. */
+export interface ParseResult {
+	entries: LogEntry[];
+	lineErrors: string[];
+}
+
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+//	LogEntryParser — turns raw JSON Lines text into validated LogEntry objects
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+/**
+ * Parses the JSON Lines text written by `MessageLogger` (see `@webai/protocol/message_logger`)
+ * into an array of `LogEntry` objects, tolerating malformed or unrelated lines instead of
+ * failing the whole file.
+ */
+export class LogEntryParser {
+	private static readonly logEntrySchema = z.object({
+		timestamp: z.string(),
+		direction: z.enum(["received", "sent"]),
+		counterpart: z.object({
+			role: z.string(),
+			deviceId: z.string().optional(),
+		}),
+		messageType: z.string(),
+		payload: z.unknown(),
+	});
+
+	/**
+	 * @param text The full contents of a `.jsonl` log file.
+	 */
+	static parseJsonl(text: string): ParseResult {
+		const entries: LogEntry[] = [];
+		const lineErrors: string[] = [];
+		const lines: string[] = text.split("\n");
+
+		for (const [lineIndex, rawLine] of lines.entries()) {
+			const line: string = rawLine.trim();
+			if (line.length === 0) continue;
+
+			const parsed: LogEntry | undefined = LogEntryParser._parseLine(line, lineIndex, lineErrors);
+			if (parsed !== undefined) entries.push(parsed);
+		}
+
+		entries.sort((a: LogEntry, b: LogEntry): number => Date.parse(a.timestamp) - Date.parse(b.timestamp));
+		return { entries, lineErrors };
+	}
+
+	private static _parseLine(line: string, lineIndex: number, lineErrors: string[]): LogEntry | undefined {
+		let json: unknown;
+		try {
+			json = JSON.parse(line);
+		} catch {
+			lineErrors.push(`Line ${lineIndex + 1}: not valid JSON`);
+			return undefined;
+		}
+
+		const result = LogEntryParser.logEntrySchema.safeParse(json);
+		if (!result.success) {
+			lineErrors.push(`Line ${lineIndex + 1}: does not match the log entry shape`);
+			return undefined;
+		}
+
+		const data = result.data;
+		return {
+			timestamp: data.timestamp,
+			direction: data.direction,
+			counterpart: data.counterpart.deviceId !== undefined ? { role: data.counterpart.role, deviceId: data.counterpart.deviceId } : { role: data.counterpart.role },
+			messageType: data.messageType,
+			payload: data.payload,
+		};
+	}
+}

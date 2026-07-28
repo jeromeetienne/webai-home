@@ -6,6 +6,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev:server"],
       "port": 8787
+    },
+    {
+      "name": "log-visu",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--workspace", "@webai/log-visu"],
+      "port": 5173
     }
   ]
 }

@@ -1,0 +1,208 @@
+:root {
+	color-scheme: light dark;
+	--bg: #0f172a;
+	--panel-bg: #1e293b;
+	--border: #334155;
+	--text: #e2e8f0;
+	--text-muted: #94a3b8;
+	--accent: #38bdf8;
+	--neutral-packet: #64748b;
+}
+
+* {
+	box-sizing: border-box;
+}
+
+html, body {
+	margin: 0;
+	padding: 0;
+	height: 100%;
+	background: var(--bg);
+	color: var(--text);
+	font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.app {
+	display: flex;
+	flex-direction: column;
+	height: 100vh;
+}
+
+.app-header {
+	padding: 1rem 1.5rem 0.5rem;
+	border-bottom: 1px solid var(--border);
+}
+
+.app-header h1 {
+	margin: 0 0 0.25rem;
+	font-size: 1.4rem;
+}
+
+.subtitle {
+	margin: 0 0 0.75rem;
+	color: var(--text-muted);
+	font-size: 0.9rem;
+	max-width: 60rem;
+}
+
+.load-bar {
+	display: flex;
+	align-items: center;
+	gap: 1rem;
+	padding: 0.75rem 1.5rem;
+	border-bottom: 1px solid var(--border);
+}
+
+.drop-zone {
+	flex: 1;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 0.75rem;
+	border: 2px dashed var(--border);
+	border-radius: 0.5rem;
+	cursor: pointer;
+	color: var(--text-muted);
+	font-size: 0.9rem;
+	transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.drop-zone:hover, .drop-zone.drag-over {
+	border-color: var(--accent);
+	color: var(--text);
+}
+
+.drop-zone input[type="file"] {
+	display: none;
+}
+
+.stats-readout {
+	white-space: nowrap;
+	color: var(--text-muted);
+	font-size: 0.85rem;
+}
+
+.range-bar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 1.25rem;
+	padding: 0.6rem 1.5rem;
+	border-bottom: 1px solid var(--border);
+	font-size: 0.85rem;
+}
+
+.range-bar label {
+	display: flex;
+	align-items: center;
+	gap: 0.4rem;
+	color: var(--text-muted);
+}
+
+.checkbox-label {
+	cursor: pointer;
+}
+
+.viz-main {
+	flex: 1;
+	display: grid;
+	grid-template-columns: 1fr 320px;
+	min-height: 0;
+}
+
+.viz-canvas {
+	overflow: auto;
+	padding: 1rem;
+}
+
+.timeline-svg {
+	width: 100%;
+	min-height: 100%;
+	display: block;
+}
+
+.event-log-panel {
+	border-left: 1px solid var(--border);
+	background: var(--panel-bg);
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+}
+
+.event-log-panel h2 {
+	margin: 0;
+	padding: 0.75rem 1rem;
+	font-size: 0.95rem;
+	border-bottom: 1px solid var(--border);
+}
+
+.event-log-list {
+	flex: 1;
+	overflow-y: auto;
+	padding: 0.25rem 0;
+}
+
+.event-log-row {
+	display: flex;
+	flex-direction: column;
+	gap: 0.1rem;
+	padding: 0.35rem 0.75rem;
+	border-left: 3px solid var(--neutral-packet);
+	cursor: pointer;
+	font-size: 0.78rem;
+}
+
+.event-log-row:hover {
+	background: rgba(148, 163, 184, 0.12);
+}
+
+.event-log-row .row-time {
+	color: var(--text-muted);
+	font-size: 0.72rem;
+}
+
+.playback-bar {
+	display: flex;
+	align-items: center;
+	gap: 0.75rem;
+	padding: 0.6rem 1.5rem;
+	border-top: 1px solid var(--border);
+}
+
+.playback-bar #scrubber {
+	flex: 1;
+}
+
+.time-readout {
+	font-variant-numeric: tabular-nums;
+	color: var(--text-muted);
+	white-space: nowrap;
+	font-size: 0.85rem;
+}
+
+.actor-label {
+	fill: var(--text);
+	font-size: 12px;
+}
+
+.actor-sublabel {
+	fill: var(--text-muted);
+	font-size: 10px;
+}
+
+.lane-title {
+	fill: var(--text-muted);
+	font-size: 11px;
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+}
+
+.guide-line {
+	stroke: var(--border);
+	stroke-width: 1;
+}
+
+.packet-label {
+	fill: var(--text);
+	font-size: 10px;
+}
