@@ -103,8 +103,12 @@ const relayLogEntry = (socket: WebSocket, direction: "received" | "sent", messag
 	/** The active WebSocket connection, when the volunteer browser is connected. */
 	let socket: WebSocket | undefined;
 
-	// Set a random name for the volunteer browser, so multiple volunteers can be opened in the same browser without name conflicts.
-	nameInputEl.value = `browser-volunteer-${crypto.randomUUID().slice(0, 8)}`;
+	// Use the URL-provided name for embedded volunteer pages, and generate a random
+	// name for standalone pages so multiple volunteers can still be opened safely.
+	const volunteerNameFromUrl: string | null = new URLSearchParams(location.search).get("volunteerName");
+	nameInputEl.value = volunteerNameFromUrl?.trim()
+		? volunteerNameFromUrl
+		: `browser-volunteer-${crypto.randomUUID().slice(0, 8)}`;
 
 	/** Opens a WebSocket connection when the connect button is clicked. */
 	connectButtonEl.addEventListener("click", (): void => {
@@ -196,4 +200,7 @@ const relayLogEntry = (socket: WebSocket, direction: "received" | "sent", messag
 			socket.close(1000, "Disconnected by volunteer");
 		}
 	});
+
+	// Connect automatically once the page controls and event handlers are ready.
+	connectButtonEl.click();
 })();
