@@ -1,8 +1,8 @@
 # `@webai/task-client`
 
-Command-line client for submitting tasks to the central server.
+Command-line and web clients for submitting tasks to the central server.
 
-The task client connects over WebSocket, registers as an administrator client, submits one input value, prints task updates as JSON, and closes when the task completes, fails, or is rejected.
+Both interfaces connect over WebSocket, register as administrator clients, submit one input value, and show task updates until the task completes or fails.
 
 ## Run
 
@@ -22,6 +22,21 @@ Use `-t/--type` to choose the task type — `formula` (default, numeric input) o
 
 ```sh
 npm run dev --workspace @webai/task-client -- "hello there" --type llm
+```
+
+## Web page
+
+Start the Vite development server:
+
+```sh
+npm run web --workspace @webai/task-client
+```
+
+Open the displayed address, usually `http://localhost:5173`. Enter the central server WebSocket URL, select a task type, and submit an input. The web page can also be built and previewed:
+
+```sh
+npm run build --workspace @webai/task-client
+npm run preview --workspace @webai/task-client
 ```
 
 ## Build

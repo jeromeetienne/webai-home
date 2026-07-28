@@ -5,9 +5,11 @@
   "scripts": {
     "sample:formula": "node --import tsx src/cli.ts --type formula 5 | jq",
     "sample:llm": "node --import tsx src/cli.ts --type llm 'What is the capital of France?' | jq",
-    "build": "tsc -p tsconfig.json",
+    "build": "vite build && tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "dev": "tsx src/cli.ts",
+    "web": "vite",
+    "preview": "vite preview",
     "test": "node --import tsx --test tests/index.test.ts"
   },
   "dependencies": {
@@ -17,6 +19,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
-    "@types/ws": "^8.5.13"
+    "@types/ws": "^8.5.13",
+    "vite": "^6.4.3"
   }
 }
