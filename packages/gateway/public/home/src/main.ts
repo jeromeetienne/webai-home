@@ -45,7 +45,26 @@ const getElement = (selector: string): HTMLElement => {
 	return element;
 };
 
+const configureFoldablePanels = (): void => {
+	document.querySelectorAll<HTMLDetailsElement>("details[data-foldable-key]").forEach((panel) => {
+		const storageKey = `webai-gateway-panel:${panel.dataset.foldableKey ?? "unknown"}`;
+		try {
+			panel.open = window.localStorage.getItem(storageKey) === "open";
+		} catch {
+			panel.open = false;
+		}
+		panel.addEventListener("toggle", (): void => {
+			try {
+				window.localStorage.setItem(storageKey, panel.open ? "open" : "closed");
+			} catch {
+				// Local storage can be unavailable in privacy-restricted browsers.
+			}
+		});
+	});
+};
+
 ((): void => {
+	configureFoldablePanels();
 	const statusEl: HTMLElement = getElement("#status");
 	const statusBadgeEl: HTMLElement = getElement("#status-badge");
 	const workersEl: HTMLElement = getElement("#workers");
