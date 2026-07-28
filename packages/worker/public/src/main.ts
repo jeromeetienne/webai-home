@@ -123,6 +123,8 @@ const relayLogEntry = (socket: WebSocket, direction: "received" | "sent", messag
 	let socket: WebSocket | undefined;
 	/** The stages this worker browser advertises to the central gateway. */
 	const enabledStageNames = enabledStageNamesFromUrl(location.search);
+	/** Prevents another connection attempt while enabled LLM shards are preloading. */
+	let isPreparing = false;
 
 	// Use the URL-provided name for embedded worker pages, and generate a random
 	// name for standalone pages so multiple workers can still be opened safely.
@@ -132,10 +134,27 @@ const relayLogEntry = (socket: WebSocket, direction: "received" | "sent", messag
 		: `browser-worker-${crypto.randomUUID().slice(0, 8)}`;
 
 	/** Opens a WebSocket connection when the connect button is clicked. */
-	connectButtonEl.addEventListener("click", (): void => {
+	connectButtonEl.addEventListener("click", async (): Promise<void> => {
 
 		// Do not open a new connection if one is already open or in the process of opening.
-		if (socket && socket.readyState !== WebSocket.CLOSED) return;
+		if (isPreparing || (socket && socket.readyState !== WebSocket.CLOSED)) return;
+		isPreparing = true;
+		connectButtonEl.disabled = true;
+		statusEl.textContent = enabledStageNames.some((stageName) => StageLlmHelper.stageNames.includes(stageName))
+			? "Loading LLM shards"
+			: "Connecting";
+		statusEl.className = "badge text-bg-warning";
+		try {
+			await StageLlmHelper.preload(enabledStageNames);
+		} catch (error: unknown) {
+			isPreparing = false;
+			statusEl.textContent = "Shard loading failed";
+			statusEl.className = "badge text-bg-danger";
+			log({ type: "worker.error", message: error instanceof Error ? error.message : String(error) });
+			connectButtonEl.disabled = false;
+			return;
+		}
+		isPreparing = false;
 
 		// Open a WebSocket connection to the central gateway.
 		socket = new WebSocket(centralGatewayWebSocketUrl());

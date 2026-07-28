@@ -87,7 +87,7 @@ export class StageLlmHelper {
 	static readonly stageNames: StageName[] = ["stage_llm_shard1", "stage_llm_shard2", "stage_llm_shard3"];
 
 	/** The three ordered shard sessions: input, middle, and output. */
-	private static shardSessions: ShardSession[] = [];
+	private static shardSessions: Array<ShardSession | undefined> = [];
 	/** Tokenizer instance, once tokenizer data has loaded. */
 	private static tokenizer: Tokenizer | undefined;
 	/** Shared promise that prevents concurrent model loads. */
@@ -104,9 +104,10 @@ export class StageLlmHelper {
 	 * @returns The outgoing stage payload to send back as the stage result.
 	 */
 	static async compute(stageName: StageName, taskId: string, payload: LlmStagePayload): Promise<LlmStagePayload> {
-		await StageLlmHelper.loadModel();
+		await StageLlmHelper.loadModel([stageName]);
 		const shardIndex = StageLlmHelper.stageNames.indexOf(stageName);
 		const session = StageLlmHelper.shardSessions[shardIndex];
+		if (!session) throw new Error(`LLM shard ${shardIndex + 1} was not loaded.`);
 		const isFirstShard = shardIndex === 0;
 		const isFirstRound = isFirstShard && payload.inputIds === undefined;
 		const state = isFirstRound
@@ -161,6 +162,12 @@ export class StageLlmHelper {
 		StageLlmHelper.stateByTaskId.delete(taskId);
 	}
 
+	/** Preloads the LLM shards enabled for this worker before gateway connection. */
+	static preload(stageNames: readonly StageName[]): Promise<void> {
+		const enabledLlmStages = stageNames.filter((stageName) => StageLlmHelper.stageNames.includes(stageName));
+		return enabledLlmStages.length === 0 ? Promise.resolve() : StageLlmHelper.loadModel(enabledLlmStages);
+	}
+
 	/** Creates and stores fresh generation state for a task's first round. */
 	private static startTask(taskId: string): TaskGenerationState {
 		const state: TaskGenerationState = { caches: [undefined, undefined, undefined], generatedIds: [] };
@@ -171,8 +178,11 @@ export class StageLlmHelper {
 	/**
 	 * Loads the tokenizer and creates the three ONNX Runtime Web shard sessions once per page.
 	 */
-	private static async loadModel(): Promise<void> {
-		if (StageLlmHelper.shardSessions.length === 3 && StageLlmHelper.tokenizer) return;
+	private static async loadModel(stageNames: readonly StageName[]): Promise<void> {
+		const shardIndexes = [...new Set(stageNames
+			.map((stageName) => StageLlmHelper.stageNames.indexOf(stageName))
+			.filter((shardIndex) => shardIndex >= 0))];
+		if (shardIndexes.every((shardIndex) => StageLlmHelper.shardSessions[shardIndex]) && StageLlmHelper.tokenizer) return;
 		if (StageLlmHelper.loadPromise) return StageLlmHelper.loadPromise;
 
 		const hasWebGPU = "gpu" in navigator;
@@ -185,17 +195,15 @@ export class StageLlmHelper {
 				if (!response.ok) throw new Error(`Tokenizer configuration download failed (${response.status}).`);
 				return response.json();
 			}),
-			...SHARD_URLS.map((url) => StageLlmHelper.fetchModelBytes(url)),
+			...shardIndexes.map((shardIndex) => StageLlmHelper.fetchModelBytes(SHARD_URLS[shardIndex])),
 		]).then(async ([tokenizerJson, tokenizerConfig, ...shardBytes]) => {
 			StageLlmHelper.tokenizer = new Tokenizer(tokenizerJson, tokenizerConfig);
-			const sessions: ShardSession[] = [];
-			for (const bytes of shardBytes) {
-				sessions.push(await OnnxRuntimeWeb.InferenceSession.create(bytes, {
+			for (const [shardOffset, bytes] of shardBytes.entries()) {
+				StageLlmHelper.shardSessions[shardIndexes[shardOffset]] = await OnnxRuntimeWeb.InferenceSession.create(bytes, {
 					executionProviders: hasWebGPU ? ["webgpu", "wasm"] : ["wasm"],
 					graphOptimizationLevel: "all",
-				}));
+				});
 			}
-			StageLlmHelper.shardSessions = sessions;
 		}).catch((error: unknown) => {
 			StageLlmHelper.loadPromise = undefined;
 			throw error;
