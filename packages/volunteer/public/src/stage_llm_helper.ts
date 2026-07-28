@@ -1,6 +1,7 @@
 import * as OnnxRuntimeWeb from "onnxruntime-web";
 import { Tokenizer } from "@huggingface/tokenizers";
 import { StagePayloadFactory, type EncodedTensor, type LlmStagePayload, type StageName } from "@webai/protocol";
+import { centralServerAssetUrl } from "./server_config";
 
 /**
  * Adapts the proven shard-loading and tensor-handling logic from
@@ -20,9 +21,9 @@ import { StagePayloadFactory, type EncodedTensor, type LlmStagePayload, type Sta
 const MODEL_ID = "onnx-community/Qwen3-0.6B-ONNX";
 /** URLs for the three shards, served by the dev-only route added to packages/server/src/cli.ts. */
 const SHARD_URLS = [
-	"/onnxruntime_qwen3-0.6b-with-shards/shards/shard-1.onnx",
-	"/onnxruntime_qwen3-0.6b-with-shards/shards/shard-2.onnx",
-	"/onnxruntime_qwen3-0.6b-with-shards/shards/shard-3.onnx",
+	centralServerAssetUrl("/onnxruntime_qwen3-0.6b-with-shards/shards/shard-1.onnx"),
+	centralServerAssetUrl("/onnxruntime_qwen3-0.6b-with-shards/shards/shard-2.onnx"),
+	centralServerAssetUrl("/onnxruntime_qwen3-0.6b-with-shards/shards/shard-3.onnx"),
 ] as const;
 /** Direct URL for the tokenizer vocabulary and merge configuration. */
 const TOKENIZER_URL = `https://huggingface.co/${MODEL_ID}/resolve/main/tokenizer.json`;
@@ -69,7 +70,7 @@ const TYPED_ARRAY_BY_ONNX_TYPE: Record<string, new (buffer: ArrayBuffer) => Onnx
 	bool: Uint8Array,
 };
 
-OnnxRuntimeWeb.env.wasm.wasmPaths = "/";
+OnnxRuntimeWeb.env.wasm.wasmPaths = "/assets/";
 OnnxRuntimeWeb.env.logLevel = "fatal";
 
 /** Per-task generation state kept in memory for as long as that task's shards run on this device. */

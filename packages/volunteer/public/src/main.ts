@@ -4,6 +4,7 @@ export { };
 import type { StageName, StagePayload, ClientMessage } from "@webai/protocol";
 import { StageFormulaHelper } from "./stage_formula_helper";
 import { StageLlmHelper } from "./stage_llm_helper";
+import { centralServerWebSocketUrl } from "./server_config";
 
 /** A message received from the central server. */
 type ServerMessage = {
@@ -112,7 +113,7 @@ const relayLogEntry = (socket: WebSocket, direction: "received" | "sent", messag
 		if (socket && socket.readyState !== WebSocket.CLOSED) return;
 
 		// Open a WebSocket connection to the central server.
-		socket = new WebSocket(`${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}`);
+		socket = new WebSocket(centralServerWebSocketUrl());
 
 		// update ui
 		statusEl.textContent = "Connecting";

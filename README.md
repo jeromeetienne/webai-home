@@ -76,7 +76,7 @@ npm run dev:server
 npm run dev --workspace @webai/task-client -- 5
 ```
 
-Open `http://localhost:8787/volunteer` in two browser tabs and
+Start the standalone volunteer browser with `npm run dev --workspace @webai/volunteer`, then open its displayed URL in two browser tabs and
 `http://localhost:8787/admin` in an administrator browser tab. The prototype
 currently runs a formula pipeline whose first stage multiplies by `2` and
 whose second stage adds `7`.

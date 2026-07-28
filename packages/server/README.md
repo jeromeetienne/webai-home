@@ -23,8 +23,7 @@ npm run dev --workspace @webai/server -- --port 9000
 Each HTML page and its assets are stored in its own directory under `public/`. Browser TypeScript files use `src/main.ts`, and stylesheets use `css/main.css`.
 
 - `/` or `/admin` — administrator page.
-- `/volunteer` — volunteer browser page.
-- `/debug_iframe` — page that displays the administrator and volunteer pages in frames.
+- `/debug_iframe` — page that displays the administrator page and the standalone volunteer page in frames.
 - `/health` — JSON health response with the current volunteer count.
 
 ## Build and test
