@@ -71,7 +71,8 @@ export type ClientMessage =
   | { type: "task.get"; taskId: string }
   | { type: "stage.result"; taskId: string; stage: StageName; value: StagePayload }
   | { type: "stage.failed"; taskId: string; stage: StageName; error: string }
-  | { type: "signal"; to: string; data: unknown };
+  | { type: "signal"; to: string; data: unknown }
+  | { type: "log.entry"; direction: "received" | "sent"; messageType: string; timestamp: string; payload: unknown };
 
 export type ServerMessage =
   | { type: "registered"; deviceId: string }
