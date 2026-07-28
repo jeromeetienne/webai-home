@@ -22,9 +22,9 @@ const MAX_ROWS = 500;
  */
 export class EventLogPanel {
 	private readonly containerEl: HTMLElement;
-	private readonly onSeekRequested: (timeMs: number) => void;
+	private readonly onSeekRequested: (event: TimelineEvent) => void;
 
-	constructor(containerEl: HTMLElement, onSeekRequested: (timeMs: number) => void) {
+	constructor(containerEl: HTMLElement, onSeekRequested: (event: TimelineEvent) => void) {
 		this.containerEl = containerEl;
 		this.onSeekRequested = onSeekRequested;
 	}
@@ -57,7 +57,7 @@ export class EventLogPanel {
 		const rowEl: HTMLDivElement = document.createElement("div");
 		rowEl.className = "event-log-row";
 		rowEl.style.borderLeftColor = TimelineModel.colorForTaskId(event.taskId);
-		rowEl.addEventListener("click", (): void => this.onSeekRequested(event.timestampMs));
+		rowEl.addEventListener("click", (): void => this.onSeekRequested(event));
 
 		const timeEl: HTMLSpanElement = document.createElement("span");
 		timeEl.className = "row-time";
@@ -65,9 +65,25 @@ export class EventLogPanel {
 		rowEl.appendChild(timeEl);
 
 		const summaryEl: HTMLSpanElement = document.createElement("span");
-		summaryEl.textContent = `${event.fromActorId.split(":")[0]} → ${event.toActorId.split(":")[0]}: ${event.summary}`;
+		summaryEl.className = "event-log-summary";
+		const fromRole: string = event.fromActorId.split(":")[0];
+		const toRole: string = event.toActorId.split(":")[0];
+		summaryEl.append(
+			this._buildRolePill(fromRole),
+			document.createTextNode(" → "),
+			this._buildRolePill(toRole),
+			document.createTextNode(`: ${event.summary}`),
+		);
 		rowEl.appendChild(summaryEl);
 
 		return rowEl;
+	}
+
+	private _buildRolePill(role: string): HTMLSpanElement {
+		const rolePill: HTMLSpanElement = document.createElement("span");
+		const bootstrapColor: string = role === "consumer" ? "primary" : role === "gateway" ? "info" : role === "worker" ? "success" : "secondary";
+		rolePill.className = `badge rounded-pill text-bg-${bootstrapColor} role-pill`;
+		rolePill.textContent = role;
+		return rolePill;
 	}
 }

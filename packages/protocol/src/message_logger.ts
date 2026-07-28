@@ -12,7 +12,7 @@ export type LogDirection = "received" | "sent";
 
 /** The other side of a logged message. */
 export interface LogCounterpart {
-	/** The counterpart's role ("admin", "worker", "gateway", or "unknown" before it has registered). */
+	/** The counterpart's role ("consumer", "worker", "observer", "gateway", or "unknown" before it has registered). */
 	role: string;
 	/** The counterpart's device identifier, when one has been assigned. */
 	deviceId?: string;
@@ -39,7 +39,7 @@ export interface LogEntry {
 ///////////////////////////////////////////////////////////////////////////////
 
 /**
- * Records every message one actor (admin, gateway, or worker) sends and receives, as one
+ * Records every message one actor (consumer, gateway, or worker) sends and receives, as one
  * JSON object per line, so message traffic between actors can be reviewed afterward.
  *
  * Node.js only — a browser worker client cannot write files itself and instead relays

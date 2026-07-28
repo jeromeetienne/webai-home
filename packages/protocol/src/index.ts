@@ -66,7 +66,8 @@ export interface Task {
 }
 
 export type ClientMessage =
-  | { type: "register"; role: "worker" | "admin"; name: string; stageNames?: StageName[] }
+	| { type: "observe" }
+  | { type: "register"; role: "worker" | "consumer"; name: string; stageNames?: StageName[] }
   | { type: "task.submit"; input: TaskInput }
   | { type: "task.get"; taskId: string }
   | { type: "stage.result"; taskId: string; stage: StageName; value: StagePayload }
@@ -83,7 +84,7 @@ export type GatewayMessage =
   | { type: "devices"; devices: Device[] }
   | { type: "error"; message: string };
 
-export const DeviceRole = z.enum(["worker", "admin"]);
+export const DeviceRole = z.enum(["worker", "consumer"]);
 export type DeviceRole = z.infer<typeof DeviceRole>;
 
 export interface Device {

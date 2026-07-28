@@ -2,7 +2,7 @@
 
 Central HTTP and WebSocket gateway for the WebAI distributed formula pipeline.
 
-The gateway registers administrator and worker browser connections, assigns the `multiply` and `add` stages to worker browsers, tracks task progress, and relays signalling messages.
+The gateway registers consumer and worker browser connections, assigns the `multiply` and `add` stages to worker browsers, tracks task progress, and relays signalling messages. Its home page observes gateway activity without registering as a device.
 
 ## Run
 
@@ -22,8 +22,8 @@ npm run dev --workspace @webai/gateway -- --port 9000
 
 Each HTML page and its assets are stored in its own directory under `public/`. Browser TypeScript files use `src/main.ts`, and stylesheets use `css/main.css`.
 
-- `/` or `/admin` — administrator page.
-- `/debug_iframe` — page that displays the administrator page and the standalone worker page in frames.
+- `/` or `/home` — gateway home page.
+- `/debug_iframe` — page that displays the gateway home page and the standalone worker page in frames.
 - `/health` — JSON health response with the current worker count.
 
 ## Build and test

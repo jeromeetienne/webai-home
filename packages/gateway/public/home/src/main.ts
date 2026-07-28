@@ -26,14 +26,14 @@ const getElement = (selector: string): HTMLElement => {
 	const tasksEl: HTMLElement = getElement("#tasks");
 	const socketEl: WebSocket = new WebSocket(`${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}`);
 
-	socketEl.addEventListener("open", (): void => socketEl.send(JSON.stringify({ type: "register", role: "admin", name: "administrator" })));
+	socketEl.addEventListener("open", (): void => {
+		socketEl.send(JSON.stringify({ type: "observe" }));
+		statusEl.textContent = "Connected to the central gateway.";
+		statusBadgeEl.textContent = "Connected";
+		statusBadgeEl.className = "badge rounded-pill text-bg-success";
+	});
 	socketEl.addEventListener("message", (event: MessageEvent): void => {
 		const message: GatewayMessage = JSON.parse(event.data as string) as GatewayMessage;
-		if (message.type === "registered") {
-			statusEl.textContent = "Connected to the central gateway.";
-			statusBadgeEl.textContent = "Connected";
-			statusBadgeEl.className = "badge rounded-pill text-bg-success";
-		}
 		if (message.type === "devices" && message.devices) {
 			devicesEl.innerHTML = message.devices.filter((device: DeviceSummary) => device.deviceRole === "worker").map((device: DeviceSummary) => `<li>${device.name} (worker) — ${device.stageNames.join(", ")}</li>`).join("") || "<li>Waiting for worker browser tabs.</li>";
 		}

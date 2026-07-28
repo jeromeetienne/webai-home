@@ -1,7 +1,7 @@
 :root {
 	color-scheme: light dark;
 	--bg: #0f172a;
-	--panel-bg: #1e293b;
+	--panel-bg: #182337;
 	--border: #334155;
 	--text: #e2e8f0;
 	--text-muted: #94a3b8;
@@ -19,7 +19,7 @@ html, body {
 	height: 100%;
 	background: var(--bg);
 	color: var(--text);
-	font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+	font-family: var(--bs-body-font-family, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
 }
 
 .app {
@@ -29,38 +29,28 @@ html, body {
 }
 
 .app-header {
-	padding: 1rem 1.5rem 0.5rem;
+	padding: 1rem 0 0.75rem;
 	border-bottom: 1px solid var(--border);
 }
 
-.app-header h1 {
-	margin: 0 0 0.25rem;
-	font-size: 1.4rem;
-}
-
 .subtitle {
-	margin: 0 0 0.75rem;
 	color: var(--text-muted);
 	font-size: 0.9rem;
 	max-width: 60rem;
 }
 
 .load-bar {
-	display: flex;
-	align-items: center;
-	gap: 1rem;
-	padding: 0.75rem 1.5rem;
 	border-bottom: 1px solid var(--border);
 }
 
 .drop-zone {
-	flex: 1;
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	padding: 0.75rem;
+	min-height: 3rem;
+	padding: 0.75rem 1rem;
 	border: 2px dashed var(--border);
-	border-radius: 0.5rem;
+	border-radius: var(--bs-border-radius);
 	cursor: pointer;
 	color: var(--text-muted);
 	font-size: 0.9rem;
@@ -83,36 +73,33 @@ html, body {
 }
 
 .range-bar {
-	display: flex;
-	flex-wrap: wrap;
-	align-items: center;
-	gap: 1.25rem;
-	padding: 0.6rem 1.5rem;
 	border-bottom: 1px solid var(--border);
-	font-size: 0.85rem;
 }
 
-.range-bar label {
-	display: flex;
-	align-items: center;
-	gap: 0.4rem;
+.range-bar .form-label {
 	color: var(--text-muted);
+	font-size: 0.8rem;
+	margin-bottom: 0.3rem;
 }
 
-.checkbox-label {
-	cursor: pointer;
+.range-bar .form-check-label {
+	color: var(--text-muted);
+	font-size: 0.85rem;
 }
 
 .viz-main {
 	flex: 1;
-	display: grid;
-	grid-template-columns: 1fr 320px;
 	min-height: 0;
+	overflow: hidden;
+	flex-wrap: nowrap;
 }
 
 .viz-canvas {
 	overflow: auto;
 	padding: 1rem;
+	min-width: 0;
+	min-height: 0;
+	height: 100%;
 }
 
 .timeline-svg {
@@ -127,17 +114,17 @@ html, body {
 	display: flex;
 	flex-direction: column;
 	min-height: 0;
+	height: 100%;
 }
 
 .event-log-panel h2 {
-	margin: 0;
 	padding: 0.75rem 1rem;
-	font-size: 0.95rem;
 	border-bottom: 1px solid var(--border);
 }
 
 .event-log-list {
 	flex: 1;
+	min-height: 0;
 	overflow-y: auto;
 	padding: 0.25rem 0;
 }
@@ -161,16 +148,61 @@ html, body {
 	font-size: 0.72rem;
 }
 
+.event-log-summary {
+	line-height: 1.55;
+}
+
+.event-log-summary .role-pill {
+	font-size: 0.7rem;
+	vertical-align: 0.08em;
+}
+
 .playback-bar {
+	border-top: 1px solid var(--border);
 	display: flex;
 	align-items: center;
 	gap: 0.75rem;
-	padding: 0.6rem 1.5rem;
+}
+
+.keyboard-help {
 	border-top: 1px solid var(--border);
+}
+
+.keyboard-help kbd {
+	color: var(--bs-dark);
+}
+
+.playback-bar button {
+	width: 2.5rem;
+	height: 2.25rem;
+	padding: 0;
+	font-size: 1.25rem;
+	line-height: 1;
+}
+
+.speed-select {
+	width: 5rem;
+}
+
+.packet-duration-select {
+	width: 8.5rem;
+}
+
+.loop-check {
+	white-space: nowrap;
 }
 
 .playback-bar #scrubber {
 	flex: 1;
+	--range-progress: 0%;
+}
+
+.playback-bar #scrubber::-webkit-slider-runnable-track {
+	background: linear-gradient(to right, var(--accent) 0 var(--range-progress), var(--bs-light) var(--range-progress) 100%);
+}
+
+.playback-bar #scrubber::-moz-range-track {
+	background: linear-gradient(to right, var(--accent) 0 var(--range-progress), var(--bs-light) var(--range-progress) 100%);
 }
 
 .time-readout {
@@ -205,4 +237,17 @@ html, body {
 .packet-label {
 	fill: var(--text);
 	font-size: 10px;
+}
+
+@media (max-width: 991.98px) {
+	.viz-main {
+		overflow: auto;
+		flex-wrap: wrap;
+	}
+
+	.event-log-panel {
+		min-height: 14rem;
+		border-left: 0;
+		border-top: 1px solid var(--border);
+	}
 }

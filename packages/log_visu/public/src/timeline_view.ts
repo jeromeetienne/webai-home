@@ -13,7 +13,6 @@ const ROW_HEIGHT = 100;
 const TOP_MARGIN = 60;
 const NODE_RADIUS = 22;
 const MIN_HEIGHT = 260;
-const PACKET_DURATION_MS = 700;
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -48,7 +47,7 @@ export class TimelineView {
 		const height = Math.max(MIN_HEIGHT, TOP_MARGIN + rowCount * ROW_HEIGHT + 40);
 		this.svgEl.setAttribute("viewBox", `0 0 800 ${height}`);
 
-		this._drawLaneTitle("Clients", COLUMN_X["left"]!);
+		this._drawLaneTitle("Consumers", COLUMN_X["left"]!);
 		this._drawLaneTitle("Gateways", COLUMN_X["center"]!);
 		this._drawLaneTitle("Workers", COLUMN_X["right"]!);
 
@@ -72,8 +71,10 @@ export class TimelineView {
 		this.svgEl.appendChild(this.packetLayerEl);
 	}
 
-	/** Spawns a short animated packet traveling from the event's source actor to its destination. */
-	spawnPacket(event: TimelineEvent): void {
+	/** Draws the packet at an exact point in its visual journey, including while scrubbing. */
+	setPlaybackFrame(event: TimelineEvent | undefined, progress: number): void {
+		this.packetLayerEl.replaceChildren();
+		if (event === undefined) return;
 		const from: ActorPosition | undefined = this.positionsByActorId.get(event.fromActorId);
 		const to: ActorPosition | undefined = this.positionsByActorId.get(event.toActorId);
 		if (from === undefined || to === undefined) return;
@@ -90,21 +91,30 @@ export class TimelineView {
 		labelEl.setAttribute("class", "packet-label");
 		labelEl.setAttribute("text-anchor", "middle");
 		labelEl.setAttribute("y", "-10");
-		labelEl.textContent = event.messageType;
+		if (event.messageType === "task.submit") {
+			const taskSubmitDetails: RegExpMatchArray | null = event.summary.match(/^submits a task_type_([^:]+): (.*)$/);
+			const firstLineEl: SVGTSpanElement = document.createElementNS(SVG_NS, "tspan");
+			firstLineEl.setAttribute("x", "0");
+			firstLineEl.textContent = event.messageType;
+			labelEl.appendChild(firstLineEl);
+
+			const secondLineEl: SVGTSpanElement = document.createElementNS(SVG_NS, "tspan");
+			secondLineEl.setAttribute("x", "0");
+			secondLineEl.setAttribute("dy", "1.2em");
+			secondLineEl.textContent = taskSubmitDetails === null ? event.summary : `${taskSubmitDetails[1]}: ${taskSubmitDetails[2]}`;
+			labelEl.appendChild(secondLineEl);
+		} else {
+			labelEl.textContent = event.messageType;
+		}
 		groupEl.appendChild(labelEl);
 
+		const clampedProgress: number = Math.min(1, Math.max(0, progress));
+		const x: number = from.x + (to.x - from.x) * clampedProgress;
+		const y: number = from.y + (to.y - from.y) * clampedProgress;
+		const opacity: number = clampedProgress < 0.1 ? clampedProgress / 0.1 : clampedProgress > 0.9 ? (1 - clampedProgress) / 0.1 : 1;
+		groupEl.setAttribute("transform", `translate(${x} ${y})`);
+		groupEl.setAttribute("opacity", String(opacity));
 		this.packetLayerEl.appendChild(groupEl);
-
-		const animation = groupEl.animate(
-			[
-				{ transform: `translate(${from.x}px, ${from.y}px)`, opacity: 0 },
-				{ transform: `translate(${from.x}px, ${from.y}px)`, opacity: 1, offset: 0.1 },
-				{ transform: `translate(${to.x}px, ${to.y}px)`, opacity: 1, offset: 0.9 },
-				{ transform: `translate(${to.x}px, ${to.y}px)`, opacity: 0 },
-			],
-			{ duration: PACKET_DURATION_MS, easing: "ease-in-out" },
-		);
-		animation.addEventListener("finish", (): void => groupEl.remove());
 	}
 
 	///////////////////////////////////////////////////////////////////////////////

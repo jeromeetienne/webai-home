@@ -2,7 +2,7 @@
 
 Command-line and web clients for submitting tasks to the central gateway.
 
-Both interfaces connect over WebSocket, register as administrator clients, submit one input value, and show task updates until the task completes or fails.
+Both interfaces connect over WebSocket, register as consumer clients, submit one input value, and show task updates until the task completes or fails.
 
 ## Run
 

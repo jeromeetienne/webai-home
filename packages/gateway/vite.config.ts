@@ -6,7 +6,7 @@ export default defineConfig({
 	build: {
 		rollupOptions: {
 			input: {
-				admin: resolve(import.meta.dirname, "public/admin/index.html"),
+				home: resolve(import.meta.dirname, "public/home/index.html"),
 				debugIframe: resolve(import.meta.dirname, "public/debug_iframe/index.html"),
 			},
 		},

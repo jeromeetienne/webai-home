@@ -62,7 +62,7 @@ partitioning across very different devices.
 ## Repository layout
 
 - `packages/gateway` — coordinator HTTP and WebSocket gateway, scheduling, and
-  administrator and worker pages.
+  home and worker pages.
 - `packages/protocol` — shared message and task definitions with validation.
 - `packages/consumer` — command-line client for submitting test tasks.
 - `packages/onnx_experiments` — browser experiments for ONNX Runtime Web.
@@ -77,7 +77,7 @@ npm run dev --workspace @webai/consumer -- 5
 ```
 
 Start the standalone worker browser with `npm run dev --workspace @webai/worker`, then open its displayed URL in two browser tabs and
-`http://localhost:8787/admin` in an administrator browser tab. The prototype
+`http://localhost:8787/home` in a gateway home browser tab. The prototype
 currently runs a formula pipeline whose first stage multiplies by `2` and
 whose second stage adds `7`.
 

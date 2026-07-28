@@ -30,6 +30,7 @@ const port = Number(options.port);
 const deviceRegistry = new DeviceRegistry();
 const taskStore = new TaskStore();
 const socketMap = new Map<string, WebSocket>();
+const observerDeviceIds = new Set<string>();
 
 // Logs this gateway's own message traffic (one file per run), plus one log file per
 // connected worker, relayed to us since a browser page cannot write files itself.
@@ -65,6 +66,7 @@ function workerMessageLogger(deviceId: string): MessageLogger {
  */
 function counterpartFor(deviceId: string, registerMessage?: ClientMessage): LogCounterpart {
 	if (registerMessage?.type === "register") return { role: registerMessage.role, deviceId };
+	if (observerDeviceIds.has(deviceId)) return { role: "observer", deviceId };
 	const device = deviceRegistry.get(deviceId);
 	return { role: device?.deviceRole ?? "unknown", deviceId };
 }
@@ -77,7 +79,9 @@ function counterpartFor(deviceId: string, registerMessage?: ClientMessage): LogC
  * @param counterpart - Who the message is being sent to.
  */
 function send(socket: WebSocket, message: GatewayMessage, counterpart: LogCounterpart): void {
-	gatewayMessageLogger.log("sent", counterpart, message.type, message);
+	if (![...observerDeviceIds].some((deviceId): boolean => socketMap.get(deviceId) === socket)) {
+		gatewayMessageLogger.log("sent", counterpart, message.type, message);
+	}
 	if (socket.readyState === socket.OPEN) {
 		socket.send(JSON.stringify(message));
 	}
@@ -172,6 +176,11 @@ function broadcastTask(taskId: string): void {
  * @param message - The client message to process.
  */
 function handle(socket: WebSocket, deviceId: string, message: ClientMessage): void {
+	if (message.type === "observe") {
+		observerDeviceIds.add(deviceId);
+		send(socket, { type: "devices", devices: workerDevices() }, counterpartFor(deviceId));
+		return;
+	}
 	if (message.type === "register") {
 		const existingDevice = message.role === "worker"
 			? deviceRegistry.findByName(message.name, "worker")
@@ -330,8 +339,8 @@ const viteDevServer = isProduction
 		appType: "custom",
 	});
 const pageRoutes: Record<string, string> = {
-	"/": "admin/index.html",
-	"/admin": "admin/index.html",
+	"/": "home/index.html",
+	"/home": "home/index.html",
 	"/debug_iframe": "debug_iframe/index.html",
 };
 const assetContentTypeByExtension: Record<string, string> = {
@@ -456,7 +465,7 @@ websocketServer.on("connection", (socket) => {
 	socket.on("message", (raw) => {
 		try {
 			const message = JSON.parse(raw.toString()) as ClientMessage;
-			gatewayMessageLogger.log("received", counterpartFor(deviceId, message), message.type, message);
+			if (message.type !== "observe") gatewayMessageLogger.log("received", counterpartFor(deviceId, message), message.type, message);
 			handle(socket, deviceId, message);
 		} catch {
 			send(socket, {
@@ -467,6 +476,7 @@ websocketServer.on("connection", (socket) => {
 	});
 	socket.on("close", () => {
 		socketMap.delete(deviceId);
+		observerDeviceIds.delete(deviceId);
 		deviceRegistry.remove(deviceId);
 		updateDevices();
 	});

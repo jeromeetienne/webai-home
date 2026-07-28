@@ -71,7 +71,7 @@ const SIGNALING_MESSAGE_TYPES: ReadonlySet<string> = new Set(["signal"]);
  * Turns one or more merged log sources into the actor nodes and timeline events the
  * diagram animates. Each source (typically one gateway run's log file) gets its own
  * gateway node in the center lane, so several runs can be viewed side by side; every
- * distinct admin or worker device gets its own node too, so each is clearly
+ * distinct consumer or worker device gets its own node too, so each is clearly
  * separated from the others. Resolves each message's task identifier where the wire
  * protocol does not carry one directly (`task.submit`), and assigns a stable color per
  * task so a viewer can visually follow one task's whole journey.
@@ -291,7 +291,7 @@ export class TimelineModel {
 				id: actorId,
 				role: kind,
 				deviceId,
-				label: kind === "admin" ? "Client (admin)" : kind === "worker" ? "Worker" : "Unregistered device",
+				label: kind === "consumer" ? "Consumer" : kind === "worker" ? "Worker" : "Unregistered device",
 				sublabel: deviceId !== undefined ? deviceId.replace("device-", "").slice(0, 8) : undefined,
 				column,
 				row: 0,
