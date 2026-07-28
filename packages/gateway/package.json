@@ -1,0 +1,25 @@
+{
+  "name": "@webai/gateway",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "vite build && tsc -p tsconfig.build.json",
+    "start": "NODE_ENV=production node dist/cli.js",
+    "typecheck": "tsc -p tsconfig.json",
+    "dev": "tsx watch src/cli.ts",
+    "test": "node --import tsx --test tests/index.test.ts"
+  },
+  "dependencies": {
+    "@huggingface/tokenizers": "^0.1.3",
+    "@webai/protocol": "0.1.0",
+    "commander": "^12.1.0",
+    "onnxruntime-web": "^1.27.0",
+    "ws": "^8.18.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/ws": "^8.5.13",
+    "vite": "^6.4.3"
+  }
+}

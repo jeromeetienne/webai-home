@@ -1,8 +1,8 @@
-# webai-home
+# webai-at-home
 
 ## Goal
 
-`webai-home` explores whether idle web browsers can work together to run a
+`webai-at-home` explores whether idle web browsers can work together to run a
 large language model that is too large for any one volunteer device.
 
 The project treats computing time as a form of contribution. A person should
@@ -40,7 +40,7 @@ as a Central Processing Unit fallback.
 
 ## Why batch work
 
-`webai-home` is not intended to provide live chat response times. A generous
+`webai-at-home` is not intended to provide live chat response times. A generous
 deadline makes volunteer computing practical:
 
 - disconnected tabs can be replaced;
@@ -51,7 +51,7 @@ deadline makes volunteer computing practical:
 ## Current state
 
 This repository contains early experiments and a minimal distributed pipeline.
-The current server prototype assigns two simple formula stages to volunteer
+The current gateway prototype assigns two simple formula stages to worker
 browsers. The ONNX experiments test running model work directly in browsers,
 including a small Iris classifier and larger model experiments.
 
@@ -61,10 +61,10 @@ partitioning across very different devices.
 
 ## Repository layout
 
-- `packages/server` — coordinator HTTP and WebSocket server, scheduling, and
-  administrator and volunteer pages.
+- `packages/gateway` — coordinator HTTP and WebSocket gateway, scheduling, and
+  administrator and worker pages.
 - `packages/protocol` — shared message and task definitions with validation.
-- `packages/task_client` — command-line client for submitting test tasks.
+- `packages/consumer` — command-line client for submitting test tasks.
 - `packages/onnx_experiments` — browser experiments for ONNX Runtime Web.
 - `packages/tiny_iris_classifier` — small end-to-end browser inference example.
 
@@ -72,11 +72,11 @@ partitioning across very different devices.
 
 ```sh
 npm install
-npm run dev:server
-npm run dev --workspace @webai/task-client -- 5
+npm run dev:gateway
+npm run dev --workspace @webai/consumer -- 5
 ```
 
-Start the standalone volunteer browser with `npm run dev --workspace @webai/volunteer`, then open its displayed URL in two browser tabs and
+Start the standalone worker browser with `npm run dev --workspace @webai/worker`, then open its displayed URL in two browser tabs and
 `http://localhost:8787/admin` in an administrator browser tab. The prototype
 currently runs a formula pipeline whose first stage multiplies by `2` and
 whose second stage adds `7`.
@@ -89,5 +89,5 @@ connections. Measurements from that proof of concept will show whether the
 pipeline remains useful under real device churn, memory limits, and network
 latency.
 
-See [issue #1](https://github.com/jeromeetienne/webai-home/issues/1) for the
+See [issue #1](https://github.com/jeromeetienne/webai-at-home/issues/1) for the
 full project concept and its open questions.

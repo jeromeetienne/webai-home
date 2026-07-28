@@ -69,9 +69,9 @@ const SIGNALING_MESSAGE_TYPES: ReadonlySet<string> = new Set(["signal"]);
 
 /**
  * Turns one or more merged log sources into the actor nodes and timeline events the
- * diagram animates. Each source (typically one server run's log file) gets its own
- * server node in the center lane, so several runs can be viewed side by side; every
- * distinct admin or volunteer device gets its own node too, so each is clearly
+ * diagram animates. Each source (typically one gateway run's log file) gets its own
+ * gateway node in the center lane, so several runs can be viewed side by side; every
+ * distinct admin or worker device gets its own node too, so each is clearly
  * separated from the others. Resolves each message's task identifier where the wire
  * protocol does not carry one directly (`task.submit`), and assigns a stable color per
  * task so a viewer can visually follow one task's whole journey.
@@ -88,7 +88,7 @@ export class TimelineModel {
 		const firstSeenByActorId: Map<string, number> = new Map();
 
 		for (const source of sources) {
-			const selfActorId = `server:${source.id}`;
+			const selfActorId = `gateway:${source.id}`;
 			const wireEntries: LogEntry[] = source.entries.filter((entry: LogEntry): boolean => entry.messageType !== "log.entry");
 			const submitTaskIds: Map<number, string> = TimelineModel._resolveSubmitTaskIds(wireEntries);
 
@@ -167,7 +167,7 @@ export class TimelineModel {
 	}
 
 	/**
-	 * `task.submit` carries no task identifier of its own — the server mints one and
+	 * `task.submit` carries no task identifier of its own — the gateway mints one and
 	 * returns it in the `task.accepted` reply. This matches each submit with the next
 	 * `task.accepted` sent back to the same device, so the submit can still be colored
 	 * and grouped with the rest of its task's events.
@@ -271,12 +271,12 @@ export class TimelineModel {
 		for (const actorId of visibleActorIds) {
 			const [kind, idPart] = actorId.split(":") as [string, string];
 
-			if (kind === "server") {
+			if (kind === "gateway") {
 				actors.push({
 					id: actorId,
-					role: "server",
+					role: "gateway",
 					deviceId: undefined,
-					label: sourceLabelById.get(idPart) ?? "Server",
+					label: sourceLabelById.get(idPart) ?? "Gateway",
 					sublabel: undefined,
 					column: "center",
 					row: 0,
@@ -286,12 +286,12 @@ export class TimelineModel {
 			}
 
 			const deviceId: string | undefined = idPart === "unregistered" ? undefined : idPart;
-			const column: LaneColumn = kind === "volunteer" ? "right" : "left";
+			const column: LaneColumn = kind === "worker" ? "right" : "left";
 			actors.push({
 				id: actorId,
 				role: kind,
 				deviceId,
-				label: kind === "admin" ? "Client (admin)" : kind === "volunteer" ? "Volunteer" : "Unregistered device",
+				label: kind === "admin" ? "Client (admin)" : kind === "worker" ? "Worker" : "Unregistered device",
 				sublabel: deviceId !== undefined ? deviceId.replace("device-", "").slice(0, 8) : undefined,
 				column,
 				row: 0,

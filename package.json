@@ -1,11 +1,11 @@
 {
-  "name": "webai-home",
+  "name": "webai-at-home",
   "private": true,
   "workspaces": ["packages/*"],
   "scripts": {
-    "build": "npm run build --workspace @webai/protocol && npm run build --workspace @webai/server && npm run build --workspace @webai/task-client",
-    "dev": "npm run dev --workspace @webai/volunteer",
-    "dev:server": "npm run dev --workspace @webai/server",
+    "build": "npm run build --workspace @webai/protocol && npm run build --workspace @webai/gateway && npm run build --workspace @webai/consumer",
+    "dev": "npm run dev --workspace @webai/worker",
+    "dev:gateway": "npm run dev --workspace @webai/gateway",
     "test": "npm run test --workspaces"
   },
   "devDependencies": {

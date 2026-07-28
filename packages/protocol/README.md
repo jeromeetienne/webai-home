@@ -6,7 +6,7 @@ Shared message and data definitions for the WebAI distributed formula pipeline.
 
 - `TaskInput`, `Task`, and task state definitions.
 - `Device` definitions.
-- Client-to-server and server-to-client WebSocket message types.
+- Client-to-gateway and gateway-to-client WebSocket message types.
 - Zod validation for finite numeric task input.
 
 ## Build

@@ -2,9 +2,9 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "webai-server",
+      "name": "webai-gateway",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev:server"],
+      "runtimeArgs": ["run", "dev:gateway"],
       "port": 8787
     },
     {

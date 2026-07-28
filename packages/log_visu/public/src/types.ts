@@ -12,7 +12,7 @@ export type LaneColumn = "left" | "center" | "right";
 /** What an event is about, used to decide default visibility and packet color. */
 export type EventCategory = "task" | "chatter" | "signaling";
 
-/** One participant drawn in the diagram: the server itself, a client (admin), or a volunteer. */
+/** One participant drawn in the diagram: the gateway itself, a client (admin), or a worker. */
 export interface ActorNode {
 	id: string;
 	role: string;
@@ -57,8 +57,8 @@ export interface ActorPosition {
 
 /**
  * One loaded log file: the entries it recorded from its own point of view (e.g. one
- * server run, or one admin run), identified so several files can be merged into a single
- * diagram while still showing each as its own node — e.g. one node per server restart.
+ * gateway run, or one admin run), identified so several files can be merged into a single
+ * diagram while still showing each as its own node — e.g. one node per gateway restart.
  */
 export interface LogSource {
 	id: string;

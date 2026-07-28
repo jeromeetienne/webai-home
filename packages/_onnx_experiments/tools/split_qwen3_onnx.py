@@ -207,7 +207,7 @@ def export_graph(source: onnx.ModelProto, destination: Path, inputs: list[str], 
     # used by ONNX Runtime for the quantised Qwen3 graph.
     model = helper.make_model(
         graph,
-        producer_name="webai-home Qwen3 shard exporter",
+        producer_name="webai-at-home Qwen3 shard exporter",
         ir_version=source.ir_version,
     )
     del model.opset_import[:]

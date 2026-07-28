@@ -10,14 +10,14 @@ import NodeUrl from "node:url";
 
 /**
  * Deletes every `.jsonl` message log file written by any participant — the
- * server's own log, the relayed volunteer logs it keeps alongside its own, and
- * the admin (task client) logs — so a fresh capture starts from a clean slate
+ * gateway's own log, the relayed worker logs it keeps alongside its own, and
+ * the admin (consumer) logs — so a fresh capture starts from a clean slate
  * instead of the log flow visualizer picking up stale traffic from earlier runs.
  */
 export class CleanLogs {
 	private static readonly LOG_DIRECTORIES: readonly string[] = [
-		NodeUrl.fileURLToPath(new URL("../../server/logs", import.meta.url)),
-		NodeUrl.fileURLToPath(new URL("../../task_client/logs", import.meta.url)),
+		NodeUrl.fileURLToPath(new URL("../../gateway/logs", import.meta.url)),
+		NodeUrl.fileURLToPath(new URL("../../consumer/logs", import.meta.url)),
 	];
 
 	static run(): void {

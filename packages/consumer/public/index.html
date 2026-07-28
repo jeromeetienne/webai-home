@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+	<title>WebAI Consumer</title>
+	<link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+	<main class="shell">
+		<header><p class="eyebrow">WebAI consumer</p><h1>Run a task</h1><p class="intro">Submit work to the central gateway and follow every state change in one place.</p></header>
+		<section class="card">
+			<label>Central gateway WebSocket URL<input id="url" value="ws://localhost:8787" /></label>
+			<label>Task type<select id="type"><option value="formula">Formula</option><option value="llm">Large-language-model prompt</option></select></label>
+			<label id="input-label">Number<input id="input" placeholder="5" /></label>
+			<button id="submit" type="button">Connect and submit</button>
+			<p id="status" class="status">Disconnected</p>
+		</section>
+		<section class="card"><div class="section-heading"><h2>Latest task</h2><button id="clear" type="button" class="quiet">Clear</button></div><pre id="task">No task submitted yet.</pre></section>
+	</main>
+	<script type="module" src="./src/main.ts"></script>
+</body>
+</html>

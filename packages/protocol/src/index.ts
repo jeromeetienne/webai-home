@@ -24,7 +24,7 @@ export type TaskInput = z.infer<typeof TaskInput>;
 /**
  * A named tensor carried inside a stage payload, encoded as text so it can travel
  * inside a JSON message. This is the probe encoding for the step-0 de-risking test
- * in https://github.com/jeromeetienne/webai-home/issues/9 — not a final format.
+ * in https://github.com/jeromeetienne/webai-at-home/issues/9 — not a final format.
  */
 export interface EncodedTensor {
   dims: number[];
@@ -66,7 +66,7 @@ export interface Task {
 }
 
 export type ClientMessage =
-  | { type: "register"; role: "volunteer" | "admin"; name: string; stageNames?: StageName[] }
+  | { type: "register"; role: "worker" | "admin"; name: string; stageNames?: StageName[] }
   | { type: "task.submit"; input: TaskInput }
   | { type: "task.get"; taskId: string }
   | { type: "stage.result"; taskId: string; stage: StageName; value: StagePayload }
@@ -74,7 +74,7 @@ export type ClientMessage =
   | { type: "signal"; to: string; data: unknown }
   | { type: "log.entry"; direction: "received" | "sent"; messageType: string; timestamp: string; payload: unknown };
 
-export type ServerMessage =
+export type GatewayMessage =
   | { type: "registered"; deviceId: string }
   | { type: "task.accepted"; task: Task }
   | { type: "task.updated"; task: Task }
@@ -83,7 +83,7 @@ export type ServerMessage =
   | { type: "devices"; devices: Device[] }
   | { type: "error"; message: string };
 
-export const DeviceRole = z.enum(["volunteer", "admin"]);
+export const DeviceRole = z.enum(["worker", "admin"]);
 export type DeviceRole = z.infer<typeof DeviceRole>;
 
 export interface Device {

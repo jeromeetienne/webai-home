@@ -220,9 +220,9 @@ class LogVisuApp {
 		this.controller.setTimeline(events, rangeMs);
 
 		const taskCount: number = new Set(events.map((event: TimelineEvent): string | undefined => event.taskId).filter((taskId): taskId is string => taskId !== undefined)).size;
-		const serverCount: number = actors.filter((actor): boolean => actor.column === "center").length;
-		const volunteerCount: number = actors.filter((actor): boolean => actor.column === "right").length;
-		this.statsReadoutEl.textContent = `${events.length} messages in range · ${taskCount} task(s) · ${serverCount} server run(s) · ${volunteerCount} volunteer(s)`;
+		const gatewayCount: number = actors.filter((actor): boolean => actor.column === "center").length;
+		const workerCount: number = actors.filter((actor): boolean => actor.column === "right").length;
+		this.statsReadoutEl.textContent = `${events.length} messages in range · ${taskCount} task(s) · ${gatewayCount} gateway run(s) · ${workerCount} worker(s)`;
 	}
 
 	private _onTimeUpdate(currentTimeMs: number): void {

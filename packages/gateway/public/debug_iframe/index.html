@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>WebAI iframe debug</title>
+    <link rel="stylesheet" href="/debug_iframe/css/main.css">
+</head>
+
+<body>
+    <iframe class="admin-frame" src="/" title="WebAI admin page"></iframe>
+
+    <div class="worker-column">
+        <iframe src="http://localhost:5173/?gatewayUrl=http%3A%2F%2Flocalhost%3A8787&workerName=worker1"
+            title="WebAI worker 1 page"></iframe>
+        <!-- <iframe src="http://localhost:5173/?gatewayUrl=http%3A%2F%2Flocalhost%3A8787&workerName=worker2"
+            title="WebAI worker 2 page"></iframe>
+        <iframe src="http://localhost:5173/?gatewayUrl=http%3A%2F%2Flocalhost%3A8787&workerName=worker3"
+            title="WebAI worker 3 page"></iframe> -->
+    </div>
+</body>
+
+</html>

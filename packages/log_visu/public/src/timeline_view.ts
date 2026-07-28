@@ -24,7 +24,7 @@ const PACKET_DURATION_MS = 700;
 /**
  * Renders the swimlane diagram into an `<svg>` element: a static scaffold of actor
  * nodes and guide lines, plus short-lived animated packets spawned for each event
- * as playback reaches it. The center lane can hold several server nodes at once —
+ * as playback reaches it. The center lane can hold several gateway nodes at once —
  * one per loaded log source — so multiple runs are visibly separated rather than
  * collapsed into a single node.
  */
@@ -49,8 +49,8 @@ export class TimelineView {
 		this.svgEl.setAttribute("viewBox", `0 0 800 ${height}`);
 
 		this._drawLaneTitle("Clients", COLUMN_X["left"]!);
-		this._drawLaneTitle("Servers", COLUMN_X["center"]!);
-		this._drawLaneTitle("Volunteers", COLUMN_X["right"]!);
+		this._drawLaneTitle("Gateways", COLUMN_X["center"]!);
+		this._drawLaneTitle("Workers", COLUMN_X["right"]!);
 
 		for (const actor of actors) {
 			const y: number = TOP_MARGIN + actor.row * ROW_HEIGHT + ROW_HEIGHT / 2;

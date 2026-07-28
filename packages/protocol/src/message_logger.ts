@@ -12,7 +12,7 @@ export type LogDirection = "received" | "sent";
 
 /** The other side of a logged message. */
 export interface LogCounterpart {
-	/** The counterpart's role ("admin", "volunteer", "server", or "unknown" before it has registered). */
+	/** The counterpart's role ("admin", "worker", "gateway", or "unknown" before it has registered). */
 	role: string;
 	/** The counterpart's device identifier, when one has been assigned. */
 	deviceId?: string;
@@ -39,12 +39,12 @@ export interface LogEntry {
 ///////////////////////////////////////////////////////////////////////////////
 
 /**
- * Records every message one actor (admin, server, or volunteer) sends and receives, as one
+ * Records every message one actor (admin, gateway, or worker) sends and receives, as one
  * JSON object per line, so message traffic between actors can be reviewed afterward.
  *
- * Node.js only — a browser volunteer client cannot write files itself and instead relays
- * its log entries to the server over the existing connection (see the `log.entry` client
- * message in `index.ts`), which appends them to that volunteer's own log file on its behalf.
+ * Node.js only — a browser worker client cannot write files itself and instead relays
+ * its log entries to the gateway over the existing connection (see the `log.entry` client
+ * message in `index.ts`), which appends them to that worker's own log file on its behalf.
  */
 export class MessageLogger {
 	private readonly logFilePath: string;
@@ -66,7 +66,7 @@ export class MessageLogger {
 	 * @param messageType The message's `type` field.
 	 * @param payload The full message body.
 	 * @param timestamp The moment the message was received or sent. Defaults to now; a
-	 * volunteer-relayed entry passes the moment it actually happened in the browser instead.
+	 * worker-relayed entry passes the moment it actually happened in the browser instead.
 	 */
 	log(
 		direction: LogDirection,
