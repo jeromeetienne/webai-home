@@ -342,6 +342,8 @@ const pageRoutes: Record<string, string> = {
 	"/": "home/index.html",
 	"/home": "home/index.html",
 	"/debug_iframe": "debug_iframe/index.html",
+	"/debug_iframe_formula": "debug_iframe_formula/index.html",
+	"/debug_iframe_llm": "debug_iframe_llm/index.html",
 };
 const assetContentTypeByExtension: Record<string, string> = {
 	".js": "application/javascript; charset=utf-8",

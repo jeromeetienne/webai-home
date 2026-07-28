@@ -10,3 +10,11 @@ npm start
 During development, use `npm run dev`. The page connects to the central gateway at
 `http://localhost:8787` by default. Use `?gatewayUrl=http://host:port` to connect to a
 different central gateway.
+
+Worker pages can receive multiple enabled stages through repeated URL parameters. For example:
+
+```text
+?gatewayUrl=http://localhost:8787&workerName=formula-worker&enabledStages=stage_formula_multiply&enabledStages=stage_formula_add
+```
+
+When no enabled stages are provided, the worker advertises all available formula and language-model stages.

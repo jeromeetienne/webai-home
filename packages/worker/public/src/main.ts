@@ -1,10 +1,29 @@
 /** Keep this browser script as a module so its declarations stay local to the page. */
 export { };
 
-import type { StageName, StagePayload, ClientMessage } from "@webai/protocol";
+import { StageName, type StageName as StageNameType, type StagePayload, type ClientMessage } from "@webai/protocol";
 import { StageFormulaHelper } from "./stage_formula_helper";
 import { StageLlmHelper } from "./stage_llm_helper";
 import { centralGatewayWebSocketUrl } from "./gateway_config";
+
+/**
+ * Reads the stages enabled for this worker browser from the page URL.
+ * Repeating the parameter allows one worker browser to support multiple stages.
+ * The stageNames alias keeps existing debug URLs working.
+ */
+export const enabledStageNamesFromUrl = (search: string): StageNameType[] => {
+	const searchParams = new URLSearchParams(search);
+	const requestedStageNames = [
+		...searchParams.getAll("enabledStages"),
+		...searchParams.getAll("stageNames"),
+	];
+	const validStageNames = requestedStageNames.filter((stageName): stageName is StageNameType =>
+		StageName.safeParse(stageName).success,
+	);
+	return validStageNames.length > 0
+		? [...new Set(validStageNames)]
+		: [...StageFormulaHelper.stageNames, ...StageLlmHelper.stageNames];
+};
 
 /** A message received from the central gateway. */
 type GatewayMessage = {
@@ -102,6 +121,8 @@ const relayLogEntry = (socket: WebSocket, direction: "received" | "sent", messag
 	const disconnectButtonEl: HTMLButtonElement = getButton("#disconnect");
 	/** The active WebSocket connection, when the worker browser is connected. */
 	let socket: WebSocket | undefined;
+	/** The stages this worker browser advertises to the central gateway. */
+	const enabledStageNames = enabledStageNamesFromUrl(location.search);
 
 	// Use the URL-provided name for embedded worker pages, and generate a random
 	// name for standalone pages so multiple workers can still be opened safely.
@@ -135,7 +156,7 @@ const relayLogEntry = (socket: WebSocket, direction: "received" | "sent", messag
 				type: "register",
 				role: "worker",
 				name: nameInputEl.value,
-				stageNames: [...StageFormulaHelper.stageNames, ...StageLlmHelper.stageNames]
+				stageNames: enabledStageNames,
 			};
 			if (socket) relayLogEntry(socket, "sent", message);
 			socket?.send(JSON.stringify(message));

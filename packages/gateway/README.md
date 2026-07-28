@@ -24,6 +24,8 @@ Each HTML page and its assets are stored in its own directory under `public/`. B
 
 - `/` or `/home` — gateway home page.
 - `/debug_iframe` — page that displays the gateway home page and the standalone worker page in frames.
+- `/debug_iframe_formula` — formula-specific debug page with separate multiply and add worker frames.
+- `/debug_iframe_llm` — language-model debug page with one worker frame for each shard.
 - `/health` — JSON health response with the current worker count.
 
 ## Build and test
