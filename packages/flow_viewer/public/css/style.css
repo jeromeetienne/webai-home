@@ -156,6 +156,12 @@ html, body {
 .lane-title { fill: #6c757d; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
 .guide-line { stroke: #d8e0eb; stroke-width: 1.5; }
 .packet-label { fill: #495057; font-size: 10px; }
+.event-packet { cursor: pointer; }
+.event-packet:focus { outline: none; stroke: #212529; stroke-width: 2; }
+
+.event-details-body { position: relative; }
+.event-details-toolbar { display: flex; justify-content: flex-end; margin-bottom: 0.5rem; }
+.event-details-json { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text); font-size: 0.82rem; }
 
 @media (max-width: 991.98px) {
 	.viz-main { overflow: auto; flex-wrap: wrap; }

@@ -30,11 +30,13 @@ const MIN_HEIGHT = 260;
 export class TimelineView {
 	private readonly svgEl: SVGSVGElement;
 	private readonly packetLayerEl: SVGGElement;
+	private readonly onEventClick: (event: TimelineEvent) => void;
 	private positionsByActorId: Map<string, ActorPosition>;
 
-	constructor(svgEl: SVGSVGElement) {
+	constructor(svgEl: SVGSVGElement, onEventClick: (event: TimelineEvent) => void) {
 		this.svgEl = svgEl;
 		this.packetLayerEl = document.createElementNS(SVG_NS, "g");
+		this.onEventClick = onEventClick;
 		this.positionsByActorId = new Map();
 	}
 
@@ -86,6 +88,20 @@ export class TimelineView {
 		const dotEl: SVGCircleElement = document.createElementNS(SVG_NS, "circle");
 		dotEl.setAttribute("r", "6");
 		dotEl.setAttribute("fill", color);
+		dotEl.setAttribute("class", "event-packet");
+		dotEl.setAttribute("tabindex", "0");
+		dotEl.setAttribute("role", "button");
+		dotEl.setAttribute("aria-label", `Show ${event.messageType} event`);
+		dotEl.addEventListener("click", (domEvent: MouseEvent): void => {
+			domEvent.stopPropagation();
+			this.onEventClick(event);
+		});
+		dotEl.addEventListener("keydown", (domEvent: KeyboardEvent): void => {
+			if (domEvent.key !== "Enter" && domEvent.key !== " ") return;
+			domEvent.preventDefault();
+			domEvent.stopPropagation();
+			this.onEventClick(event);
+		});
 		groupEl.appendChild(dotEl);
 
 		const labelEl: SVGTextElement = document.createElementNS(SVG_NS, "text");

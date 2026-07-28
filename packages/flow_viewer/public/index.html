@@ -89,6 +89,22 @@
 				</div>
 			</div>
 		</div>
+		<div class="modal fade" id="event-details-modal" tabindex="-1" aria-labelledby="event-details-title" aria-hidden="true">
+			<div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+				<div class="modal-content text-dark">
+					<div class="modal-header">
+						<h2 class="modal-title fs-5" id="event-details-title">Event details</h2>
+						<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+					</div>
+					<div class="modal-body event-details-body">
+						<div class="event-details-toolbar">
+							<button class="btn btn-sm btn-outline-secondary" type="button" id="copy-event-button">Copy</button>
+						</div>
+						<pre id="event-details-body" class="event-details-json mb-0"></pre>
+					</div>
+				</div>
+			</div>
+		</div>
 
 		<footer class="playback-bar container-fluid py-2" id="playback-bar" hidden>
 			<div class="d-flex align-items-center gap-2">

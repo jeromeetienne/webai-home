@@ -129,6 +129,7 @@ export class TimelineModel {
 				events.push({
 					index: events.length,
 					timestampMs,
+					logEntry: entry,
 					direction: entry.direction,
 					fromActorId,
 					toActorId,

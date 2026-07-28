@@ -28,6 +28,8 @@ export interface ActorNode {
 export interface TimelineEvent {
 	index: number;
 	timestampMs: number;
+	/** The complete log entry represented by this event, including its payload. */
+	logEntry: LogEntry;
 	direction: LogDirection;
 	fromActorId: string;
 	toActorId: string;
