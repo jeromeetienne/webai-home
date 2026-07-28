@@ -14,22 +14,22 @@ import SAMPLE_LOG_TEXT from "../../fixtures/sample-gateway-log.jsonl?raw";
 ///////////////////////////////////////////////////////////////////////////////
 
 const SESSION_API_PATH = "/api/session.json";
-const SPEED_STORAGE_KEY = "webai-log-visu-speed";
+const SPEED_STORAGE_KEY = "webai-flow-viewer-speed";
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
-//	LogVisuApp — wires the session loader, range/filter controls, diagram, and playback
+//	FlowViewerApp — wires the session loader, range/filter controls, diagram, and playback
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
 /**
- * Top-level controller for the log flow visualizer page. On startup it tries to fetch
- * a session already prepared by the `log-visu` CLI (every log file merged and the time
+ * Top-level controller for the flow_viewer page. On startup it tries to fetch
+ * a session already prepared by the `flow_viewer` CLI (every log file merged and the time
  * range and filters chosen on the command line) so viewing a capture is ready immediately;
  * playback remains paused until the user starts it. Dropping a `.jsonl` file onto the page
  * remains available as a manual fallback for ad hoc use.
  */
-class LogVisuApp {
+class FlowViewerApp {
 	private readonly dropZoneEl: HTMLElement;
 	private readonly fileInputEl: HTMLInputElement;
 	private readonly statsReadoutEl: HTMLElement;
@@ -59,28 +59,28 @@ class LogVisuApp {
 	private isScrubbing: boolean;
 
 	constructor() {
-		this.dropZoneEl = LogVisuApp._getElement("#drop-zone");
-		this.fileInputEl = LogVisuApp._getElement<HTMLInputElement>("#log-file-input");
-		this.statsReadoutEl = LogVisuApp._getElement("#stats-readout");
-		this.rangeBarEl = LogVisuApp._getElement("#range-bar");
-		this.rangeFromEl = LogVisuApp._getElement<HTMLInputElement>("#range-from");
-		this.rangeToEl = LogVisuApp._getElement<HTMLInputElement>("#range-to");
-		this.showChatterEl = LogVisuApp._getElement<HTMLInputElement>("#show-chatter");
-		this.showSignalingEl = LogVisuApp._getElement<HTMLInputElement>("#show-signaling");
-		this.vizMainEl = LogVisuApp._getElement("#viz-main");
-		this.playbackBarEl = LogVisuApp._getElement("#playback-bar");
-		this.keyboardHelpTriggerEl = LogVisuApp._getElement<HTMLButtonElement>("#keyboard-help-trigger");
-		this.keyboardHelpModalEl = LogVisuApp._getElement("#keyboard-help-modal");
-		this.playPauseButtonEl = LogVisuApp._getElement<HTMLButtonElement>("#play-pause-button");
-		this.stopButtonEl = LogVisuApp._getElement<HTMLButtonElement>("#stop-button");
-		this.speedSelectEl = LogVisuApp._getElement<HTMLSelectElement>("#speed-select");
-		this.packetDurationSelectEl = LogVisuApp._getElement<HTMLSelectElement>("#packet-duration-select");
-		this.loopPlaybackEl = LogVisuApp._getElement<HTMLInputElement>("#loop-playback");
-		this.scrubberEl = LogVisuApp._getElement<HTMLInputElement>("#scrubber");
-		this.timeReadoutEl = LogVisuApp._getElement("#time-readout");
+		this.dropZoneEl = FlowViewerApp._getElement("#drop-zone");
+		this.fileInputEl = FlowViewerApp._getElement<HTMLInputElement>("#log-file-input");
+		this.statsReadoutEl = FlowViewerApp._getElement("#stats-readout");
+		this.rangeBarEl = FlowViewerApp._getElement("#range-bar");
+		this.rangeFromEl = FlowViewerApp._getElement<HTMLInputElement>("#range-from");
+		this.rangeToEl = FlowViewerApp._getElement<HTMLInputElement>("#range-to");
+		this.showChatterEl = FlowViewerApp._getElement<HTMLInputElement>("#show-chatter");
+		this.showSignalingEl = FlowViewerApp._getElement<HTMLInputElement>("#show-signaling");
+		this.vizMainEl = FlowViewerApp._getElement("#viz-main");
+		this.playbackBarEl = FlowViewerApp._getElement("#playback-bar");
+		this.keyboardHelpTriggerEl = FlowViewerApp._getElement<HTMLButtonElement>("#keyboard-help-trigger");
+		this.keyboardHelpModalEl = FlowViewerApp._getElement("#keyboard-help-modal");
+		this.playPauseButtonEl = FlowViewerApp._getElement<HTMLButtonElement>("#play-pause-button");
+		this.stopButtonEl = FlowViewerApp._getElement<HTMLButtonElement>("#stop-button");
+		this.speedSelectEl = FlowViewerApp._getElement<HTMLSelectElement>("#speed-select");
+		this.packetDurationSelectEl = FlowViewerApp._getElement<HTMLSelectElement>("#packet-duration-select");
+		this.loopPlaybackEl = FlowViewerApp._getElement<HTMLInputElement>("#loop-playback");
+		this.scrubberEl = FlowViewerApp._getElement<HTMLInputElement>("#scrubber");
+		this.timeReadoutEl = FlowViewerApp._getElement("#time-readout");
 
-		this.view = new TimelineView(LogVisuApp._getElement<SVGSVGElement>("#timeline-svg"));
-		this.eventLogPanel = new EventLogPanel(LogVisuApp._getElement("#event-log-list"), (event: TimelineEvent): void => this.controller.seekToEvent(event));
+		this.view = new TimelineView(FlowViewerApp._getElement<SVGSVGElement>("#timeline-svg"));
+		this.eventLogPanel = new EventLogPanel(FlowViewerApp._getElement("#event-log-list"), (event: TimelineEvent): void => this.controller.seekToEvent(event));
 		this.controller = new PlaybackController({
 			onSeek: (eventsUpToNow: TimelineEvent[]): void => this.eventLogPanel.showEventsUpTo(eventsUpToNow),
 			onTimeUpdate: (visualTimeMs: number, logTimeMs: number, activeSegment: PlaybackSegment | undefined, packetProgress: number): void => {
@@ -137,7 +137,7 @@ class LogVisuApp {
 		});
 		this.loopPlaybackEl.addEventListener("change", (): void => this.controller.setLoop(this.loopPlaybackEl.checked));
 		document.addEventListener("keydown", (event: KeyboardEvent): void => {
-			if (LogVisuApp._isFormControl(event.target)) return;
+			if (FlowViewerApp._isFormControl(event.target)) return;
 			if (event.key === "?") {
 				event.preventDefault();
 				if (this.keyboardHelpModalEl.classList.contains("show")) {
@@ -186,7 +186,7 @@ class LogVisuApp {
 	///////////////////////////////////////////////////////////////////////////////
 
 	/**
-	 * Loads the session the `log-visu` CLI prepared, if any. When the CLI started this
+	 * Loads the session the `flow_viewer` CLI prepared, if any. When the CLI started this
 	 * page it wrote every merged log source and the initial range and filter choices to
 	 * `/api/session.json` before opening the browser, so the whole diagram is ready to
 	 * watch without picking a file or typing a date by hand. Playback starts paused.
@@ -215,12 +215,12 @@ class LogVisuApp {
 		this.fullRangeMs = TimelineModel.computeFullRangeMs(session.sources);
 		if (this.fullRangeMs === undefined) return;
 
-		this.rangeFromEl.min = LogVisuApp._toDatetimeLocalValue(this.fullRangeMs.fromMs);
-		this.rangeFromEl.max = LogVisuApp._toDatetimeLocalValue(this.fullRangeMs.toMs);
+		this.rangeFromEl.min = FlowViewerApp._toDatetimeLocalValue(this.fullRangeMs.fromMs);
+		this.rangeFromEl.max = FlowViewerApp._toDatetimeLocalValue(this.fullRangeMs.toMs);
 		this.rangeToEl.min = this.rangeFromEl.min;
 		this.rangeToEl.max = this.rangeFromEl.max;
-		this.rangeFromEl.value = LogVisuApp._toDatetimeLocalValue(session.initialState.fromMs);
-		this.rangeToEl.value = LogVisuApp._toDatetimeLocalValue(session.initialState.toMs);
+		this.rangeFromEl.value = FlowViewerApp._toDatetimeLocalValue(session.initialState.fromMs);
+		this.rangeToEl.value = FlowViewerApp._toDatetimeLocalValue(session.initialState.toMs);
 		this.showChatterEl.checked = session.initialState.showChatter;
 		this.showSignalingEl.checked = session.initialState.showSignaling;
 		this._selectSpeed(this._getInitialSpeed(session.initialState.speed));
@@ -239,8 +239,8 @@ class LogVisuApp {
 		this.fullRangeMs = TimelineModel.computeFullRangeMs(this.sources);
 		if (this.fullRangeMs === undefined) return;
 
-		this.rangeFromEl.value = LogVisuApp._toDatetimeLocalValue(this.fullRangeMs.fromMs);
-		this.rangeToEl.value = LogVisuApp._toDatetimeLocalValue(this.fullRangeMs.toMs);
+		this.rangeFromEl.value = FlowViewerApp._toDatetimeLocalValue(this.fullRangeMs.fromMs);
+		this.rangeToEl.value = FlowViewerApp._toDatetimeLocalValue(this.fullRangeMs.toMs);
 		this._selectSpeed(this._getInitialSpeed(1));
 		this.rangeBarEl.hidden = false;
 		this.vizMainEl.hidden = false;
@@ -290,8 +290,8 @@ class LogVisuApp {
 		this.rangeFromEl.removeAttribute("max");
 		this.rangeToEl.removeAttribute("min");
 		this.rangeToEl.removeAttribute("max");
-		this.rangeFromEl.value = LogVisuApp._toDatetimeLocalValue(this.fullRangeMs.fromMs);
-		this.rangeToEl.value = LogVisuApp._toDatetimeLocalValue(this.fullRangeMs.toMs);
+		this.rangeFromEl.value = FlowViewerApp._toDatetimeLocalValue(this.fullRangeMs.fromMs);
+		this.rangeToEl.value = FlowViewerApp._toDatetimeLocalValue(this.fullRangeMs.toMs);
 
 		this.rangeBarEl.hidden = false;
 		this.vizMainEl.hidden = false;
@@ -307,8 +307,8 @@ class LogVisuApp {
 		if (this.fullRangeMs === undefined) return;
 
 		const rangeMs: TimeRangeMs = {
-			fromMs: LogVisuApp._fromDatetimeLocalValue(this.rangeFromEl.value) ?? this.fullRangeMs.fromMs,
-			toMs: LogVisuApp._fromDatetimeLocalValue(this.rangeToEl.value) ?? this.fullRangeMs.toMs,
+			fromMs: FlowViewerApp._fromDatetimeLocalValue(this.rangeFromEl.value) ?? this.fullRangeMs.fromMs,
+			toMs: FlowViewerApp._fromDatetimeLocalValue(this.rangeToEl.value) ?? this.fullRangeMs.toMs,
 		};
 		const filters: CategoryFilters = {
 			showChatter: this.showChatterEl.checked,
@@ -396,4 +396,4 @@ class LogVisuApp {
 	}
 }
 
-new LogVisuApp().start();
+new FlowViewerApp().start();

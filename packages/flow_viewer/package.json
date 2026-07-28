@@ -1,9 +1,10 @@
 {
-  "name": "@webai/log-visu",
+  "name": "@webai/flow-viewer",
   "private": true,
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "flow_viewer": "tsx src/cli.ts",
     "cli": "tsx src/cli.ts",
     "clean:logs": "tsx src/clean_logs.ts",
     "dev": "vite",

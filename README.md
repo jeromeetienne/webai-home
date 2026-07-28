@@ -65,6 +65,7 @@ partitioning across very different devices.
   home and worker pages.
 - `packages/protocol` — shared message and task definitions with validation.
 - `packages/consumer` — command-line client for submitting test tasks.
+- `packages/flow_viewer` — flow_viewer for inspecting recorded message traffic.
 - `packages/onnx_experiments` — browser experiments for ONNX Runtime Web.
 - `packages/tiny_iris_classifier` — small end-to-end browser inference example.
 

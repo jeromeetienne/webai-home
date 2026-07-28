@@ -12,7 +12,7 @@ import NodeUrl from "node:url";
  * Deletes every `.jsonl` message log file written by any participant — the
  * gateway's own log, the relayed worker logs it keeps alongside its own, and
  * the consumer logs — so a fresh capture starts from a clean slate
- * instead of the log flow visualizer picking up stale traffic from earlier runs.
+ * instead of flow_viewer picking up stale traffic from earlier runs.
  */
 export class CleanLogs {
 	private static readonly LOG_DIRECTORIES: readonly string[] = [

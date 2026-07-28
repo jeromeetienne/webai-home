@@ -27,19 +27,20 @@ interface CliOptions {
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
-//	MainHelper — the `log-visu` CLI: merges log files and serves a ready-to-watch page
+//	MainHelper — the `flow_viewer` CLI: merges log files and serves a ready-to-watch page
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
 /**
  * Loads one or more gateway message log files, merges them into a single session
  * (each file keeping its own gateway node so multiple runs stay visually separated),
- * and serves the visualizer page with that session already loaded — and, by default,
+ * and serves the flow_viewer page with that session already loaded — and, by default,
  * already playing — so watching a capture takes one command line and no clicking.
  */
 export class MainHelper {
 	static async run(args: string[] = process.argv.slice(2)): Promise<void> {
 		const command = new Commander.Command()
+			.name("flow_viewer")
 			.argument("[files...]", "log files to merge (defaults to every packages/gateway/logs/gateway-*.jsonl file)")
 			.option("--logs-dir <dir>", "directory to scan for gateway-*.jsonl files when no files are given")
 			.option("--from <datetime>", "start of the time range to show (defaults to the earliest message loaded)")
@@ -83,7 +84,7 @@ export class MainHelper {
 		for (const source of sources) console.log(`  - ${source.label}: ${source.entries.length} message(s)`);
 
 		const url: string = await MainHelper._serve(session, Number(options.port));
-		console.log(`\nServing the visualizer at ${url}`);
+		console.log(`\nServing flow_viewer at ${url}`);
 		if (options.open) MainHelper._openBrowser(url);
 	}
 
