@@ -322,6 +322,7 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 const isProduction = process.env.NODE_ENV === "production";
 const publicDirectory = join(dirname(fileURLToPath(import.meta.url)), "../public");
 const buildDirectory = join(publicDirectory, "dist");
+const volunteerBuildDirectory = join(dirname(fileURLToPath(import.meta.url)), "../../volunteer/dist");
 const viteDevServer = isProduction
 	? undefined
 	: await (await import("vite")).createServer({
@@ -333,6 +334,7 @@ const pageRoutes: Record<string, string> = {
 	"/": "admin/index.html",
 	"/admin": "admin/index.html",
 	"/volunteer": "volunteer/index.html",
+	"/volunteer/": "volunteer/index.html",
 	"/debug_iframe": "debug_iframe/index.html",
 };
 const assetContentTypeByExtension: Record<string, string> = {
@@ -373,6 +375,24 @@ function sendBuiltAsset(response: ServerResponse, pathname: string): boolean {
 		response.setHeader(
 			"content-type",
 			assetContentTypeByExtension[extname(assetPath)] ?? "application/octet-stream",
+		);
+		response.end(readFileSync(assetPath));
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+/** Serves the standalone volunteer package's production browser files. */
+function sendVolunteerAsset(response: ServerResponse, pathname: string): boolean {
+	if (!pathname.startsWith("/volunteer/")) return false;
+	const relativePath = pathname.slice("/volunteer/".length) || "index.html";
+	const assetPath = join(volunteerBuildDirectory, relativePath);
+	if (!assetPath.startsWith(volunteerBuildDirectory + sep)) return false;
+	try {
+		response.setHeader(
+			"content-type",
+			assetContentTypeByExtension[extname(assetPath)] ?? "text/html; charset=utf-8",
 		);
 		response.end(readFileSync(assetPath));
 		return true;
@@ -426,6 +446,11 @@ const httpServer = createHttpServer((request, response) => {
 
 	const pageSourcePath = pageRoutes[pathname];
 	if (pageSourcePath) {
+		if (isProduction && (pathname === "/volunteer" || pathname === "/volunteer/")) {
+			response.setHeader("content-type", "text/html; charset=utf-8");
+			response.end(readFileSync(join(volunteerBuildDirectory, "index.html")));
+			return;
+		}
 		sendPage(response, pathname, pageSourcePath).catch((error: unknown) => console.error(error));
 		return;
 	}
@@ -437,6 +462,7 @@ const httpServer = createHttpServer((request, response) => {
 		}));
 		return;
 	}
+	if (isProduction && sendVolunteerAsset(response, pathname)) return;
 	if (viteDevServer) {
 		viteDevServer.middlewares(request, response, () => {
 			response.statusCode = 404;
