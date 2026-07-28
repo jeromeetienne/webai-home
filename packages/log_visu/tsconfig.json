@@ -1,6 +1,8 @@
 {
-    "extends": "../../tsconfig.json",
     "compilerOptions": {
+        "target": "ES2022",
+        "module": "esnext",
+        "moduleResolution": "bundler",
         "lib": [
             "ES2022",
             "DOM",
@@ -9,7 +11,17 @@
         "types": [
             "vite/client",
             "node"
-        ]
+        ],
+        "strict": true,
+        "noImplicitReturns": true,
+        "noFallthroughCasesInSwitch": true,
+        "exactOptionalPropertyTypes": true,
+        "esModuleInterop": true,
+        "skipLibCheck": true,
+        "forceConsistentCasingInFileNames": true,
+        "resolveJsonModule": true,
+        "isolatedModules": true,
+        "noEmit": true
     },
     "include": [
         "public/src",

@@ -5,8 +5,8 @@
   "scripts": {
     "sample:formula": "node --import tsx src/cli.ts --type formula 5 | jq",
     "sample:llm": "node --import tsx src/cli.ts --type llm 'What is the capital of France?' | jq",
-    "build": "vite build && tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "vite build && tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json",
     "dev": "tsx src/cli.ts",
     "web": "vite",
     "preview": "vite preview",
