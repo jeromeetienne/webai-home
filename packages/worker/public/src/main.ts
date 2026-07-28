@@ -29,6 +29,7 @@ export const enabledStageNamesFromUrl = (search: string): StageNameType[] => {
 type GatewayMessage = {
 	/** The message category. */
 	type: string;
+	deviceId?: string;
 	/** The task identifier for a stage message. */
 	taskId?: string;
 	/** The stage for a stage message. */
@@ -36,6 +37,24 @@ type GatewayMessage = {
 	/** The value for a stage message: a plain number for formula stages, or an LLM payload. */
 	value?: StagePayload;
 };
+
+type WorkerEvent = {
+	direction: "sent" | "received" | "local";
+	type: string;
+	timestamp: string;
+	taskId?: string;
+	stage?: string;
+	message?: string;
+};
+
+const maximumDisplayedEvents = 10;
+
+const escapeHtml = (value: string): string => value
+	.replaceAll("&", "&amp;")
+	.replaceAll("<", "&lt;")
+	.replaceAll(">", "&gt;")
+	.replaceAll('"', "&quot;")
+	.replaceAll("'", "&#039;");
 
 /**
  * Finds a required HTML element.
@@ -84,10 +103,19 @@ const getButton = (selector: string): HTMLButtonElement => {
  *
  * @param value The value to format and append to the log.
  */
-const log = (value: unknown): void => {
-	/** The log element shown on the worker page. */
-	const output: HTMLElement = getElement("#log");
-	output.textContent += `${output.textContent === "No messages yet." ? "" : "\n"}${JSON.stringify(value, null, 2)}`;
+const formatTime = (timestamp: string): string => new Date(timestamp).toLocaleTimeString();
+
+const renderEvents = (events: WorkerEvent[]): void => {
+	const output: HTMLElement = getElement("#events");
+	output.innerHTML = events.length === 0
+		? '<p class="text-secondary mb-0">No events yet.</p>'
+		: events.slice(-maximumDisplayedEvents).reverse().map((event) => {
+			const details = [event.taskId ? `Task ${event.taskId}` : "", event.stage ?? "", event.message ?? ""]
+				.filter(Boolean)
+				.map(escapeHtml)
+				.join(" · ");
+			return `<article class="event-item"><div class="d-flex justify-content-between gap-3"><strong>${escapeHtml(event.type)}</strong><time class="text-secondary">${escapeHtml(formatTime(event.timestamp))}</time></div><div class="small text-secondary">${escapeHtml(event.direction)}${details ? ` · ${details}` : ""}</div></article>`;
+		}).join("");
 };
 
 /**
@@ -119,12 +147,21 @@ const relayLogEntry = (socket: WebSocket, direction: "received" | "sent", messag
 	const connectButtonEl: HTMLButtonElement = getButton("#connect");
 	/** The button that closes the worker browser connection. */
 	const disconnectButtonEl: HTMLButtonElement = getButton("#disconnect");
+	const workerNameEl: HTMLElement = getElement("#worker-name");
+	const deviceIdEl: HTMLElement = getElement("#device-id");
+	const stagesEl: HTMLElement = getElement("#stages");
 	/** The active WebSocket connection, when the worker browser is connected. */
 	let socket: WebSocket | undefined;
 	/** The stages this worker browser advertises to the central gateway. */
 	const enabledStageNames = enabledStageNamesFromUrl(location.search);
 	/** Prevents another connection attempt while enabled LLM shards are preloading. */
 	let isPreparing = false;
+	const events: WorkerEvent[] = [];
+	const addEvent = (event: WorkerEvent): void => {
+		events.push(event);
+		if (events.length > maximumDisplayedEvents) events.splice(0, events.length - maximumDisplayedEvents);
+		renderEvents(events);
+	};
 
 	// Use the URL-provided name for embedded worker pages, and generate a random
 	// name for standalone pages so multiple workers can still be opened safely.
@@ -132,6 +169,9 @@ const relayLogEntry = (socket: WebSocket, direction: "received" | "sent", messag
 	nameInputEl.value = workerNameFromUrl?.trim()
 		? workerNameFromUrl
 		: `browser-worker-${crypto.randomUUID().slice(0, 8)}`;
+	workerNameEl.textContent = nameInputEl.value;
+	stagesEl.innerHTML = enabledStageNames.map((stageName) => `<span class="badge text-bg-light border">${escapeHtml(stageName)}</span>`).join("");
+	renderEvents(events);
 
 	/** Opens a WebSocket connection when the connect button is clicked. */
 	connectButtonEl.addEventListener("click", async (): Promise<void> => {
@@ -150,7 +190,7 @@ const relayLogEntry = (socket: WebSocket, direction: "received" | "sent", messag
 			isPreparing = false;
 			statusEl.textContent = "Shard loading failed";
 			statusEl.className = "badge text-bg-danger";
-			log({ type: "worker.error", message: error instanceof Error ? error.message : String(error) });
+			addEvent({ direction: "local", type: "worker.error", timestamp: new Date().toISOString(), message: error instanceof Error ? error.message : String(error) });
 			connectButtonEl.disabled = false;
 			return;
 		}
@@ -179,13 +219,21 @@ const relayLogEntry = (socket: WebSocket, direction: "received" | "sent", messag
 			};
 			if (socket) relayLogEntry(socket, "sent", message);
 			socket?.send(JSON.stringify(message));
+			addEvent({ direction: "sent", type: message.type, timestamp: new Date().toISOString() });
 		});
 
 		/** Handles messages received from the central gateway. */
 		socket.addEventListener("message", (event: MessageEvent): void => {
 			/** The decoded gateway message. */
 			const message: GatewayMessage = JSON.parse(event.data as string) as GatewayMessage;
-			log(message);
+			addEvent({
+				direction: "received",
+				type: message.type,
+				timestamp: new Date().toISOString(),
+				...(message.taskId ? { taskId: message.taskId } : {}),
+				...(message.stage ? { stage: message.stage } : {}),
+			});
+			if (message.type === "registered") deviceIdEl.textContent = message.deviceId ?? "Not assigned";
 			if (socket) relayLogEntry(socket, "received", message);
 			if (message.type !== "stage.assign" || message.stage === undefined || message.value === undefined || message.taskId === undefined) return;
 			/** The task identifier and stage captured for the async result below. */
@@ -206,6 +254,7 @@ const relayLogEntry = (socket: WebSocket, direction: "received" | "sent", messag
 					};
 					if (socket) relayLogEntry(socket, "sent", resultMessage);
 					socket?.send(JSON.stringify(resultMessage));
+					addEvent({ direction: "sent", type: resultMessage.type, timestamp: new Date().toISOString(), taskId, stage });
 				})
 				.catch((error: unknown) => {
 					// A failed LLM stage abandons the task; drop its in-memory key-value cache
@@ -219,6 +268,7 @@ const relayLogEntry = (socket: WebSocket, direction: "received" | "sent", messag
 					};
 					if (socket) relayLogEntry(socket, "sent", failedMessage);
 					socket?.send(JSON.stringify(failedMessage));
+					addEvent({ direction: "sent", type: failedMessage.type, timestamp: new Date().toISOString(), taskId, stage, message: failedMessage.error });
 				});
 		});
 

@@ -10,8 +10,19 @@ body {
     border-radius: 1rem 1rem 0 0 !important;
 }
 
-#log {
+.event-list {
     min-height: 220px;
-    white-space: pre-wrap;
-    word-break: break-word;
+}
+
+.event-item {
+    border-bottom: 1px solid #edf0f5;
+    padding: 0.75rem 0;
+}
+
+.event-item:first-child {
+    padding-top: 0;
+}
+
+.event-item:last-child {
+    border-bottom: 0;
 }

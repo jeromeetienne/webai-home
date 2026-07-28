@@ -30,23 +30,29 @@
                             <h2 class="h5 mb-0">Connect this browser</h2>
                             <span class="badge rounded-pill text-bg-secondary" id="status">Not connected</span>
                         </div>
-                        <p class="text-secondary">Give this browser a name, then connect it so WebAI can assign formula stages to the browser.</p>
+                        <p class="text-secondary">Give this browser a name, then connect it so WebAI can assign stages to the browser.</p>
                         <label class="form-label" for="name">Worker name</label>
                         <input class="form-control mb-3" id="name" value="browser-worker">
                         <div class="d-grid gap-2">
                             <button class="btn btn-primary" id="connect" type="button">Connect worker browser</button>
                             <button class="btn btn-outline-danger d-none" id="disconnect" type="button">Disconnect</button>
                         </div>
+                        <hr>
+                        <dl class="row small mb-0">
+                            <dt class="col-sm-4 text-secondary">Worker</dt><dd class="col-sm-8" id="worker-name">Not connected</dd>
+                            <dt class="col-sm-4 text-secondary">Device ID</dt><dd class="col-sm-8 text-break" id="device-id">Not assigned</dd>
+                            <dt class="col-sm-4 text-secondary">Stages</dt><dd class="col-sm-8"><div class="d-flex flex-wrap gap-1" id="stages"></div></dd>
+                        </dl>
                     </div>
                 </section>
             </div>
             <div class="col-lg-7">
                 <section class="card border-0 shadow-sm h-100">
                     <div class="card-header bg-white border-0 pt-4 px-4">
-                        <h2 class="h5 mb-0">Connection messages</h2>
+                        <h2 class="h5 mb-0">Recent events</h2>
                     </div>
                     <div class="card-body px-4">
-                        <pre class="bg-dark text-light rounded-3 p-3 mb-0" id="log">No messages yet.</pre>
+                        <div class="event-list" id="events"></div>
                     </div>
                 </section>
             </div>

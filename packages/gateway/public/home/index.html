@@ -57,13 +57,11 @@
                     <div class="card-header bg-white border-0 pt-4 px-4">
                         <div class="d-flex justify-content-between align-items-center">
                             <h2 class="h5 mb-0">Connected workers</h2>
-                            <span class="badge text-bg-light border">Live</span>
+                            <span class="badge text-bg-light border"><span id="worker-count">0</span> connected</span>
                         </div>
                     </div>
                     <div class="card-body px-4">
-                        <ul class="list-group list-group-flush" id="devices">
-                            <li class="list-group-item px-0 text-secondary">Waiting for worker browser tabs.</li>
-                        </ul>
+                        <div id="devices"><p class="text-secondary mb-0">Waiting for worker browser tabs.</p></div>
                     </div>
                 </section>
             </div>
@@ -73,11 +71,20 @@
                         <h2 class="h5 mb-0">Latest task update</h2>
                     </div>
                     <div class="card-body px-4">
-                        <pre class="bg-dark text-light rounded-3 p-3 mb-0" id="tasks">No tasks yet.</pre>
+                        <div class="bg-light border rounded-3 p-3 mb-0" id="tasks">No tasks yet.</div>
                     </div>
                 </section>
             </div>
         </div>
+
+        <section class="card border-0 shadow-sm mt-4">
+            <div class="card-header bg-white border-0 pt-4 px-4">
+                <h2 class="h5 mb-0">Recent gateway events</h2>
+            </div>
+            <div class="card-body px-4">
+                <div id="events"><p class="text-secondary mb-0">No events yet.</p></div>
+            </div>
+        </section>
 
         <footer class="d-flex flex-wrap gap-3 mt-5 small">
             <a class="link-secondary" href="/debug_iframe">Open iframe debug page</a>
