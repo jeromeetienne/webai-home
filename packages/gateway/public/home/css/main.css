@@ -29,7 +29,7 @@ details > summary::-webkit-details-marker {
     display: none;
 }
 
-details > summary::after {
+details > summary h2::after {
     content: "＋";
     color: #6c757d;
     font-size: 1.25rem;
@@ -37,7 +37,7 @@ details > summary::after {
     margin-left: 1rem;
 }
 
-details[open] > summary::after {
+details[open] > summary h2::after {
     content: "−";
 }
 
