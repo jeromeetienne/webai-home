@@ -10,6 +10,10 @@ From the repository root, with the central gateway running:
 
 ```sh
 npm run dev --workspace @webai/consumer -- 5
+
+Set the registered consumer name with `--name`, for example:
+
+`npm run dev --workspace @webai/consumer -- --name formula-consumer 5`
 ```
 
 Use `--url` to connect to another WebSocket endpoint:

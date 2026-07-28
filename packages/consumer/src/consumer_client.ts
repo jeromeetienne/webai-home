@@ -40,10 +40,10 @@ export function createTaskInput(type: "formula" | "llm", value: string | undefin
 export class ConsumerClient {
 	private registered = false;
 
-	constructor(private readonly socket: TaskSocket, private readonly callbacks: ConsumerClientCallbacks = {}) {
+	constructor(private readonly socket: TaskSocket, private readonly callbacks: ConsumerClientCallbacks = {}, private readonly name = "consumer") {
 		socket.onopen = (): void => {
 			this.callbacks.onConnectionChange?.(true);
-			this.send({ type: "register", role: "consumer", name: "consumer" });
+			this.send({ type: "register", role: "consumer", name: this.name });
 		};
 		socket.onmessage = (event): void => this.handleMessage(typeof event.data === "string" ? event.data : event.data.toString());
 		socket.onerror = (): void => this.callbacks.onError?.("The connection to the central gateway failed");

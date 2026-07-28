@@ -13,9 +13,10 @@ export class MainHelper {
 		const command = new Commander.Command()
 			.argument("<input>", "number for formula, free text for llm")
 			.option("-u, --url <url>", "central gateway WebSocket URL", "ws://localhost:8787")
-			.option("-t, --type <type>", "task type: formula or llm", "formula");
+			.option("-t, --type <type>", "task type: formula or llm", "formula")
+			.option("-n, --name <name>", "consumer name", "consumer");
 		command.parse([process.argv[0], process.argv[1] ?? "", ...args]);
-		const options = command.opts<{ url: string; type: string }>();
+		const options = command.opts<{ url: string; type: string; name: string }>();
 		if (options.type !== "formula" && options.type !== "llm") throw new Error('Type must be either "formula" or "llm"');
 		const taskInput = createTaskInput(options.type, command.args[0]);
 		const logsDirectory = NodeUrl.fileURLToPath(new URL("../logs", import.meta.url));
@@ -31,7 +32,7 @@ export class MainHelper {
 				if (task.state === "completed" || task.state === "failed") client.close();
 			},
 			onError: (message) => { console.error(message); client.close(); },
-		});
+		}, options.name);
 	}
 }
 

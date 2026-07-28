@@ -67,6 +67,7 @@ export class TimelineView {
 			const position: ActorPosition = this.positionsByActorId.get(actor.id)!;
 			this._drawActorNode(actor, position.x, position.y);
 		}
+		this._initializeTooltips();
 
 		this.svgEl.appendChild(this.packetLayerEl);
 	}
@@ -180,7 +181,23 @@ export class TimelineView {
 			sublabelEl.setAttribute("y", String(y + NODE_RADIUS + 16));
 			sublabelEl.setAttribute("text-anchor", "middle");
 			sublabelEl.textContent = actor.sublabel;
+			if (actor.deviceId !== undefined && actor.sublabel !== actor.deviceId.replace("device-", "").slice(0, 8)) {
+				sublabelEl.setAttribute("data-bs-toggle", "tooltip");
+				sublabelEl.setAttribute("data-bs-title", actor.deviceId);
+				sublabelEl.setAttribute("data-bs-placement", "top");
+				sublabelEl.setAttribute("data-bs-container", "body");
+			}
 			this.svgEl.appendChild(sublabelEl);
 		}
+	}
+
+	private _initializeTooltips(): void {
+		const bootstrap = (window as Window & {
+			bootstrap?: { Tooltip: new (element: Element) => unknown };
+		}).bootstrap;
+		if (bootstrap === undefined) return;
+		this.svgEl.querySelectorAll<HTMLElement>('[data-bs-toggle="tooltip"]').forEach((element: HTMLElement): void => {
+			new bootstrap.Tooltip(element);
+		});
 	}
 }

@@ -12,6 +12,10 @@ interface RegisterPayload {
 	name?: string;
 }
 
+interface DevicesPayload {
+	devices?: Array<{ deviceId?: string; name?: string; deviceRole?: string }>;
+}
+
 interface TaskSubmitPayload {
 	input?: { taskType?: string; input?: unknown };
 }
@@ -86,6 +90,7 @@ export class TimelineModel {
 	static build(sources: LogSource[], range: TimeRangeMs, filters: CategoryFilters): { actors: ActorNode[]; events: TimelineEvent[] } {
 		const events: TimelineEvent[] = [];
 		const firstSeenByActorId: Map<string, number> = new Map();
+		const nameByActorId: Map<string, string> = new Map();
 
 		for (const source of sources) {
 			const selfActorId = `gateway:${source.id}`;
@@ -98,6 +103,18 @@ export class TimelineModel {
 				const counterpartActorId: string = TimelineModel._actorId(entry.counterpart.role, entry.counterpart.deviceId);
 				TimelineModel._recordFirstSeen(firstSeenByActorId, counterpartActorId, timestampMs);
 				TimelineModel._recordFirstSeen(firstSeenByActorId, selfActorId, timestampMs);
+				if (entry.messageType === "register" && entry.counterpart.deviceId !== undefined) {
+					const registerPayload = entry.payload as RegisterPayload;
+					if (registerPayload.name !== undefined) nameByActorId.set(counterpartActorId, registerPayload.name);
+				}
+				if (entry.messageType === "devices") {
+					const devicesPayload = entry.payload as DevicesPayload;
+					for (const device of devicesPayload.devices ?? []) {
+						if (device.deviceId !== undefined && device.name !== undefined && device.deviceRole !== undefined) {
+							nameByActorId.set(TimelineModel._actorId(device.deviceRole, device.deviceId), device.name);
+						}
+					}
+				}
 
 				if (timestampMs < range.fromMs || timestampMs > range.toMs) continue;
 
@@ -124,7 +141,7 @@ export class TimelineModel {
 		}
 
 		events.sort((a: TimelineEvent, b: TimelineEvent): number => a.timestampMs - b.timestampMs);
-		return { actors: TimelineModel._buildActors(sources, events, firstSeenByActorId), events };
+		return { actors: TimelineModel._buildActors(sources, events, firstSeenByActorId, nameByActorId), events };
 	}
 
 	/** Computes the full time span covered by every source's entries, regardless of any filter. */
@@ -258,7 +275,12 @@ export class TimelineModel {
 		}
 	}
 
-	private static _buildActors(sources: LogSource[], events: TimelineEvent[], firstSeenByActorId: Map<string, number>): ActorNode[] {
+	private static _buildActors(
+		sources: LogSource[],
+		events: TimelineEvent[],
+		firstSeenByActorId: Map<string, number>,
+		nameByActorId: Map<string, string>,
+	): ActorNode[] {
 		const visibleActorIds: Set<string> = new Set<string>();
 		for (const event of events) {
 			visibleActorIds.add(event.fromActorId);
@@ -292,7 +314,7 @@ export class TimelineModel {
 				role: kind,
 				deviceId,
 				label: kind === "consumer" ? "Consumer" : kind === "worker" ? "Worker" : "Unregistered device",
-				sublabel: deviceId !== undefined ? deviceId.replace("device-", "").slice(0, 8) : undefined,
+				sublabel: nameByActorId.get(actorId) ?? (deviceId !== undefined ? deviceId.replace("device-", "").slice(0, 8) : undefined),
 				column,
 				row: 0,
 				firstSeenMs: firstSeenByActorId.get(actorId) ?? 0,
