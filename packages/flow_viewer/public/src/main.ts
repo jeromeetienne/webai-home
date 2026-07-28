@@ -5,6 +5,7 @@ import { PlaybackController } from "./playback_controller.js";
 import type { PlaybackSegment } from "./playback_controller.js";
 import { EventLogPanel } from "./event_log_panel.js";
 import type { CategoryFilters, LogSource, SessionPayload, TimeRangeMs, TimelineEvent } from "./types.js";
+import { calculateStatistics, formatBytes, formatLatency, type StatisticsReport, type StatisticsTotals } from "./statistics.js";
 import SAMPLE_LOG_TEXT from "../../fixtures/sample-gateway-log.jsonl?raw";
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -36,6 +37,10 @@ class FlowViewerApp {
 	private readonly rangeBarEl: HTMLElement;
 	private readonly rangeFromEl: HTMLInputElement;
 	private readonly rangeToEl: HTMLInputElement;
+	private readonly statisticsPanelEl: HTMLElement;
+	private readonly statisticsCardsEl: HTMLElement;
+	private readonly statisticsNoteEl: HTMLElement;
+	private readonly statisticsTableBodyEl: HTMLElement;
 	private readonly showChatterEl: HTMLInputElement;
 	private readonly showSignalingEl: HTMLInputElement;
 	private readonly vizMainEl: HTMLElement;
@@ -68,6 +73,10 @@ class FlowViewerApp {
 		this.rangeBarEl = FlowViewerApp._getElement("#range-bar");
 		this.rangeFromEl = FlowViewerApp._getElement<HTMLInputElement>("#range-from");
 		this.rangeToEl = FlowViewerApp._getElement<HTMLInputElement>("#range-to");
+		this.statisticsPanelEl = FlowViewerApp._getElement("#statistics-panel");
+		this.statisticsCardsEl = FlowViewerApp._getElement("#statistics-cards");
+		this.statisticsNoteEl = FlowViewerApp._getElement("#statistics-note");
+		this.statisticsTableBodyEl = FlowViewerApp._getElement("#statistics-table-body");
 		this.showChatterEl = FlowViewerApp._getElement<HTMLInputElement>("#show-chatter");
 		this.showSignalingEl = FlowViewerApp._getElement<HTMLInputElement>("#show-signaling");
 		this.vizMainEl = FlowViewerApp._getElement("#viz-main");
@@ -342,6 +351,7 @@ class FlowViewerApp {
 		const { actors, events } = TimelineModel.build(this.sources, rangeMs, filters);
 
 		this.view.render(actors, events);
+		this._renderStatistics(calculateStatistics(this.sources, events, rangeMs));
 		this.eventLogPanel.clear();
 		this.controller.setTimeline(events, rangeMs);
 		this._updateScrubberRange();
@@ -350,6 +360,36 @@ class FlowViewerApp {
 		const gatewayCount: number = actors.filter((actor): boolean => actor.column === "center").length;
 		const workerCount: number = actors.filter((actor): boolean => actor.column === "right").length;
 		this.statsReadoutEl.textContent = `${events.length} messages in range · ${taskCount} task(s) · ${gatewayCount} gateway run(s) · ${workerCount} worker(s)`;
+	}
+
+	private _renderStatistics(report: StatisticsReport): void {
+		const total = report.total;
+		this.statisticsNoteEl.textContent = `${total.measuredMessages} measured · ${total.estimatedMessages} estimated (older log entries)`;
+		const cards: Array<[string, string]> = [
+			["Messages", String(total.messageCount)], ["Total bandwidth", formatBytes(total.messageBytes)],
+			["Payload", formatBytes(total.payloadBytes)], ["Duplicate data", formatBytes(total.duplicateBytes)],
+			["Average latency", formatLatency(total)],
+		];
+		this.statisticsCardsEl.replaceChildren(...cards.map(([label, value]) => {
+			const card = document.createElement("div"); card.className = "statistics-card";
+			card.innerHTML = `<span class="statistics-card-label">${label}</span><span class="statistics-card-value">${value}</span>`;
+			return card;
+		}));
+		this.statisticsTableBodyEl.replaceChildren();
+		this._appendStatisticsRows("Task", report.byTask);
+		this._appendStatisticsRows("Route", report.byRoute);
+		this._appendStatisticsRows("Worker", report.byWorker);
+		this._appendStatisticsRows("Stage", report.byStage);
+		this._appendStatisticsRows("Message type", report.byMessageType);
+	}
+
+	private _appendStatisticsRows(group: string, values: Map<string, StatisticsTotals>): void {
+		for (const [name, totals] of values) {
+			const row = document.createElement("tr");
+			const overhead = Math.max(0, totals.messageBytes - totals.payloadBytes);
+			row.innerHTML = `<td>${group}: ${name}</td><td>${totals.messageCount}</td><td>${formatBytes(totals.payloadBytes)}</td><td>${formatBytes(totals.messageBytes)}</td><td>${formatBytes(totals.duplicateBytes)}</td><td>${formatBytes(totals.usefulBytes)} / ${formatBytes(overhead)}</td><td>${formatLatency(totals)}</td>`;
+			this.statisticsTableBodyEl.appendChild(row);
+		}
 	}
 
 	private _onTimeUpdate(visualTimeMs: number, logTimeMs: number): void {

@@ -30,6 +30,10 @@ export interface LogEntry {
 	messageType: string;
 	/** The full message body. */
 	payload: unknown;
+	/** Exact UTF-8 byte size of the JSON message body when the entry was recorded. */
+	payloadBytes?: number;
+	/** Exact UTF-8 byte size of the message envelope and body when recorded. */
+	messageBytes?: number;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -75,7 +79,13 @@ export class MessageLogger {
 		payload: unknown,
 		timestamp: string = new Date().toISOString(),
 	): void {
-		const entry: LogEntry = { timestamp, direction, counterpart, messageType, payload };
+		const message = typeof payload === "object" && payload !== null ? payload : { type: messageType, value: payload };
+		const payloadWithoutType = typeof payload === "object" && payload !== null && !Array.isArray(payload)
+			? Object.fromEntries(Object.entries(payload as Record<string, unknown>).filter(([key]) => key !== "type"))
+			: payload;
+		const payloadBytes = Buffer.byteLength(JSON.stringify(payloadWithoutType), "utf8");
+		const messageBytes = Buffer.byteLength(JSON.stringify(message), "utf8");
+		const entry: LogEntry = { timestamp, direction, counterpart, messageType, payload, payloadBytes, messageBytes };
 		appendFileSync(this.logFilePath, `${JSON.stringify(entry)}\n`, "utf-8");
 	}
 }

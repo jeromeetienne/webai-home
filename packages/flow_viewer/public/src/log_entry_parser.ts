@@ -34,6 +34,8 @@ export class LogEntryParser {
 		}),
 		messageType: z.string(),
 		payload: z.unknown(),
+		payloadBytes: z.number().int().nonnegative().optional(),
+		messageBytes: z.number().int().nonnegative().optional(),
 	});
 
 	/**
@@ -78,6 +80,8 @@ export class LogEntryParser {
 			counterpart: data.counterpart.deviceId !== undefined ? { role: data.counterpart.role, deviceId: data.counterpart.deviceId } : { role: data.counterpart.role },
 			messageType: data.messageType,
 			payload: data.payload,
+			...(data.payloadBytes !== undefined ? { payloadBytes: data.payloadBytes } : {}),
+			...(data.messageBytes !== undefined ? { messageBytes: data.messageBytes } : {}),
 		};
 	}
 }

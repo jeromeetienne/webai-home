@@ -11,28 +11,56 @@
 <body>
 	<div class="app">
 		<header class="app-header">
-			<div class="container-fluid app-header-inner">
-				<h1 class="h4 mb-1">WebAI Flow Viewer</h1>
-				<p class="subtitle mb-0">
-				Watch requests travel from a consumer to the central gateway, and from the gateway out to
-				 the worker browsers that carry out the work.
-				</p>
+			<div class="container-fluid app-header-inner d-flex justify-content-between align-items-start gap-3">
+				<div>
+					<h1 class="h4 mb-1">WebAI@Home /
+						<small class="text-white-50">Flow Viewer</small>
+					</h1>
+				</div>
+				<nav class="app-header-actions" aria-label="Viewer controls">
+				<button class="btn btn-light btn-sm flex-shrink-0" type="button" data-bs-toggle="modal" data-bs-target="#statistics-modal">
+					<i class="bi bi-bar-chart-line me-1" aria-hidden="true"></i>Statistics
+				</button>
+				<button class="btn btn-light btn-sm flex-shrink-0" type="button" data-bs-toggle="modal" data-bs-target="#capture-modal">
+					<i class="bi bi-upload me-1" aria-hidden="true"></i>Open capture
+				</button>
+				<button class="btn btn-light btn-sm flex-shrink-0" type="button" data-bs-toggle="modal" data-bs-target="#range-modal">
+					<i class="bi bi-calendar3 me-1" aria-hidden="true"></i>Time range
+				</button>
+				</nav>
 			</div>
 		</header>
 
-		<section class="load-bar container-fluid py-3">
-			<div class="row g-3 align-items-center">
-				<label class="drop-zone col-lg" id="drop-zone" for="log-file-input">
-					<i class="bi bi-upload me-2" aria-hidden="true"></i>
-				<span id="drop-zone-label">Drop a gateway log file (.jsonl) here, or click to choose one</span>
-				<input type="file" id="log-file-input" accept=".jsonl,.log,.txt" />
-				</label>
-				<div class="stats-readout col-lg-auto" id="stats-readout">No log file loaded yet.</div>
+		<div class="modal fade" id="capture-modal" tabindex="-1" aria-labelledby="capture-title" aria-hidden="true">
+			<div class="modal-dialog modal-xl modal-dialog-centered">
+				<div class="modal-content text-dark">
+					<div class="modal-header">
+						<h2 class="modal-title fs-5" id="capture-title">Open a capture</h2>
+						<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+					</div>
+					<div class="modal-body">
+						<div class="row g-3 align-items-center">
+							<label class="drop-zone col-lg" id="drop-zone" for="log-file-input">
+								<i class="bi bi-upload me-2" aria-hidden="true"></i>
+								<span id="drop-zone-label">Drop a gateway log file (.jsonl) here, or click to choose one</span>
+								<input type="file" id="log-file-input" accept=".jsonl,.log,.txt" />
+							</label>
+							<div class="stats-readout col-lg-auto" id="stats-readout">No log file loaded yet.</div>
+						</div>
+					</div>
+				</div>
 			</div>
-		</section>
+		</div>
 
-		<section class="range-bar container-fluid py-3" id="range-bar" hidden>
-			<div class="row g-3 align-items-end">
+		<div class="modal fade" id="range-modal" tabindex="-1" aria-labelledby="range-title" aria-hidden="true">
+			<div class="modal-dialog modal-xl modal-dialog-centered">
+				<div class="modal-content text-dark">
+					<div class="modal-header">
+						<h2 class="modal-title fs-5" id="range-title">Time range and display filters</h2>
+						<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+					</div>
+					<div class="modal-body range-bar" id="range-bar">
+						<div class="row g-3 align-items-end">
 				<div class="col-sm-6 col-xl-3">
 					<label class="form-label" for="range-from">From</label>
 					<input class="form-control form-control-sm" type="datetime-local" id="range-from" step="0.001" />
@@ -53,8 +81,31 @@
 						<label class="form-check-label" for="show-signaling">Show peer signaling</label>
 					</div>
 				</div>
+						</div>
+					</div>
+				</div>
 			</div>
-		</section>
+		</div>
+
+		<div class="modal fade" id="statistics-modal" tabindex="-1" aria-labelledby="statistics-title" aria-hidden="true">
+			<div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+				<div class="modal-content text-dark">
+					<div class="modal-header">
+						<h2 class="modal-title fs-5" id="statistics-title">Data-flow statistics</h2>
+						<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+					</div>
+					<div class="modal-body statistics-panel" id="statistics-panel">
+						<div class="d-flex justify-content-between align-items-center mb-2">
+							<span class="statistics-note" id="statistics-note">Load a capture to calculate statistics.</span>
+						</div>
+						<div class="statistics-cards" id="statistics-cards"></div>
+						<div class="table-responsive">
+							<table class="table table-sm statistics-table mb-0"><thead><tr><th>Group</th><th>Messages</th><th>Payload</th><th>Full message</th><th>Duplicate</th><th>Useful / overhead</th><th>Latency</th></tr></thead><tbody id="statistics-table-body"></tbody></table>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
 
 		<main class="viz-main row g-0" id="viz-main" hidden>
 			<div class="viz-canvas col">
