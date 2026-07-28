@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "cli": "tsx src/cli.ts",
+    "clean:logs": "tsx src/clean_logs.ts",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",

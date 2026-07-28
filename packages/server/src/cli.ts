@@ -475,3 +475,19 @@ websocketServer.on("connection", (socket) => {
 httpServer.listen(port, () => {
 	console.log(`Central server listening on http://localhost:${port}`);
 });
+
+/**
+ * Closes every open connection and server on Ctrl+C (or a container/process manager
+ * stop), so the process exits promptly instead of `tsx watch` having to force-kill it
+ * after its own timeout.
+ */
+async function shutdown(): Promise<void> {
+	console.log("\nShutting down...");
+	for (const socket of socketMap.values()) socket.close();
+	websocketServer.close();
+	httpServer.close();
+	if (viteDevServer) await viteDevServer.close();
+	process.exit(0);
+}
+process.on("SIGINT", () => void shutdown());
+process.on("SIGTERM", () => void shutdown());
