@@ -1,5 +1,7 @@
 import { createTaskInput, TaskClient } from "../../src/task_client.js";
 
+type TaskSocket = ConstructorParameters<typeof TaskClient>[0];
+
 const get = <T extends HTMLElement>(id: string): T => {
 	const element = document.getElementById(id);
 	if (!element) throw new Error(`Element ${id} was not found`);
@@ -24,7 +26,7 @@ submit.addEventListener("click", (): void => {
 	try {
 		const taskInput = createTaskInput(type.value as "formula" | "llm", input.value);
 		client?.close();
-		const socket = new WebSocket(url.value.trim());
+		const socket = new WebSocket(url.value.trim()) as unknown as TaskSocket;
 		client = new TaskClient(socket, {
 			onConnectionChange: (connected) => setStatus(connected ? "Connected. Registering…" : "Disconnected", connected ? "good" : "bad"),
 			onRegistered: () => { setStatus("Connected. Task submitted.", "good"); client?.submit(taskInput); },
