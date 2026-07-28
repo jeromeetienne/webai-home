@@ -16,6 +16,7 @@ import {
 	type StageName,
 	type StagePayload,
 } from "@webai/protocol";
+import { MessageLogger, type LogCounterpart } from "@webai/protocol/message_logger";
 
 // local imports
 import { DeviceRegistry } from "./libs/device_registry.js";
@@ -30,13 +31,53 @@ const deviceRegistry = new DeviceRegistry();
 const taskStore = new TaskStore();
 const socketMap = new Map<string, WebSocket>();
 
+// Logs this server's own message traffic (one file per run), plus one log file per
+// connected volunteer, relayed to us since a browser page cannot write files itself.
+const logsDirectory = join(dirname(fileURLToPath(import.meta.url)), "../logs");
+const runTimestamp = new Date().toISOString().replace(/[:.]/g, "-");
+const serverMessageLogger = new MessageLogger(join(logsDirectory, `server-${runTimestamp}.jsonl`));
+const volunteerMessageLoggers = new Map<string, MessageLogger>();
+
 /**
- * Sends a server message when a WebSocket is still open.
+ * Returns the log file for a connected volunteer's relayed message log, creating it on
+ * first use.
+ *
+ * @param deviceId - The volunteer device identifier.
+ * @returns The message logger that appends to that volunteer's own log file.
+ */
+function volunteerMessageLogger(deviceId: string): MessageLogger {
+	let logger = volunteerMessageLoggers.get(deviceId);
+	if (!logger) {
+		logger = new MessageLogger(join(logsDirectory, `volunteer-${deviceId}.jsonl`));
+		volunteerMessageLoggers.set(deviceId, logger);
+	}
+	return logger;
+}
+
+/**
+ * Resolves the role and device identifier to log for a connected device, from this
+ * server's own point of view.
+ *
+ * @param deviceId - The device identifier assigned to the WebSocket connection.
+ * @param registerMessage - The client's own "register" message, when this is being resolved
+ * for that message itself, before the device has been added to the registry.
+ * @returns The counterpart to record in a log entry.
+ */
+function counterpartFor(deviceId: string, registerMessage?: ClientMessage): LogCounterpart {
+	if (registerMessage?.type === "register") return { role: registerMessage.role, deviceId };
+	const device = deviceRegistry.get(deviceId);
+	return { role: device?.deviceRole ?? "unknown", deviceId };
+}
+
+/**
+ * Sends a server message when a WebSocket is still open, and logs it as sent.
  *
  * @param socket - The WebSocket that should receive the message.
  * @param message - The server message to serialize and send.
+ * @param counterpart - Who the message is being sent to.
  */
-function send(socket: WebSocket, message: ServerMessage): void {
+function send(socket: WebSocket, message: ServerMessage, counterpart: LogCounterpart): void {
+	serverMessageLogger.log("sent", counterpart, message.type, message);
 	if (socket.readyState === socket.OPEN) {
 		socket.send(JSON.stringify(message));
 	}
@@ -48,8 +89,8 @@ function send(socket: WebSocket, message: ServerMessage): void {
  * @param message - The server message to broadcast.
  */
 function broadcast(message: ServerMessage): void {
-	for (const socket of socketMap.values()) {
-		send(socket, message);
+	for (const [deviceId, socket] of socketMap.entries()) {
+		send(socket, message, counterpartFor(deviceId));
 	}
 }
 
@@ -103,7 +144,7 @@ function assign(
 			taskId,
 			stage,
 			value,
-		});
+		}, { role: device.deviceRole, deviceId: device.deviceId });
 	}
 	broadcastTask(taskId);
 }
@@ -155,7 +196,7 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 		send(socket, {
 			type: "registered",
 			deviceId,
-		});
+		}, counterpartFor(deviceId, message));
 		updateDevices();
 		return;
 	}
@@ -166,14 +207,14 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 			send(socket, {
 				type: "error",
 				message: "Input must match the shape expected for its task type",
-			});
+			}, counterpartFor(deviceId));
 			return;
 		}
 		const task = taskStore.create(parsed.data);
 		send(socket, {
 			type: "task.accepted",
 			task,
-		});
+		}, counterpartFor(deviceId));
 		if (parsed.data.taskType === "task_type_llm") {
 			assign(task.taskId, StagePayloadFactory.llmPrompt(parsed.data.input), "stage_llm_shard1");
 		} else {
@@ -188,12 +229,12 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 			send(socket, {
 				type: "task.updated",
 				task,
-			});
+			}, counterpartFor(deviceId));
 		} else {
 			send(socket, {
 				type: "error",
 				message: "Task was not found",
-			});
+			}, counterpartFor(deviceId));
 		}
 		return;
 	}
@@ -204,7 +245,7 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 			send(socket, {
 				type: "error",
 				message: "Only volunteer browser tabs may return stage results",
-			});
+			}, counterpartFor(deviceId));
 			return;
 		}
 		const task = taskStore.get(message.taskId);
@@ -212,7 +253,7 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 			send(socket, {
 				type: "error",
 				message: "Unexpected stage result",
-			});
+			}, counterpartFor(deviceId));
 			return;
 		}
 		const updated = taskStore.addStage(task.taskId, {
@@ -243,7 +284,7 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 			send(socket, {
 				type: "error",
 				message: "Only volunteer browser tabs may fail a stage",
-			});
+			}, counterpartFor(deviceId));
 			return;
 		}
 		taskStore.update(message.taskId, {
@@ -261,8 +302,20 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 				type: "signal",
 				from: deviceId,
 				data: message.data,
-			});
+			}, counterpartFor(message.to));
 		}
+		return;
+	}
+
+	if (message.type === "log.entry") {
+		volunteerMessageLogger(deviceId).log(
+			message.direction,
+			{ role: "server" },
+			message.messageType,
+			message.payload,
+			message.timestamp,
+		);
+		return;
 	}
 }
 
@@ -403,12 +456,14 @@ websocketServer.on("connection", (socket) => {
 	socketMap.set(deviceId, socket);
 	socket.on("message", (raw) => {
 		try {
-			handle(socket, deviceId, JSON.parse(raw.toString()) as ClientMessage);
+			const message = JSON.parse(raw.toString()) as ClientMessage;
+			serverMessageLogger.log("received", counterpartFor(deviceId, message), message.type, message);
+			handle(socket, deviceId, message);
 		} catch {
 			send(socket, {
 				type: "error",
 				message: "Invalid message",
-			});
+			}, counterpartFor(deviceId));
 		}
 	});
 	socket.on("close", () => {

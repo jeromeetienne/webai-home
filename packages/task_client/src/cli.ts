@@ -1,7 +1,9 @@
 import * as Commander from "commander";
 import NodeUrl from "node:url";
+import NodePath from "node:path";
 import WebSocket from "ws";
-import type { ServerMessage, TaskType } from "@webai/protocol";
+import type { ClientMessage, ServerMessage, TaskInput, TaskType } from "@webai/protocol";
+import { MessageLogger } from "@webai/protocol/message_logger";
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -51,14 +53,34 @@ export class MainHelper {
 		const taskType = taskTypeByCliType[options.type];
 
 		// Parse the input argument according to the task type
-		const input = taskType === "task_type_formula" ? MainHelper.parseInputFormula(command.args[0]) : MainHelper.parseInputLLM(command.args[0]);
+		const taskInput: TaskInput = taskType === "task_type_formula"
+			? { taskType: "task_type_formula", input: MainHelper.parseInputFormula(command.args[0]) }
+			: { taskType: "task_type_llm", input: MainHelper.parseInputLLM(command.args[0]) };
+
+		// Log every message this admin sends to, and receives from, the central server.
+		const logsDirectory = NodeUrl.fileURLToPath(new URL("../logs", import.meta.url));
+		const runTimestamp = new Date().toISOString().replace(/[:.]/g, "-");
+		const messageLogger = new MessageLogger(NodePath.join(logsDirectory, `admin-${runTimestamp}.jsonl`));
+		const serverCounterpart = { role: "server" };
 
 		// Connect to the central server and submit a task
 		const socket = new WebSocket(options.url);
-		socket.on("open", () => socket.send(JSON.stringify({ type: "register", role: "admin", name: "task-client" })));
+
+		/**
+		 * Serializes and sends a client message to the central server, and logs it as sent.
+		 *
+		 * @param message The client message to send.
+		 */
+		const sendMessage = (message: ClientMessage): void => {
+			messageLogger.log("sent", serverCounterpart, message.type, message);
+			socket.send(JSON.stringify(message));
+		};
+
+		socket.on("open", () => sendMessage({ type: "register", role: "admin", name: "task-client" }));
 		socket.on("message", (raw) => {
 			const message = JSON.parse(raw.toString()) as ServerMessage;
-			if (message.type === "registered") socket.send(JSON.stringify({ type: "task.submit", input: { taskType, input } }));
+			messageLogger.log("received", serverCounterpart, message.type, message);
+			if (message.type === "registered") sendMessage({ type: "task.submit", input: taskInput });
 			if (message.type === "task.accepted") console.log(JSON.stringify(message.task, null, 2));
 			if (message.type === "task.updated") {
 				console.log(JSON.stringify(message.task, null, 2));

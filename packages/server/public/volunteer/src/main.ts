@@ -70,6 +70,25 @@ const log = (value: unknown): void => {
 	output.textContent += `${output.textContent === "No messages yet." ? "" : "\n"}${JSON.stringify(value, null, 2)}`;
 };
 
+/**
+ * Relays a structured log entry to the central server, since this browser page cannot
+ * write its own log file to disk. The server appends it to this volunteer's own log file.
+ *
+ * @param socket The active WebSocket connection to the central server.
+ * @param direction Whether the entry records a message sent to, or received from, the server.
+ * @param message The client or server message this entry describes.
+ */
+const relayLogEntry = (socket: WebSocket, direction: "received" | "sent", message: { type: string }): void => {
+	const logEntryMessage: ClientMessage = {
+		type: "log.entry",
+		direction,
+		messageType: message.type,
+		timestamp: new Date().toISOString(),
+		payload: message,
+	};
+	if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(logEntryMessage));
+};
+
 /** Starts the volunteer browser user interface. */
 ((): void => {
 	/** The connection status element. */
@@ -113,6 +132,7 @@ const log = (value: unknown): void => {
 				name: nameInputEl.value,
 				stageNames: [...StageFormulaHelper.stageNames, ...StageLlmHelper.stageNames]
 			};
+			if (socket) relayLogEntry(socket, "sent", message);
 			socket?.send(JSON.stringify(message));
 		});
 
@@ -121,6 +141,7 @@ const log = (value: unknown): void => {
 			/** The decoded server message. */
 			const message: ServerMessage = JSON.parse(event.data as string) as ServerMessage;
 			log(message);
+			if (socket) relayLogEntry(socket, "received", message);
 			if (message.type !== "stage.assign" || message.stage === undefined || message.value === undefined || message.taskId === undefined) return;
 			/** The task identifier and stage captured for the async result below. */
 			const { taskId, stage, value } = message;
@@ -138,6 +159,7 @@ const log = (value: unknown): void => {
 						stage,
 						value
 					};
+					if (socket) relayLogEntry(socket, "sent", resultMessage);
 					socket?.send(JSON.stringify(resultMessage));
 				})
 				.catch((error: unknown) => {
@@ -150,6 +172,7 @@ const log = (value: unknown): void => {
 						stage,
 						error: error instanceof Error ? error.message : String(error),
 					};
+					if (socket) relayLogEntry(socket, "sent", failedMessage);
 					socket?.send(JSON.stringify(failedMessage));
 				});
 		});
