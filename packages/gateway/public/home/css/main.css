@@ -2,6 +2,16 @@ body {
     background: #f5f7fb;
 }
 
+.gateway-status {
+    min-width: max-content;
+}
+
+@media (max-width: 576px) {
+    .gateway-status .small {
+        display: none;
+    }
+}
+
 .card {
     border-radius: 1rem;
 }
