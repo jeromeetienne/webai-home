@@ -74,6 +74,38 @@ test("redacts task inputs and stage values but keeps the task type", () => {
   assert.deepEqual(entries[1].payload, { type: "stage.assign", taskId: "task-1", stage: "stage_formula_multiply", value: "[redacted]" });
 });
 
+test("redacts the task result, the values inside completed stages, and a relayed message", () => {
+  const redacted = MessageLogger.redactPayload({
+    type: "task.updated",
+    update: { taskId: "task-1", state: "completed", result: { text: "SECRET ANSWER" } },
+  }) as { update: { result: unknown } };
+  assert.equal(redacted.update.result, "[redacted]");
+
+  const snapshot = MessageLogger.redactPayload({
+    type: "task.snapshot",
+    task: { taskId: "task-1", completedStages: [{ name: "stage_llm_shard1", value: { text: "SECRET STAGE" } }] },
+  }) as { task: { completedStages: { name: string; value: unknown }[] } };
+  assert.deepEqual(snapshot.task.completedStages, [{ name: "stage_llm_shard1", value: "[redacted]" }]);
+
+  const relayed = MessageLogger.redactPayload({
+    type: "log.entry",
+    messageType: "stage.assign",
+    payload: { type: "stage.assign", taskId: "task-1", value: { text: "SECRET PROMPT" } },
+  }) as { payload: { value: unknown } };
+  assert.equal(relayed.payload.value, "[redacted]");
+});
+
+test("redacts the authentication token", () => {
+  const redacted = MessageLogger.redactPayload({ type: "authenticate", token: "development-token" }) as { token: unknown };
+  assert.equal(redacted.token, "[redacted]");
+});
+
+test("leaves the message it redacts unmodified", () => {
+  const original = { type: "task.updated", update: { result: 17 } };
+  MessageLogger.redactPayload(original);
+  assert.equal(original.update.result, 17);
+});
+
 test("rejects malformed and oversized identity-bearing task messages", () => {
   assert.equal(ClientMessageSchema.safeParse({ type: "task.submit", requestId: "", input: { taskType: "task_type_formula", input: 5 } }).success, false);
   assert.equal(ClientMessageSchema.safeParse({ type: "stage.result", taskId: "task-1", assignmentId: "assignment-1", attempt: 0, stage: "stage_formula_multiply", value: 10 }).success, false);

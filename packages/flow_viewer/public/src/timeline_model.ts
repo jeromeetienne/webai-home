@@ -96,8 +96,9 @@ interface EventDescription {
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
-// The marker `MessageLogger.redactPayload` writes in place of a task input or a stage
-// value. Kept as a literal because importing it from `@webai/protocol/message_logger`
+// The marker `MessageLogger.redactPayload` writes in place of a task input, a stage value,
+// a task result, or an authentication token, at any depth in a logged message.
+// Kept as a literal because importing it from `@webai/protocol/message_logger`
 // would pull that module's Node.js file-system imports into the browser bundle.
 const REDACTED_MARKER = "[redacted]";
 
