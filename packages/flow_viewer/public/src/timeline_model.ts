@@ -22,7 +22,7 @@ interface TaskSubmitPayload {
 }
 
 interface TaskLikePayload {
-	task?: { taskId?: string; state?: string; error?: string };
+	task?: { taskId?: string; state?: string; error?: string; pipelineId?: string; pipelineVersion?: number; revision?: number };
 }
 
 interface StageAssignPayload {
@@ -260,13 +260,15 @@ export class TimelineModel {
 			}
 			case "task.accepted": {
 				const taskPayload = payload as TaskLikePayload;
-				return `accepts task ${shortTaskId(taskPayload.task?.taskId)} (${taskPayload.task?.state ?? "queued"})`;
+				const pipeline = taskPayload.task?.pipelineId === undefined ? "" : ` using ${taskPayload.task.pipelineId}@${taskPayload.task.pipelineVersion ?? "?"}`;
+				return `accepts task ${shortTaskId(taskPayload.task?.taskId)} (${taskPayload.task?.state ?? "queued"})${pipeline}`;
 			}
 			case "task.updated": {
 				const taskPayload = payload as TaskLikePayload;
 				const state = taskPayload.task?.state ?? "unknown";
 				const errorSuffix = taskPayload.task?.error !== undefined ? `: ${taskPayload.task.error}` : "";
-				return `updates task ${shortTaskId(taskPayload.task?.taskId)} to ${state}${errorSuffix}`;
+				const revision = taskPayload.task?.revision === undefined ? "" : ` (revision ${taskPayload.task.revision})`;
+				return `updates task ${shortTaskId(taskPayload.task?.taskId)} to ${state}${revision}${errorSuffix}`;
 			}
 			case "stage.assign": {
 				const stagePayload = payload as StageAssignPayload;

@@ -8,6 +8,7 @@ import test from "node:test";
 // local imports
 import { DeviceRegistry } from "../src/libs/device_registry.js";
 import { TaskStore } from "../src/libs/task_store.js";
+import { PipelineRegistry, builtinPipelineSpecifications } from "../src/libs/pipeline_registry.js";
 import { splitDevices, stageStatistics } from "../src/dashboard.js";
 
 const worker = (deviceId: string, stageNames: ("stage_formula_multiply" | "stage_formula_add")[] = ["stage_formula_multiply", "stage_formula_add"]) => ({
@@ -60,6 +61,13 @@ test("finds workers by capability and excludes devices", () => {
   assert.equal(registry.findWorker("stage_formula_multiply")?.deviceId, "one");
   assert.equal(registry.findWorker("stage_formula_multiply", ["one"]), undefined);
   assert.equal(registry.findByName("worker-two", "worker")?.deviceId, "two");
+});
+
+test("selects a pinned compatible pipeline version and rejects invalid definitions", () => {
+  const registry = new PipelineRegistry(builtinPipelineSpecifications);
+  assert.equal(registry.select({ taskType: "task_type_formula", input: 5 })?.pipelineId, "formula");
+  assert.equal(registry.select({ taskType: "task_type_formula", input: 5 }, "formula", 1)?.version, 1);
+  assert.throws(() => registry.add({ pipelineId: "bad", version: 1, taskType: "task_type_formula", stages: [] }));
 });
 
 test("creates tasks and advances through both stages", () => {

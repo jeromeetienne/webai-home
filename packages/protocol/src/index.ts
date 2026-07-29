@@ -21,6 +21,24 @@ export const TaskInput = z.discriminatedUnion("taskType", [
 ]);
 export type TaskInput = z.infer<typeof TaskInput>;
 
+export const PipelineStageSchema = z.object({
+  name: StageName,
+  inputSchemaId: z.string().min(1).max(200),
+  outputSchemaId: z.string().min(1).max(200),
+  encoding: z.enum(["inline-json"]),
+}).strict();
+export const PipelineSpecificationSchema = z.object({
+  pipelineId: z.string().min(1).max(200),
+  version: z.number().int().positive(),
+  taskType: TaskType,
+  stages: z.array(PipelineStageSchema).min(1).max(20),
+  retired: z.boolean().optional(),
+}).strict().superRefine((specification, context) => {
+  const names = specification.stages.map((stage) => stage.name);
+  if (new Set(names).size !== names.length) context.addIssue({ code: z.ZodIssueCode.custom, message: "A pipeline may not contain a stage more than once" });
+});
+export type PipelineSpecification = z.infer<typeof PipelineSpecificationSchema>;
+
 /**
  * A named tensor carried inside a stage payload, encoded as text so it can travel
  * inside a JSON message. This is the probe encoding for the step-0 de-risking test
@@ -89,6 +107,7 @@ export interface Task {
   /** Pipeline identity is optional while the built-in formula and LLM pipelines are migrated. */
   pipelineId?: string;
   pipelineVersion?: number;
+  pipelineStages?: StageName[];
   acknowledgedAssignmentIds?: string[];
 }
 
@@ -124,7 +143,7 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("task.observer.revoke"), taskId: Identifier, consumerDeviceId: Identifier }).strict(),
   z.object({ type: z.literal("devices.resync") }).strict(),
   z.object({ type: z.literal("register"), role: z.enum(["worker", "consumer"]), name: z.string().min(1).max(200), stageNames: z.array(StageName).max(10).optional(), ready: z.boolean().optional(), maxConcurrentAssignments: z.number().int().min(1).max(100).optional() }).strict(),
-  z.object({ type: z.literal("task.submit"), requestId: RequestId, input: TaskInput }).strict(),
+  z.object({ type: z.literal("task.submit"), requestId: RequestId, input: TaskInput, pipelineId: Identifier.optional(), pipelineVersion: z.number().int().positive().optional() }).strict(),
   z.object({ type: z.literal("task.get"), taskId: Identifier }).strict(),
   z.object({ type: z.literal("stage.result"), taskId: Identifier, assignmentId: AssignmentId, attempt: z.number().int().positive(), stage: StageName, value: StagePayloadSchema }).strict(),
   z.object({ type: z.literal("stage.failed"), taskId: Identifier, assignmentId: AssignmentId, attempt: z.number().int().positive(), stage: StageName, error: z.string().min(1).max(10_000) }).strict(),

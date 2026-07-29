@@ -16,13 +16,14 @@ export class TaskStore {
 	 * @param input - The validated input submitted for the task.
 	 * @returns The newly created task.
 	 */
-	create(input: TaskInput, consumerDeviceId = "consumer-unknown", requestId: string = crypto.randomUUID(), consumerPrincipal?: string): Task {
+	create(input: TaskInput, consumerDeviceId = "consumer-unknown", requestId: string = crypto.randomUUID(), consumerPrincipal?: string, pipeline?: Pick<Task, "pipelineId" | "pipelineVersion" | "pipelineStages">): Task {
 		const now = this.now().toISOString();
 		const task: Task = {
 			taskId: `task-${crypto.randomUUID()}`,
 			requestId,
 			consumerDeviceId,
 			...(consumerPrincipal === undefined ? {} : { consumerPrincipal }),
+			...(pipeline ?? {}),
 			input,
 			state: "queued",
 			completedStages: [],
@@ -176,6 +177,7 @@ export class TaskStore {
 	 * @returns The next stage, or `undefined` when all stages are complete.
 	 */
 	static nextStage(task: Task): StageName | undefined {
+		if (task.pipelineStages) return task.pipelineStages[task.completedStages.length];
 		if (task.input.taskType === "task_type_formula") {
 			const stageSequence: StageName[] = ["stage_formula_multiply", "stage_formula_add"];
 			return stageSequence[task.completedStages.length];

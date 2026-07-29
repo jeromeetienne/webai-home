@@ -21,6 +21,7 @@ import { MessageLogger, type LogCounterpart } from "@webai/protocol/message_logg
 // local imports
 import { DeviceRegistry } from "./libs/device_registry.js";
 import { TaskStore } from "./libs/task_store.js";
+import { PipelineRegistry, builtinPipelineSpecifications } from "./libs/pipeline_registry.js";
 
 const options = new Command()
 	.option("-p, --port <number>", "HTTP and WebSocket port", "8787")
@@ -30,8 +31,9 @@ const options = new Command()
 	.option("--state-file <path>", "Durable task state file", "gateway-state.json")
 	.option("--auth-token <token>", "Required bearer token for development connections", "development-token")
 	.option("--max-tasks-per-principal <number>", "Maximum non-terminal tasks per principal", "20")
+	.option("--pipeline-file <path>", "JSON file containing additional pipeline specifications")
 	.parse()
-	.opts<{ port: string; leaseMs: string; submissionTimeoutMs: string; maxAttempts: string; stateFile: string; authToken: string; maxTasksPerPrincipal: string }>();
+	.opts<{ port: string; leaseMs: string; submissionTimeoutMs: string; maxAttempts: string; stateFile: string; authToken: string; maxTasksPerPrincipal: string; pipelineFile?: string }>();
 const port = Number(options.port);
 const deviceRegistry = new DeviceRegistry();
 const taskStore = new TaskStore(undefined, Number(options.submissionTimeoutMs), Number(options.leaseMs), options.stateFile);
@@ -42,6 +44,11 @@ const taskObserverDeviceIds = new Map<string, Set<string>>();
 const authenticatedPrincipals = new Map<string, string>();
 const devicePrincipalById = new Map<string, string>();
 const maximumTasksPerPrincipal = Number(options.maxTasksPerPrincipal);
+const pipelineRegistry = new PipelineRegistry(builtinPipelineSpecifications);
+if (options.pipelineFile) {
+	const additions = JSON.parse(readFileSync(options.pipelineFile, "utf8")) as unknown[];
+	for (const specification of additions) pipelineRegistry.add(specification);
+}
 
 // Logs this gateway's own message traffic (one file per run), plus one log file per
 // connected worker, relayed to us since a browser page cannot write files itself.
@@ -362,17 +369,16 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 		const principal = devicePrincipalById.get(deviceId)!;
 		const activeTaskCount = taskStore.list().filter((candidate) => candidate.consumerPrincipal === principal && !["completed", "failed", "cancelled"].includes(candidate.state)).length;
 		if (activeTaskCount >= maximumTasksPerPrincipal) { sendError(socket, counterpartFor(deviceId), "RATE_LIMITED", "The principal has reached its active-task limit", { requestId: message.requestId, retryable: true, details: { limit: maximumTasksPerPrincipal } }); return; }
-		const task = taskStore.create(message.input, deviceId, message.requestId, principal);
+		const pipeline = pipelineRegistry.select(message.input, message.pipelineId, message.pipelineVersion);
+		if (message.input.taskType === "task_type_formula" && !pipeline) { sendError(socket, counterpartFor(deviceId), "NO_COMPATIBLE_WORKER", "No active compatible pipeline specification exists", { requestId: message.requestId, retryable: false }); return; }
+		const task = taskStore.create(message.input, deviceId, message.requestId, principal, pipeline === undefined ? undefined : { pipelineId: pipeline.pipelineId, pipelineVersion: pipeline.version, pipelineStages: pipeline.stages.map((stage) => stage.name) });
 		send(socket, {
 			type: "task.accepted",
 			requestId: message.requestId,
 			task,
 		}, counterpartFor(deviceId));
-		if (message.input.taskType === "task_type_llm") {
-			assign(task.taskId, StagePayloadFactory.llmPrompt(message.input.input), "stage_llm_shard1");
-		} else {
-			assign(task.taskId, StagePayloadFactory.formula(message.input.input), "stage_formula_multiply");
-		}
+		const stage = TaskStore.nextStage(task);
+		if (stage) assign(task.taskId, message.input.taskType === "task_type_llm" ? StagePayloadFactory.llmPrompt(message.input.input) : StagePayloadFactory.formula(message.input.input), stage);
 		return;
 	}
 
