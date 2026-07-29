@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import { ClientMessageSchema, StageName, StagePayloadFactory, TaskInput, TaskState } from "../src/index.js";
+import { MessageLogger } from "../src/message_logger.js";
+import type { LogEntry } from "../src/message_logger.js";
 
 test("accepts valid task input", () => {
   assert.deepEqual(TaskInput.parse({ taskType: "task_type_formula", input: 12.5 }), { taskType: "task_type_formula", input: 12.5 });
@@ -47,6 +52,22 @@ test("validates every inbound client message shape", () => {
   assert.equal(ClientMessageSchema.safeParse({ type: "task.submit", input: { taskType: "task_type_formula", input: 5 } }).success, false);
   assert.equal(ClientMessageSchema.safeParse({ type: "stage.result", taskId: "task-1", stage: "stage_formula_multiply", value: 10 }).success, false);
   assert.equal(ClientMessageSchema.safeParse({ type: "register", role: "consumer", name: "consumer", unexpected: true }).success, false);
+});
+
+test("redacts task inputs and stage values but keeps the task type", () => {
+  const directoryPath = mkdtempSync(join(tmpdir(), "message-logger-"));
+  const logFilePath = join(directoryPath, "log.jsonl");
+  const logger = new MessageLogger(logFilePath);
+  const counterpart = { role: "consumer", deviceId: "device-1" };
+
+  logger.log("received", counterpart, "task.submit", { type: "task.submit", requestId: "request-1", input: { taskType: "task_type_llm", input: "What is the capital of France?" } });
+  logger.log("sent", counterpart, "stage.assign", { type: "stage.assign", taskId: "task-1", stage: "stage_formula_multiply", value: 5 });
+
+  const entries = readFileSync(logFilePath, "utf8").trim().split("\n").map((line) => JSON.parse(line) as LogEntry);
+  rmSync(directoryPath, { recursive: true, force: true });
+
+  assert.deepEqual(entries[0].payload, { type: "task.submit", requestId: "request-1", input: { taskType: "task_type_llm", input: "[redacted]" } });
+  assert.deepEqual(entries[1].payload, { type: "stage.assign", taskId: "task-1", stage: "stage_formula_multiply", value: "[redacted]" });
 });
 
 test("rejects malformed and oversized identity-bearing task messages", () => {

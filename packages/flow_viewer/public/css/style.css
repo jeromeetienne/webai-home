@@ -172,8 +172,25 @@ html, body {
 .actor-sublabel { fill: #6c757d; font-size: 10px; }
 .lane-title { fill: #6c757d; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
 .guide-line { stroke: #d8e0eb; stroke-width: 1.5; }
-.packet-label { fill: #495057; font-size: 10px; }
-.event-packet { cursor: pointer; }
+/*
+ * The packet label travels with its dot and crosses guide lines, actor nodes, and their
+ * labels, so each glyph is painted over a halo of the canvas background colour to stay
+ * readable wherever it happens to be. It never takes pointer events, so clicking near the
+ * label still reaches the dot underneath it.
+ */
+.packet-label {
+	fill: #343a40;
+	font-size: 10px;
+	font-weight: 500;
+	pointer-events: none;
+	paint-order: stroke;
+	stroke: #fbfcfe;
+	stroke-width: 3px;
+	stroke-linejoin: round;
+}
+
+.packet-detail { fill: #6c757d; font-weight: 400; }
+.event-packet { cursor: pointer; stroke: #fbfcfe; stroke-width: 1.5; }
 .event-packet:focus { outline: none; stroke: #212529; stroke-width: 2; }
 
 .event-details-body { position: relative; }

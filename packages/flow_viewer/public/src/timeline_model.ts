@@ -18,7 +18,7 @@ interface DevicesPayload {
 
 interface TaskSubmitPayload {
 	requestId?: string;
-	input?: { taskType?: string; input?: unknown };
+	input?: { taskType?: string; input?: unknown } | string;
 }
 
 interface TaskLikePayload {
@@ -39,6 +39,14 @@ interface StageResultPayload {
 	stage?: string;
 }
 
+interface StageResultAcceptedPayload {
+	taskId?: string;
+	assignmentId?: string;
+	attempt?: number;
+	revision?: number;
+	status?: string;
+}
+
 interface StageFailedPayload {
 	taskId?: string;
 	assignmentId?: string;
@@ -57,11 +65,30 @@ interface ErrorPayload {
 	message?: string;
 }
 
+/** The two texts written for one message: a full sentence for the event log list, and a short label for the animated packet. */
+interface EventDescription {
+	summary: string;
+	detail: string | undefined;
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 //	Constants
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
+
+// The marker `MessageLogger.redactPayload` writes in place of a task input or a stage
+// value. Kept as a literal because importing it from `@webai/protocol/message_logger`
+// would pull that module's Node.js file-system imports into the browser bundle.
+const REDACTED_MARKER = "[redacted]";
+
+// The animated packet's label is drawn centred on a dot travelling between the lane
+// columns, so both of its lines must stay short enough never to run past the edge of
+// the diagram or across a neighbouring actor node.
+const MAX_PACKET_DETAIL_LENGTH = 28;
+// How many leading characters of an identifier are enough to recognise it at a glance.
+const SHORT_IDENTIFIER_LENGTH = 8;
+const IDENTIFIER_PREFIXES: readonly string[] = ["task-", "assignment-", "device-"];
 
 const NEUTRAL_PACKET_COLOR = "#64748b";
 const TASK_COLOR_PALETTE: readonly string[] = [
@@ -152,6 +179,7 @@ export class TimelineModel {
 				const taskId: string | undefined = submitTaskIds.get(entryIndex) ?? TimelineModel._extractTaskId(entry);
 				const fromActorId: string = entry.direction === "received" ? counterpartActorId : selfActorId;
 				const toActorId: string = entry.direction === "received" ? selfActorId : counterpartActorId;
+				const description: EventDescription = TimelineModel._describe(entry.messageType, entry.payload);
 
 				events.push({
 					index: events.length,
@@ -161,7 +189,8 @@ export class TimelineModel {
 					fromActorId,
 					toActorId,
 					messageType: entry.messageType,
-					summary: TimelineModel._describe(entry.messageType, entry.payload),
+					summary: description.summary,
+					detail: description.detail,
 					taskId,
 					category,
 				});
@@ -272,67 +301,131 @@ export class TimelineModel {
 		}
 	}
 
-	private static _describe(messageType: string, payload: unknown): string {
-		const shortTaskId = (taskId: string | undefined): string => (taskId !== undefined ? taskId.replace("task-", "").slice(0, 8) : "?");
+	/**
+	 * Writes both texts shown for one message: the full sentence listed beside the diagram,
+	 * and the short label drawn under the message type on the packet crossing the diagram.
+	 */
+	private static _describe(messageType: string, payload: unknown): EventDescription {
+		const shortDetail = (detail: string): string => TimelineModel._truncate(detail, MAX_PACKET_DETAIL_LENGTH);
 
 		switch (messageType) {
 			case "register": {
 				const registerPayload = payload as RegisterPayload;
-				return `registers as ${registerPayload.role ?? "an unknown role"} (${registerPayload.name ?? "unnamed"})`;
+				const name: string = registerPayload.name ?? "unnamed";
+				return { summary: `registers as ${registerPayload.role ?? "an unknown role"} (${name})`, detail: shortDetail(name) };
 			}
 			case "registered":
-				return "confirms registration";
+				return { summary: "confirms registration", detail: undefined };
 			case "devices":
-				return "sends the current device list";
+				return { summary: "sends the current device list", detail: undefined };
 			case "task.submit": {
 				const submitPayload = payload as TaskSubmitPayload;
-				return `submits a ${submitPayload.input?.taskType ?? "task"}: ${JSON.stringify(submitPayload.input?.input)}${submitPayload.requestId === undefined ? "" : ` (request ${submitPayload.requestId})`}`;
+				const taskInput = typeof submitPayload.input === "object" && submitPayload.input !== null ? submitPayload.input : undefined;
+				const submittedValue: unknown = taskInput === undefined ? submitPayload.input : taskInput.input;
+				const valueText: string = submittedValue === undefined ? "" : `: ${submittedValue === REDACTED_MARKER ? REDACTED_MARKER : JSON.stringify(submittedValue)}`;
+				const requestText: string = submitPayload.requestId === undefined ? "" : ` (request ${submitPayload.requestId})`;
+				return {
+					summary: `submits a ${taskInput?.taskType ?? "task"}${valueText}${requestText}`,
+					detail: shortDetail(taskInput?.taskType ?? `request ${TimelineModel._shortIdentifier(submitPayload.requestId)}`),
+				};
 			}
 			case "task.accepted": {
 				const taskPayload = payload as TaskLikePayload;
 				const pipeline = taskPayload.task?.pipelineId === undefined ? "" : ` using ${taskPayload.task.pipelineId}@${taskPayload.task.pipelineVersion ?? "?"}`;
-				return `accepts task ${shortTaskId(taskPayload.task?.taskId)} (${taskPayload.task?.state ?? "queued"})${pipeline}`;
+				return {
+					summary: `accepts task ${TimelineModel._shortIdentifier(taskPayload.task?.taskId)} (${taskPayload.task?.state ?? "queued"})${pipeline}`,
+					detail: shortDetail(`task ${TimelineModel._shortIdentifier(taskPayload.task?.taskId)}`),
+				};
 			}
 			case "task.updated": {
 				const taskPayload = payload as TaskLikePayload;
 				const state = taskPayload.task?.state ?? "unknown";
 				const errorSuffix = taskPayload.task?.error !== undefined ? `: ${taskPayload.task.error}` : "";
 				const revision = taskPayload.task?.revision === undefined ? "" : ` (revision ${taskPayload.task.revision})`;
-				return `updates task ${shortTaskId(taskPayload.task?.taskId)} to ${state}${revision}${errorSuffix}`;
+				return {
+					summary: `updates task ${TimelineModel._shortIdentifier(taskPayload.task?.taskId)} to ${state}${revision}${errorSuffix}`,
+					detail: shortDetail(`now ${state}`),
+				};
 			}
 			case "stage.assign": {
 				const stagePayload = payload as StageAssignPayload;
-				return `assigns ${stagePayload.stage ?? "a stage"} for task ${shortTaskId(stagePayload.taskId)}${stagePayload.assignmentId === undefined ? "" : ` (assignment ${stagePayload.assignmentId}, attempt ${stagePayload.attempt ?? "?"})`}`;
+				return {
+					summary: `assigns ${stagePayload.stage ?? "a stage"} for task ${TimelineModel._shortIdentifier(stagePayload.taskId)}${stagePayload.assignmentId === undefined ? "" : ` (assignment ${stagePayload.assignmentId}, attempt ${stagePayload.attempt ?? "?"})`}`,
+					detail: shortDetail(stagePayload.stage ?? "a stage"),
+				};
 			}
 			case "stage.result": {
 				const stagePayload = payload as StageResultPayload;
-				return `reports ${stagePayload.stage ?? "a stage"} finished for task ${shortTaskId(stagePayload.taskId)}${stagePayload.assignmentId === undefined ? "" : ` (assignment ${stagePayload.assignmentId}, attempt ${stagePayload.attempt ?? "?"})`}`;
+				return {
+					summary: `reports ${stagePayload.stage ?? "a stage"} finished for task ${TimelineModel._shortIdentifier(stagePayload.taskId)}${stagePayload.assignmentId === undefined ? "" : ` (assignment ${stagePayload.assignmentId}, attempt ${stagePayload.attempt ?? "?"})`}`,
+					detail: shortDetail(stagePayload.stage ?? "a stage"),
+				};
+			}
+			case "stage.result.accepted": {
+				const acceptedPayload = payload as StageResultAcceptedPayload;
+				const revision = acceptedPayload.revision === undefined ? "" : ` (revision ${acceptedPayload.revision})`;
+				return {
+					summary: `accepts the result of assignment ${acceptedPayload.assignmentId ?? "?"} for task ${TimelineModel._shortIdentifier(acceptedPayload.taskId)}, now ${acceptedPayload.status ?? "unknown"}${revision}`,
+					detail: shortDetail(`now ${acceptedPayload.status ?? "unknown"}`),
+				};
 			}
 			case "stage.accepted": {
 				const assignment = payload as AssignmentPayload;
-				return `accepts assignment ${assignment.assignmentId ?? "?"} (attempt ${assignment.attempt ?? "?"}) for task ${shortTaskId(assignment.taskId)}`;
+				return {
+					summary: `accepts assignment ${assignment.assignmentId ?? "?"} (attempt ${assignment.attempt ?? "?"}) for task ${TimelineModel._shortIdentifier(assignment.taskId)}`,
+					detail: shortDetail(`assignment ${TimelineModel._shortIdentifier(assignment.assignmentId)}`),
+				};
 			}
 			case "stage.relinquish": {
 				const assignment = payload as AssignmentPayload;
-				return `relinquishes assignment ${assignment.assignmentId ?? "?"} for task ${shortTaskId(assignment.taskId)}`;
+				return {
+					summary: `relinquishes assignment ${assignment.assignmentId ?? "?"} for task ${TimelineModel._shortIdentifier(assignment.taskId)}`,
+					detail: shortDetail(`assignment ${TimelineModel._shortIdentifier(assignment.assignmentId)}`),
+				};
 			}
 			case "stage.cancel": {
 				const assignment = payload as AssignmentPayload;
-				return `cancels assignment ${assignment.assignmentId ?? "?"} for task ${shortTaskId(assignment.taskId)}`;
+				return {
+					summary: `cancels assignment ${assignment.assignmentId ?? "?"} for task ${TimelineModel._shortIdentifier(assignment.taskId)}`,
+					detail: shortDetail(`assignment ${TimelineModel._shortIdentifier(assignment.assignmentId)}`),
+				};
 			}
-			case "task.cancel":
-				return `cancels task ${shortTaskId((payload as AssignmentPayload).taskId)}`;
+			case "task.cancel": {
+				const assignment = payload as AssignmentPayload;
+				return {
+					summary: `cancels task ${TimelineModel._shortIdentifier(assignment.taskId)}`,
+					detail: shortDetail(`task ${TimelineModel._shortIdentifier(assignment.taskId)}`),
+				};
+			}
 			case "stage.failed": {
 				const stagePayload = payload as StageFailedPayload;
-				return `reports ${stagePayload.stage ?? "a stage"} failed for task ${shortTaskId(stagePayload.taskId)}${stagePayload.assignmentId === undefined ? "" : ` (assignment ${stagePayload.assignmentId}, attempt ${stagePayload.attempt ?? "?"})`}: ${stagePayload.error ?? "no reason given"}`;
+				return {
+					summary: `reports ${stagePayload.stage ?? "a stage"} failed for task ${TimelineModel._shortIdentifier(stagePayload.taskId)}${stagePayload.assignmentId === undefined ? "" : ` (assignment ${stagePayload.assignmentId}, attempt ${stagePayload.attempt ?? "?"})`}: ${stagePayload.error ?? "no reason given"}`,
+					detail: shortDetail(stagePayload.stage ?? "a stage"),
+				};
 			}
 			case "signal":
-				return "relays peer connection signaling data";
-			case "error":
-				return `reports an error: ${(payload as ErrorPayload).message ?? "no message given"}`;
+				return { summary: "relays peer connection signaling data", detail: undefined };
+			case "error": {
+				const message: string = (payload as ErrorPayload).message ?? "no message given";
+				return { summary: `reports an error: ${message}`, detail: shortDetail(message) };
+			}
 			default:
-				return messageType;
+				return { summary: messageType, detail: undefined };
 		}
+	}
+
+	/** Shortens an identifier to the leading characters that make it recognisable at a glance. */
+	private static _shortIdentifier(identifier: string | undefined): string {
+		if (identifier === undefined) return "?";
+		const prefix: string | undefined = IDENTIFIER_PREFIXES.find((candidate: string): boolean => identifier.startsWith(candidate));
+		const withoutPrefix: string = prefix === undefined ? identifier : identifier.slice(prefix.length);
+		return withoutPrefix.slice(0, SHORT_IDENTIFIER_LENGTH);
+	}
+
+	/** Cuts text down to a maximum length, marking the cut with an ellipsis. */
+	private static _truncate(text: string, maxLength: number): string {
+		return text.length <= maxLength ? text : `${text.slice(0, maxLength - 1)}…`;
 	}
 
 	private static _buildActors(

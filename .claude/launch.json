@@ -12,6 +12,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--workspace", "@webai/log-visu"],
       "port": 5173
+    },
+    {
+      "name": "flow-viewer",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "flow_viewer", "--workspace", "@webai/flow-viewer", "--", "--port", "5599", "--no-open", "--no-autoplay"],
+      "port": 5599
     }
   ]
 }

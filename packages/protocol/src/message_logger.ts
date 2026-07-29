@@ -91,11 +91,22 @@ export class MessageLogger {
 	}
 }
 
-/** Removes task input and stage values from ordinary diagnostic records. */
+/**
+ * Removes task input and stage values from ordinary diagnostic records.
+ *
+ * When the removed value is a task input — an object carrying a `taskType` discriminator —
+ * only that discriminator is kept, so a log still shows which kind of task was submitted
+ * without exposing the task's data. Every other property of the value is dropped.
+ */
 function redactPayload(payload: unknown): unknown {
 	if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return payload;
 	const record = { ...(payload as Record<string, unknown>) };
-	for (const key of ["input", "value", "dataBase64", "tensors"]) if (key in record) record[key] = "[redacted]";
+	for (const key of ["input", "value", "dataBase64", "tensors"]) {
+		if ((key in record) === false) continue;
+		const original = record[key];
+		const taskType: unknown = typeof original === "object" && original !== null ? (original as Record<string, unknown>).taskType : undefined;
+		record[key] = typeof taskType === "string" ? { taskType, input: "[redacted]" } : "[redacted]";
+	}
 	if (typeof record.task === "object" && record.task !== null) record.task = redactPayload(record.task);
 	return record;
 }

@@ -34,7 +34,14 @@ export interface TimelineEvent {
 	fromActorId: string;
 	toActorId: string;
 	messageType: string;
+	/** A full sentence naming what the message does, shown in the event log list. */
 	summary: string;
+	/**
+	 * A short label drawn under the message type on the animated packet, naming the one
+	 * thing that distinguishes this message from the others of its type — the stage name,
+	 * the new task state, an identifier. Undefined when the message type already says it all.
+	 */
+	detail: string | undefined;
 	taskId: string | undefined;
 	category: EventCategory;
 }

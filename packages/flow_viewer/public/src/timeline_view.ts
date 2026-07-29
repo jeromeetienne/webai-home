@@ -13,6 +13,10 @@ const ROW_HEIGHT = 100;
 const TOP_MARGIN = 60;
 const NODE_RADIUS = 22;
 const MIN_HEIGHT = 260;
+// Gap between the moving packet and the bottom line of its label, and the spacing between
+// the label's own two lines. Both lines sit above the packet so neither covers it.
+const LABEL_BASELINE_OFFSET = 12;
+const LABEL_LINE_HEIGHT = 12;
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -107,21 +111,20 @@ export class TimelineView {
 		const labelEl: SVGTextElement = document.createElementNS(SVG_NS, "text");
 		labelEl.setAttribute("class", "packet-label");
 		labelEl.setAttribute("text-anchor", "middle");
-		labelEl.setAttribute("y", "-10");
-		if (event.messageType === "task.submit") {
-			const taskSubmitDetails: RegExpMatchArray | null = event.summary.match(/^submits a task_type_([^:]+): (.*)$/);
-			const firstLineEl: SVGTSpanElement = document.createElementNS(SVG_NS, "tspan");
-			firstLineEl.setAttribute("x", "0");
-			firstLineEl.textContent = event.messageType;
-			labelEl.appendChild(firstLineEl);
+		labelEl.setAttribute("y", String(event.detail === undefined ? -LABEL_BASELINE_OFFSET : -LABEL_BASELINE_OFFSET - LABEL_LINE_HEIGHT));
 
-			const secondLineEl: SVGTSpanElement = document.createElementNS(SVG_NS, "tspan");
-			secondLineEl.setAttribute("x", "0");
-			secondLineEl.setAttribute("dy", "1.2em");
-			secondLineEl.textContent = taskSubmitDetails === null ? event.summary : `${taskSubmitDetails[1]}: ${taskSubmitDetails[2]}`;
-			labelEl.appendChild(secondLineEl);
-		} else {
-			labelEl.textContent = event.messageType;
+		const messageTypeEl: SVGTSpanElement = document.createElementNS(SVG_NS, "tspan");
+		messageTypeEl.setAttribute("x", "0");
+		messageTypeEl.textContent = event.messageType;
+		labelEl.appendChild(messageTypeEl);
+
+		if (event.detail !== undefined) {
+			const detailEl: SVGTSpanElement = document.createElementNS(SVG_NS, "tspan");
+			detailEl.setAttribute("class", "packet-detail");
+			detailEl.setAttribute("x", "0");
+			detailEl.setAttribute("dy", String(LABEL_LINE_HEIGHT));
+			detailEl.textContent = event.detail;
+			labelEl.appendChild(detailEl);
 		}
 		groupEl.appendChild(labelEl);
 
