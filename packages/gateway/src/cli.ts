@@ -1,6 +1,6 @@
 // node imports
 import { existsSync, readFileSync } from "node:fs";
-import { createServer as createHttpServer, type ServerResponse } from "node:http";
+import { createServer as createHttpServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { dirname, extname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -10,6 +10,7 @@ import { WebSocketServer, type WebSocket } from "ws";
 import {
 	StagePayloadFactory,
 	ClientEnvelopeSchema,
+	DiagnosticsBatchSchema,
 	protocolVersion,
 	supportedProtocolVersions,
 	type ClientMessage,
@@ -28,6 +29,7 @@ import { DeviceRegistry, type DeviceRegistryChange } from "./libs/device_registr
 import { TaskStore } from "./libs/task_store.js";
 import { PipelineRegistry, builtinPipelineSpecifications } from "./libs/pipeline_registry.js";
 import { StagePolicyResolver } from "./libs/stage_policy_resolver.js";
+import { DiagnosticsRateLimiter } from "./libs/diagnostics_rate_limiter.js";
 
 const options = new Command()
 	.option("-p, --port <number>", "HTTP and WebSocket port", "8787")
@@ -73,6 +75,21 @@ const runTimestamp = new Date().toISOString().replace(/[:.]/g, "-");
 const gatewayMessageLogger = new MessageLogger(join(logsDirectory, `gateway-${runTimestamp}.jsonl`));
 const workerMessageLoggers = new Map<string, MessageLogger>();
 const maximumInboundMessageBytes = 8_500_000;
+
+/**
+ * Caps how many diagnostic entries each worker may report, so that reporting cannot grow
+ * without bound now that it has its own transport.
+ */
+const diagnosticsRateLimiter = new DiagnosticsRateLimiter();
+
+/**
+ * The largest diagnostics report the gateway will read, in bytes.
+ *
+ * A report carries no message bodies, only a message type and a timestamp per entry, so the
+ * largest allowed batch fits inside this comfortably. The limit is here to stop the gateway
+ * buffering an unbounded request body before it has validated anything.
+ */
+const maximumDiagnosticsRequestBytes = 64_000;
 
 /**
  * Returns the log file for a connected worker's relayed message log, creating it on
@@ -800,16 +817,6 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage, req
 		return;
 	}
 
-	if (message.type === "log.entry") {
-		workerMessageLogger(deviceId).log(
-			message.direction,
-			{ role: "gateway" },
-			message.messageType,
-			message.payload,
-			message.timestamp,
-		);
-		return;
-	}
 }
 
 const isProduction = process.env.NODE_ENV === "production";
@@ -876,11 +883,177 @@ function sendBuiltAsset(response: ServerResponse, pathname: string): boolean {
 	}
 }
 
+/**
+ * Allows a worker browser page served from a different origin to post its diagnostics.
+ *
+ * The worker page is normally served by its own development server on another port, so a
+ * report is a cross-origin request. A JSON post also carries a `content-type` the browser
+ * treats as non-simple, so the browser asks permission with an `OPTIONS` request first and
+ * refuses to send the report at all unless that permission is granted here.
+ *
+ * Any origin is allowed because a worker may legitimately run on any host. What actually
+ * guards the endpoint is the bearer token and the requirement that the device already hold
+ * an authenticated connection, not the origin the report came from.
+ *
+ * @param response - The HTTP response to set the headers on.
+ */
+function setDiagnosticsCorsHeaders(response: ServerResponse): void {
+	response.setHeader("access-control-allow-origin", "*");
+	response.setHeader("access-control-allow-methods", "POST, OPTIONS");
+	response.setHeader("access-control-allow-headers", "authorization, content-type");
+	response.setHeader("access-control-max-age", "86400");
+}
+
+/**
+ * Answers a diagnostics request with a JSON body and the headers that let a browser read it.
+ *
+ * @param response - The HTTP response to write to.
+ * @param statusCode - The HTTP status code to answer with.
+ * @param body - The object to send as the response body.
+ */
+function endDiagnosticsResponse(response: ServerResponse, statusCode: number, body: Record<string, unknown>): void {
+	setDiagnosticsCorsHeaders(response);
+	response.statusCode = statusCode;
+	response.setHeader("content-type", "application/json");
+	response.end(JSON.stringify(body));
+}
+
+/**
+ * Reads a request body, refusing anything past the diagnostics size limit.
+ *
+ * The limit is enforced while the body arrives rather than after it, so an oversized report
+ * is never fully buffered in memory.
+ *
+ * @param request - The incoming HTTP request.
+ * @returns The body as text, or undefined when it exceeded the limit.
+ */
+function readDiagnosticsBody(request: IncomingMessage): Promise<string | undefined> {
+	return new Promise((resolve) => {
+		const chunks: Buffer[] = [];
+		let totalBytes = 0;
+		request.on("data", (chunk: Buffer) => {
+			totalBytes += chunk.length;
+			if (totalBytes > maximumDiagnosticsRequestBytes) {
+				// Stop collecting, but leave the connection alone: the caller still has to write
+				// the refusal, and destroying the connection here would reach the worker as a
+				// connection reset rather than as an answer explaining what was wrong.
+				chunks.length = 0;
+				resolve(undefined);
+				return;
+			}
+			chunks.push(chunk);
+		});
+		request.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+		request.on("error", () => resolve(undefined));
+	});
+}
+
+/**
+ * Records a batch of diagnostic entries reported by a worker browser page over HTTP.
+ *
+ * Diagnostics travel here rather than over the WebSocket connection that carries
+ * scheduling, so that a worker reporting heavily cannot delay stage assignment or result
+ * collection for anyone (see https://github.com/webai-at-home/webai-at-home/issues/50).
+ *
+ * @param request - The incoming HTTP request.
+ * @param response - The HTTP response to answer with.
+ */
+async function handleDiagnosticsReport(request: IncomingMessage, response: ServerResponse): Promise<void> {
+	const bearerToken = (request.headers.authorization ?? "").replace(/^Bearer /, "");
+	if (bearerToken !== options.authToken) {
+		endDiagnosticsResponse(response, 401, { error: "Credentials were rejected" });
+		return;
+	}
+
+	const bodyText = await readDiagnosticsBody(request);
+	if (bodyText === undefined) {
+		// The rest of the oversized body is still arriving. Answer first, then close the
+		// connection rather than reading the remainder, so the sender learns why it was
+		// refused and the gateway never buffers the whole thing.
+		response.setHeader("connection", "close");
+		response.once("finish", () => request.destroy());
+		endDiagnosticsResponse(response, 413, { error: `A diagnostics report may not exceed ${maximumDiagnosticsRequestBytes} bytes` });
+		return;
+	}
+
+	let json: unknown;
+	try {
+		json = JSON.parse(bodyText);
+	} catch {
+		endDiagnosticsResponse(response, 400, { error: "A diagnostics report must be valid JSON" });
+		return;
+	}
+
+	// Validated against a schema rather than accepted as unknown, which is what the relay
+	// over the scheduling connection used to do.
+	const parsed = DiagnosticsBatchSchema.safeParse(json);
+	if (parsed.success === false) {
+		endDiagnosticsResponse(response, 400, { error: "A diagnostics report did not match the expected shape", details: parsed.error.issues.slice(0, 10) });
+		return;
+	}
+
+	// A valid token is not enough on its own: the report must name a device that currently
+	// holds an authenticated connection, so a leaked token cannot be used to write log files
+	// for devices that were never here.
+	const batch = parsed.data;
+	if (authenticatedPrincipals.has(batch.deviceId) === false) {
+		endDiagnosticsResponse(response, 403, { error: "That device does not hold an authenticated connection" });
+		return;
+	}
+
+	const limit = diagnosticsRateLimiter.accept(batch.deviceId, batch.entries.length);
+	if (limit.isAccepted === false) {
+		response.setHeader("retry-after", String(Math.ceil(limit.retryAfterMs / 1000)));
+		endDiagnosticsResponse(response, 429, { error: "That device has reported too many diagnostic entries", retryAfterMs: limit.retryAfterMs });
+		return;
+	}
+
+	const logger = workerMessageLogger(batch.deviceId);
+	for (const entry of batch.entries) {
+		// The report carries no message body, because the gateway is the other end of every
+		// connection this worker has and so already recorded the body itself. What is written
+		// here is the worker's own view of the timing, joined to the gateway's own record
+		// through the frame identifier.
+		logger.log(
+			entry.direction,
+			{ role: "gateway" },
+			entry.messageType,
+			{ type: entry.messageType },
+			entry.timestamp,
+			{ id: entry.messageId },
+		);
+	}
+	endDiagnosticsResponse(response, 202, { recorded: batch.entries.length, remaining: limit.remaining });
+}
+
 const httpServer = createHttpServer((request, response) => {
 	const pathname = new URL(
 		request.url ?? "/",
 		`http://${request.headers.host ?? "localhost"}`,
 	).pathname;
+
+	// Handled before anything else so the route behaves the same in development and in
+	// production. In development every unmatched path falls through to Vite's middleware,
+	// which adds permissive cross-origin headers of its own, so an endpoint left to that
+	// fallthrough would appear to work in development and then be blocked by the browser in
+	// production, where there is no Vite.
+	if (pathname === "/diagnostics") {
+		if (request.method === "OPTIONS") {
+			setDiagnosticsCorsHeaders(response);
+			response.statusCode = 204;
+			response.end();
+			return;
+		}
+		if (request.method !== "POST") {
+			endDiagnosticsResponse(response, 405, { error: "A diagnostics report must be sent with POST" });
+			return;
+		}
+		handleDiagnosticsReport(request, response).catch((error: unknown) => {
+			console.error(error);
+			endDiagnosticsResponse(response, 500, { error: "The diagnostics report could not be recorded" });
+		});
+		return;
+	}
 
 	// The qwen3-0.6b shard files are large, gitignored, and generated once as an explicit setup
 	// step (see packages/_onnx_experiments/tools/verify_qwen3_shards.mjs) into that package's
@@ -995,6 +1168,7 @@ websocketServer.on("connection", (socket) => {
 		for (const observers of taskObserverDeviceIds.values()) observers.delete(deviceId);
 		devicePrincipalById.delete(deviceId);
 		authenticatedPrincipals.delete(deviceId);
+		diagnosticsRateLimiter.forget(deviceId);
 		// "device.left" already tells subscribers exactly what changed, so the full device
 		// list is not sent as well.
 		publishDevice(deviceRegistry.remove(deviceId));

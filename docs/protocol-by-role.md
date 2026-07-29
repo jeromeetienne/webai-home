@@ -152,11 +152,20 @@ The gateway's message log records `messageId`, `inReplyTo`, and `protocolVersion
 | `device.activity` | Gateway | Device membership subscribers | Report how busy one or more devices now are, batched over a short window. |
 | `device.left` | Gateway | Device membership subscribers | Report one device leaving. |
 | `error` | Gateway | The requesting client | Report invalid input, an unexpected stage, or another protocol error. |
-| `log.entry` | Worker | Gateway | Relay a worker's message log entry so the gateway can write it to disk. |
 
-`log.entry` is an operational message rather than part of task execution. The
-gateway records its own traffic and stores relayed worker traffic in the
-gateway log directory.
+## Diagnostics do not travel on the scheduling connection
+
+A worker browser page cannot write files, so it tells the gateway which messages it saw and the gateway appends them to that worker's log file on its behalf. That reporting used to travel over the same WebSocket connection as scheduling, where it was 37 percent of all messages and 49 percent of all bytes in a measured run, was never validated against a schema, and had no limit of any kind. Diagnostic traffic therefore competed with the messages that assign stages and collect results (see [issue #50](https://github.com/webai-at-home/webai-at-home/issues/50)).
+
+Reporting now travels over HTTP instead, and the scheduling connection refuses it outright.
+
+- **Where it goes.** A worker posts to `POST /diagnostics` on the gateway, in batches, every two seconds. The endpoint answers cross-origin requests, because a worker page is normally served by a different development server than the gateway.
+- **What it carries.** Only the direction, the message type, the time the browser saw the message, and the identifier of the frame it travelled in. It carries no message bodies at all.
+- **Why no bodies.** The gateway is the other end of every connection a worker has, so it has already recorded the body of every message the worker could report. The only fact the worker adds is its own view of the timing. The frame identifier joins each entry to the gateway's own record of the same message, which does carry the body.
+- **How it is guarded.** The request must present the same bearer token the WebSocket connection uses, and must name a device that currently holds an authenticated connection. The body is validated by `DiagnosticsBatchSchema`, is capped at 64,000 bytes and 200 entries per report, and each device may report at most 600 entries per ten seconds. A report that exceeds any of these is refused rather than partly recorded.
+- **What happens when it fails.** The worker drops entries rather than retrying forever. Diagnostics are never allowed to delay the work or grow without bound in the page's memory.
+
+Because a report cannot carry a message body, task data cannot travel this path at all, rather than travelling it and relying on redaction to remove the data afterwards.
 
 ## Task submission flow
 

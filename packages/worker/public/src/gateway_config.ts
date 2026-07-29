@@ -12,3 +12,13 @@ export const centralGatewayWebSocketUrl = (): string => {
 
 /** Builds an HTTP asset URL on the central gateway. */
 export const centralGatewayAssetUrl = (path: string): string => new URL(path, centralGatewayUrl).toString();
+
+/**
+ * The bearer token this page authenticates with, supplied as `?authToken=` or defaulting to
+ * the gateway's own development default.
+ *
+ * The same token authenticates both the WebSocket connection that carries scheduling and the
+ * HTTP requests that carry diagnostics.
+ */
+export const centralGatewayAuthToken =
+	new URLSearchParams(location.search).get("authToken") ?? "development-token";

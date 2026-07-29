@@ -10,6 +10,7 @@ import { DeviceRegistry } from "../src/libs/device_registry.js";
 import { TaskStore } from "../src/libs/task_store.js";
 import { PipelineRegistry, builtinPipelineSpecifications } from "../src/libs/pipeline_registry.js";
 import { StagePolicyResolver } from "../src/libs/stage_policy_resolver.js";
+import { DiagnosticsRateLimiter } from "../src/libs/diagnostics_rate_limiter.js";
 import { splitDevices, stageStatistics } from "../src/dashboard.js";
 import type { TaskInput } from "@webai/protocol";
 
@@ -357,4 +358,30 @@ test("a restored task that carries no pipeline is failed rather than left stuck"
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test("diagnostic reporting is capped per device over a rolling window", () => {
+  const limiter = new DiagnosticsRateLimiter(10, 1_000);
+  const start = 1_000_000;
+
+  assert.equal(limiter.accept("device-a", 6, start).isAccepted, true);
+  const second = limiter.accept("device-a", 4, start + 100);
+  assert.equal(second.isAccepted, true);
+  assert.equal(second.remaining, 0);
+
+  // The allowance is spent, so the next report is refused rather than partly recorded.
+  const refused = limiter.accept("device-a", 1, start + 200);
+  assert.equal(refused.isAccepted, false);
+  assert.ok(refused.retryAfterMs > 0);
+
+  // One device's traffic never spends another device's allowance.
+  assert.equal(limiter.accept("device-b", 10, start + 200).isAccepted, true);
+
+  // The window rolls: once the earliest entries age out, that much allowance returns.
+  assert.equal(limiter.accept("device-a", 6, start + 1_050).isAccepted, true);
+  assert.equal(limiter.accept("device-a", 5, start + 1_050).isAccepted, false);
+
+  // A disconnected device's allowance is released with it.
+  limiter.forget("device-a");
+  assert.equal(limiter.accept("device-a", 10, start + 1_060).isAccepted, true);
 });

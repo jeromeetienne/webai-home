@@ -73,9 +73,10 @@ export interface LogEntry {
  * Records every message one actor (consumer, gateway, or worker) sends and receives, as one
  * JSON object per line, so message traffic between actors can be reviewed afterward.
  *
- * Node.js only — a browser worker client cannot write files itself and instead relays
- * its log entries to the gateway over the existing connection (see the `log.entry` client
- * message in `index.ts`), which appends them to that worker's own log file on its behalf.
+ * Node.js only — a browser worker page cannot write files itself and instead reports which
+ * messages it saw to the gateway's diagnostics endpoint over HTTP (see `DiagnosticsBatchSchema`
+ * in `index.ts`), and the gateway appends them to that worker's own log file on its behalf.
+ * That reporting deliberately travels off the connection that carries scheduling.
  */
 export class MessageLogger {
 	private readonly logFilePath: string;

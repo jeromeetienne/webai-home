@@ -5,7 +5,8 @@ import { StageName, type StageName as StageNameType, type StagePayload, type Cli
 import { Envelope } from "@webai/protocol/envelope";
 import { StageFormulaHelper } from "./stage_formula_helper";
 import { StageLlmHelper } from "./stage_llm_helper";
-import { centralGatewayWebSocketUrl } from "./gateway_config";
+import { centralGatewayAuthToken, centralGatewayWebSocketUrl } from "./gateway_config";
+import { DiagnosticsReporter } from "./diagnostics_reporter";
 
 /**
  * Reads the stages the page URL restricts this worker browser to.
@@ -174,22 +175,20 @@ const renderEvents = (events: WorkerEvent[]): void => {
 };
 
 /**
- * Relays a structured log entry to the central gateway, since this browser page cannot
- * write its own log file to disk. The gateway appends it to this worker's own log file.
+ * Sends a message to the central gateway and notes it for this browser's diagnostics.
+ *
+ * The wrapper is built once here so that the identifier the gateway will see is the same
+ * identifier the diagnostic entry names, which is what lets the two records of one message
+ * be joined afterwards.
  *
  * @param socket The active WebSocket connection to the central gateway.
- * @param direction Whether the entry records a message sent to, or received from, the gateway.
- * @param message The client or gateway message this entry describes.
+ * @param message The client message to send.
  */
-const relayLogEntry = (socket: WebSocket, direction: "received" | "sent", message: { type: string }): void => {
-	const logEntryMessage: ClientMessage = {
-		type: "log.entry",
-		direction,
-		messageType: message.type,
-		timestamp: new Date().toISOString(),
-		payload: message,
-	};
-	if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(Envelope.fromClient(logEntryMessage)));
+const sendToGateway = (socket: WebSocket, message: ClientMessage): void => {
+	const frame = Envelope.fromClient(message);
+	if (socket.readyState !== WebSocket.OPEN) return;
+	socket.send(JSON.stringify(frame));
+	DiagnosticsReporter.record("sent", message.type, frame.id);
 };
 
 /** The repeating timer that extends the lease of one running assignment, by assignment identifier. */
@@ -222,7 +221,7 @@ const startLeaseHeartbeat = (socket: WebSocket, assignment: { taskId: string; as
 	const timer = window.setInterval((): void => {
 		if (socket.readyState !== WebSocket.OPEN) return;
 		const heartbeatMessage: ClientMessage = { type: "stage.heartbeat", taskId: assignment.taskId, assignmentId: assignment.assignmentId, attempt: assignment.attempt };
-		socket.send(JSON.stringify(Envelope.fromClient(heartbeatMessage)));
+		sendToGateway(socket, heartbeatMessage);
 	}, intervalMs);
 	leaseHeartbeatTimers.set(assignment.assignmentId, timer);
 };
@@ -261,7 +260,6 @@ const stopLeaseHeartbeat = (assignmentId?: string): void => {
 	/** The active WebSocket connection, when the worker browser is connected. */
 	let socket: WebSocket | undefined;
 	/** Whether the gateway has accepted this worker browser's registration. */
-	let isRegisteredWithGateway = false;
 	/** The stages the page URL restricts this worker browser to, if it names any. */
 	const requestedStageNames = requestedStageNamesFromUrl(location.search);
 	/**
@@ -310,7 +308,6 @@ const stopLeaseHeartbeat = (assignmentId?: string): void => {
 
 		// Open a WebSocket connection to the central gateway.
 		socket = new WebSocket(centralGatewayWebSocketUrl());
-		isRegisteredWithGateway = false;
 
 		// update ui
 		statusEl.textContent = "Connecting";
@@ -324,8 +321,8 @@ const stopLeaseHeartbeat = (assignmentId?: string): void => {
 			connectButtonEl.classList.add("d-none");
 			disconnectButtonEl.classList.remove("d-none");
 			nameInputEl.disabled = true;
-			const message: ClientMessage = { type: "authenticate", token: "development-token" };
-			socket?.send(JSON.stringify(Envelope.fromClient(message)));
+			const message: ClientMessage = { type: "authenticate", token: centralGatewayAuthToken };
+			if (socket) sendToGateway(socket, message);
 			addEvent({ direction: "sent", type: message.type, timestamp: new Date().toISOString() });
 		});
 
@@ -347,7 +344,7 @@ const stopLeaseHeartbeat = (assignmentId?: string): void => {
 			// pipeline added after this browser was built.
 			if (message.type === "authenticated" && socket) {
 				const request: ClientMessage = { type: "pipelines.get" };
-				socket.send(JSON.stringify(Envelope.fromClient(request)));
+				sendToGateway(socket, request);
 				addEvent({ direction: "sent", type: request.type, timestamp: new Date().toISOString() });
 				return;
 			}
@@ -374,7 +371,7 @@ const stopLeaseHeartbeat = (assignmentId?: string): void => {
 						statusEl.textContent = "Connected";
 						statusEl.className = "badge text-bg-success";
 						const register: ClientMessage = { type: "register", role: "worker", name: nameInputEl.value, stageNames: enabledStageNames };
-						socket.send(JSON.stringify(Envelope.fromClient(register)));
+						sendToGateway(socket, register);
 						addEvent({ direction: "sent", type: register.type, timestamp: new Date().toISOString() });
 					})
 					.catch((error: unknown) => {
@@ -387,10 +384,12 @@ const stopLeaseHeartbeat = (assignmentId?: string): void => {
 				return;
 			}
 			if (message.type === "registered") {
-				isRegisteredWithGateway = true;
 				deviceIdEl.textContent = message.deviceId ?? "Not assigned";
+				// Reporting can only start now: the gateway names the device the report is for,
+				// and it issues that name here.
+				if (message.deviceId !== undefined) DiagnosticsReporter.start(message.deviceId, centralGatewayAuthToken);
 			}
-			if (socket && isRegisteredWithGateway) relayLogEntry(socket, "received", message);
+			DiagnosticsReporter.record("received", message.type, frame.id);
 			if (message.type === "stage.cancel" && message.taskId !== undefined) {
 				stopLeaseHeartbeat(message.assignmentId);
 				StageLlmHelper.clearTask(message.taskId);
@@ -403,8 +402,7 @@ const stopLeaseHeartbeat = (assignmentId?: string): void => {
 			/** The task identifier and stage captured for the async result below. */
 			const { taskId, assignmentId, attempt, stage, value } = message;
 			const acceptedMessage: ClientMessage = { type: "stage.accepted", taskId, assignmentId, attempt };
-			if (socket && isRegisteredWithGateway) relayLogEntry(socket, "sent", acceptedMessage);
-			socket?.send(JSON.stringify(Envelope.fromClient(acceptedMessage)));
+			if (socket) sendToGateway(socket, acceptedMessage);
 			if (socket) startLeaseHeartbeat(socket, { taskId, assignmentId, attempt, leaseUntil: message.leaseUntil });
 			// The assignment says which computation to run and which position in its pipeline
 			// the stage occupies. This browser never has to recognise the stage name.
@@ -426,8 +424,7 @@ const stopLeaseHeartbeat = (assignmentId?: string): void => {
 						stage,
 						value
 					};
-					if (socket && isRegisteredWithGateway) relayLogEntry(socket, "sent", resultMessage);
-					socket?.send(JSON.stringify(Envelope.fromClient(resultMessage)));
+					if (socket) sendToGateway(socket, resultMessage);
 					addEvent({ direction: "sent", type: resultMessage.type, timestamp: new Date().toISOString(), taskId, stage });
 				})
 				.catch((error: unknown) => {
@@ -443,8 +440,7 @@ const stopLeaseHeartbeat = (assignmentId?: string): void => {
 						stage,
 						error: error instanceof Error ? error.message : String(error),
 					};
-					if (socket && isRegisteredWithGateway) relayLogEntry(socket, "sent", failedMessage);
-					socket?.send(JSON.stringify(Envelope.fromClient(failedMessage)));
+					if (socket) sendToGateway(socket, failedMessage);
 					addEvent({ direction: "sent", type: failedMessage.type, timestamp: new Date().toISOString(), taskId, stage, message: failedMessage.error });
 				});
 		});
@@ -452,13 +448,15 @@ const stopLeaseHeartbeat = (assignmentId?: string): void => {
 		/** Restores the disconnected state when the WebSocket closes. */
 		socket.addEventListener("close", (): void => {
 			stopLeaseHeartbeat();
+			// Posts whatever is still buffered, so the last messages before a disconnection are
+			// still recorded rather than lost with the page's state.
+			DiagnosticsReporter.stop();
 			statusEl.textContent = "Disconnected";
 			statusEl.className = "badge text-bg-danger";
 			connectButtonEl.classList.remove("d-none");
 			connectButtonEl.disabled = false;
 			disconnectButtonEl.classList.add("d-none");
 			nameInputEl.disabled = false;
-			isRegisteredWithGateway = false;
 			socket = undefined;
 		});
 	});

@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { ClientEnvelopeSchema, ClientMessageSchema, PipelineSpecificationSchema, PipelineStageSchema, StageName, StagePayloadFactory, TaskInput, TaskState, maximumSnapshotEventCount, protocolVersion } from "../src/index.js";
+import { ClientEnvelopeSchema, ClientMessageSchema, DiagnosticsBatchSchema, PipelineSpecificationSchema, PipelineStageSchema, StageName, StagePayloadFactory, TaskInput, TaskState, maximumDiagnosticEntriesPerBatch, maximumSnapshotEventCount, protocolVersion } from "../src/index.js";
 import type { Task, TaskEvent } from "../src/index.js";
 import { MessageLogger } from "../src/message_logger.js";
 import type { LogEntry } from "../src/message_logger.js";
@@ -90,12 +90,13 @@ test("redacts the task result, the values inside completed stages, and a relayed
   }) as { task: { completedStages: { name: string; value: unknown }[] } };
   assert.deepEqual(snapshot.task.completedStages, [{ name: "stage_llm_shard1", value: "[redacted]" }]);
 
-  const relayed = MessageLogger.redactPayload({
-    type: "log.entry",
-    messageType: "stage.assign",
-    payload: { type: "stage.assign", taskId: "task-1", value: { text: "SECRET PROMPT" } },
-  }) as { payload: { value: unknown } };
-  assert.equal(relayed.payload.value, "[redacted]");
+  // Redaction still reaches a value nested inside another message, which is the shape a
+  // gateway message carrying a task takes.
+  const nested = MessageLogger.redactPayload({
+    type: "stage.assign",
+    assignment: { taskId: "task-1", value: { text: "SECRET PROMPT" } },
+  }) as { assignment: { value: unknown } };
+  assert.equal(nested.assignment.value, "[redacted]");
 });
 
 test("redacts the authentication token", () => {
@@ -260,4 +261,30 @@ test("recognises a message sent without its wrapper, and reports which versions 
 
   assert.equal(Envelope.supportsVersion(protocolVersion), true);
   assert.equal(Envelope.supportsVersion(protocolVersion + 1), false);
+});
+
+test("diagnostics travel off the scheduling connection, under a schema rather than as unknown", () => {
+  // The scheduling connection no longer carries diagnostic traffic at all.
+  assert.equal(ClientMessageSchema.safeParse({ type: "log.entry", direction: "sent", messageType: "stage.result", timestamp: new Date().toISOString(), payload: {} }).success, false);
+
+  const validBatch = {
+    deviceId: "device-11111111-2222-3333-4444-555555555555",
+    entries: [{ direction: "sent" as const, messageType: "stage.result", timestamp: new Date().toISOString(), messageId: "message-1" }],
+  };
+  assert.equal(DiagnosticsBatchSchema.safeParse(validBatch).success, true);
+
+  // A report carries timing only. Anything carrying a message body is refused outright,
+  // which is what keeps task data off this path rather than relying on redaction alone.
+  const withBody = { ...validBatch, entries: [{ ...validBatch.entries[0], payload: { input: "a secret prompt" } }] };
+  assert.equal(DiagnosticsBatchSchema.safeParse(withBody).success, false);
+
+  // The batch size is bounded, so one report cannot be arbitrarily large.
+  const oversized = {
+    deviceId: validBatch.deviceId,
+    entries: Array.from({ length: maximumDiagnosticEntriesPerBatch + 1 }, () => validBatch.entries[0]),
+  };
+  assert.equal(DiagnosticsBatchSchema.safeParse(oversized).success, false);
+
+  assert.equal(DiagnosticsBatchSchema.safeParse({ deviceId: validBatch.deviceId, entries: [] }).success, false);
+  assert.equal(DiagnosticsBatchSchema.safeParse({ entries: validBatch.entries }).success, false);
 });

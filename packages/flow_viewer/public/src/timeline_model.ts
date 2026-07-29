@@ -166,6 +166,8 @@ export class TimelineModel {
 
 		for (const source of sources) {
 			const selfActorId = `gateway:${source.id}`;
+			// Diagnostic reporting no longer travels on the scheduling connection at all, but a
+			// log recorded before that change still contains it, and it is not wire traffic.
 			const wireEntries: LogEntry[] = source.entries.filter((entry: LogEntry): boolean => entry.messageType !== "log.entry");
 			const answeredRequests: Map<number, number> = TimelineModel._resolveAnsweredRequests(wireEntries);
 			const submitTaskIds: Map<number, string> = TimelineModel._resolveSubmitTaskIds(wireEntries, answeredRequests);
