@@ -47,3 +47,13 @@ test("renders request and assignment identities from the issue 37 formula fixtur
 	assert.equal(model.events.some((item) => item.summary.includes("assignment assignment-multiply-1, attempt 1")), true);
 	assert.equal(model.events.some((item) => item.summary.includes("to completed")), true);
 });
+
+test("hides authentication-only connections with the default filters", () => {
+	const entries: LogEntry[] = [
+		{ timestamp: "2026-01-01T00:00:00.000Z", direction: "received", counterpart: { role: "unknown", deviceId: "device-1" }, messageType: "authenticate", payload: { type: "authenticate" } },
+		{ timestamp: "2026-01-01T00:00:00.001Z", direction: "sent", counterpart: { role: "unknown", deviceId: "device-1" }, messageType: "authenticated", payload: { type: "authenticated" } },
+	];
+	const model = TimelineModel.build([{ id: "run", label: "Run", entries }], { fromMs: 0, toMs: Number.MAX_SAFE_INTEGER }, { showChatter: false, showSignaling: false });
+	assert.deepEqual(model.actors, []);
+	assert.deepEqual(model.events, []);
+});

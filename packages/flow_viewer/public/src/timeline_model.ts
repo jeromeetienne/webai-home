@@ -75,7 +75,10 @@ const TASK_COLOR_PALETTE: readonly string[] = [
 	"#2dd4bf",
 ];
 
-const CHATTER_MESSAGE_TYPES: ReadonlySet<string> = new Set(["register", "registered", "devices"]);
+// Connection setup is not task traffic. Keeping authentication in chatter also
+// prevents pre-registration `unknown` counterparts from becoming actor nodes
+// when the viewer is using its default filters.
+const CHATTER_MESSAGE_TYPES: ReadonlySet<string> = new Set(["authenticate", "authenticated", "register", "registered", "devices"]);
 const SIGNALING_MESSAGE_TYPES: ReadonlySet<string> = new Set(["signal"]);
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -109,11 +112,13 @@ export class TimelineModel {
 			const selfActorId = `gateway:${source.id}`;
 			const wireEntries: LogEntry[] = source.entries.filter((entry: LogEntry): boolean => entry.messageType !== "log.entry");
 			const submitTaskIds: Map<number, string> = TimelineModel._resolveSubmitTaskIds(wireEntries);
+			const roleByDeviceId: Map<string, string> = TimelineModel._resolveDeviceRoles(wireEntries);
 
 			for (const [entryIndex, entry] of wireEntries.entries()) {
 				const timestampMs: number = Date.parse(entry.timestamp);
 
-				const counterpartActorId: string = TimelineModel._actorId(entry.counterpart.role, entry.counterpart.deviceId);
+				const counterpartRole: string = roleByDeviceId.get(entry.counterpart.deviceId ?? "") ?? entry.counterpart.role;
+				const counterpartActorId: string = TimelineModel._actorId(counterpartRole, entry.counterpart.deviceId);
 				TimelineModel._recordFirstSeen(firstSeenByActorId, counterpartActorId, timestampMs);
 				TimelineModel._recordFirstSeen(firstSeenByActorId, selfActorId, timestampMs);
 				if (entry.messageType === "register" && entry.counterpart.deviceId !== undefined) {
@@ -189,6 +194,22 @@ export class TimelineModel {
 
 	private static _actorId(role: string, deviceId: string | undefined): string {
 		return deviceId !== undefined ? `${role}:${deviceId}` : `${role}:unregistered`;
+	}
+
+	/** Resolves a connection's temporary `unknown` role from its later registered traffic. */
+	private static _resolveDeviceRoles(entries: LogEntry[]): Map<string, string> {
+		const roles = new Map<string, string>();
+		for (const entry of entries) {
+			const deviceId = entry.counterpart.deviceId;
+			const role = entry.counterpart.role;
+			if (deviceId !== undefined && role !== "unknown") roles.set(deviceId, role);
+			if (entry.messageType !== "devices") continue;
+			const devices = (entry.payload as DevicesPayload).devices ?? [];
+			for (const device of devices) {
+				if (device.deviceId !== undefined && device.deviceRole !== undefined) roles.set(device.deviceId, device.deviceRole);
+			}
+		}
+		return roles;
 	}
 
 	private static _categorize(messageType: string): EventCategory {
