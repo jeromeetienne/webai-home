@@ -5,3 +5,9 @@ dist/
 .venv/
 packages/*/logs/
 .claude/worktrees/
+
+# The gateway's durable task state, written at runtime. The file name comes from the
+# gateway's --state-file option, which defaults to gateway-state.json in the working
+# directory, so the file can appear at the repository root or inside a package.
+gateway-state.json
+*-state.json
