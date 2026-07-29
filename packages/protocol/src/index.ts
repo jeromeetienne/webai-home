@@ -135,6 +135,60 @@ export interface TaskEvent {
   attempt?: number | undefined;
 }
 
+/** How many of the most recent task events a `TaskSnapshot` carries. The full change log is available through the `task.history` message. */
+export const maximumSnapshotEventCount = 20;
+
+/**
+ * The identity of the assignment a task is currently working on, without the stage input
+ * value. The assigned worker already received that value in its own `stage.assign`
+ * message, and no other recipient of a task update needs it.
+ */
+export type TaskUpdateAssignment = Omit<StageAssignment, "value">;
+
+/**
+ * The full current state of one task, as sent when a client asks for a task.
+ *
+ * This is the authoritative representation of a task. `recentEvents` is a diagnostic
+ * change log of the same facts and is never the source of truth; it is truncated to the
+ * most recent `maximumSnapshotEventCount` entries.
+ *
+ * The per-attempt assignment history is deliberately absent. The gateway keeps that
+ * history internally to make retry decisions, but it is not part of the protocol,
+ * because every attempt carries a full stage input value and the list only ever grows.
+ */
+export type TaskSnapshot = Omit<Task, "assignmentAttempts" | "events" | "assignment"> & {
+  assignment?: TaskUpdateAssignment | undefined;
+  recentEvents: TaskEvent[];
+};
+
+/**
+ * The slim task projection sent on every task revision.
+ *
+ * It carries only what changes as a task advances, so its size does not grow with the
+ * number of stages a task runs. No stage input value appears in it at all, and no value
+ * appears twice. The single exception is `result`, which is present only in the final
+ * revision of a completed task and is the output the consumer asked for.
+ *
+ * A client that needs the task input, the completed stage values, or the change log asks
+ * for them with `task.get`, `task.resync`, or `task.history`.
+ */
+export interface TaskUpdate {
+  taskId: string;
+  revision: number;
+  state: TaskState;
+  updatedAt: string;
+  /** How many stages have completed. This doubles as the index of the stage now running. */
+  completedStageCount: number;
+  /** The stage the task is currently working on, when a stage is assigned. */
+  currentStage?: StageName | undefined;
+  /** How many assignments have been attempted for the stage that is currently pending. */
+  currentStageAttempts: number;
+  assignment?: TaskUpdateAssignment | undefined;
+  /** The task output. Present only when the task reached the `completed` state. */
+  result?: StagePayload | undefined;
+  error?: string | undefined;
+}
+
 export const ClientMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("observe") }).strict(),
   z.object({ type: z.literal("authenticate"), token: z.string().min(1).max(4_000) }).strict(),
@@ -147,6 +201,7 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("register"), role: z.enum(["worker", "consumer"]), name: z.string().min(1).max(200), stageNames: z.array(StageName).max(10).optional(), ready: z.boolean().optional(), maxConcurrentAssignments: z.number().int().min(1).max(100).optional() }).strict(),
   z.object({ type: z.literal("task.submit"), requestId: RequestId, input: TaskInput, pipelineId: Identifier.optional(), pipelineVersion: z.number().int().positive().optional() }).strict(),
   z.object({ type: z.literal("task.get"), taskId: Identifier }).strict(),
+  z.object({ type: z.literal("task.history"), taskId: Identifier }).strict(),
   z.object({ type: z.literal("stage.result"), taskId: Identifier, assignmentId: AssignmentId, attempt: z.number().int().positive(), stage: StageName, value: StagePayloadSchema }).strict(),
   z.object({ type: z.literal("stage.failed"), taskId: Identifier, assignmentId: AssignmentId, attempt: z.number().int().positive(), stage: StageName, error: z.string().min(1).max(10_000) }).strict(),
 	 z.object({ type: z.literal("stage.accepted"), taskId: Identifier, assignmentId: AssignmentId, attempt: z.number().int().positive() }).strict(),
@@ -179,8 +234,10 @@ export interface ProtocolError {
 export type GatewayMessage =
   | { type: "authenticated"; principal: string; expiresAt: string }
   | { type: "registered"; deviceId: string }
-  | { type: "task.accepted"; requestId: string; task: Task }
-  | { type: "task.updated"; task: Task }
+  | { type: "task.accepted"; requestId: string; task: TaskSnapshot }
+  | { type: "task.snapshot"; task: TaskSnapshot }
+  | { type: "task.updated"; update: TaskUpdate }
+  | { type: "task.history"; taskId: string; events: TaskEvent[] }
   | { type: "stage.assign"; taskId: string; assignmentId: string; attempt: number; stage: StageName; value: StagePayload; leaseUntil: string; peerId?: string }
   | { type: "stage.cancel"; taskId: string; assignmentId: string; attempt: number; reason: string }
   | { type: "stage.result.accepted"; taskId: string; assignmentId: string; attempt: number; revision: number; status: "assigned" | "completed" | "failed" }

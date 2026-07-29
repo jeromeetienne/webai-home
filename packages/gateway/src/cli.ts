@@ -17,6 +17,7 @@ import {
 	type StagePayload,
 } from "@webai/protocol";
 import { MessageLogger, type LogCounterpart } from "@webai/protocol/message_logger";
+import { TaskProjection } from "@webai/protocol/task_projection";
 
 // local imports
 import { DeviceRegistry } from "./libs/device_registry.js";
@@ -248,7 +249,12 @@ function recoverWorkerAssignments(deviceId: string): void {
 }
 
 /**
- * Broadcasts the current state of a task when the task exists.
+ * Broadcasts the slim projection of a task on every revision, when the task exists.
+ *
+ * The projection carries only what changes as a task advances, so its size does not
+ * grow with the number of stages the task runs. A recipient that needs the task input,
+ * the completed stage values, or the change log asks for them with `task.get`,
+ * `task.resync`, or `task.history`.
  *
  * The assigned worker is deliberately not a recipient. A worker sees only its own
  * stage, which `stage.assign` already carries in full. Sending the whole task to a
@@ -260,10 +266,11 @@ function recoverWorkerAssignments(deviceId: string): void {
 function broadcastTask(taskId: string): void {
 	const task = taskStore.get(taskId);
 	if (!task) return;
+	const update = TaskProjection.update(task);
 	const recipients = new Set<string>([task.consumerDeviceId, ...(taskObserverDeviceIds.get(taskId) ?? [])]);
 	for (const recipient of recipients) {
 		const recipientSocket = socketMap.get(recipient);
-		if (recipientSocket) send(recipientSocket, { type: "task.updated", task }, counterpartFor(recipient));
+		if (recipientSocket) send(recipientSocket, { type: "task.updated", update }, counterpartFor(recipient));
 	}
 }
 
@@ -353,7 +360,14 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 		}
 		if (message.type === "task.resync" && mayReadTask(deviceId, task.taskId) === false) { sendError(socket, counterpartFor(deviceId), "AUTHORISATION", "This connection is not allowed to read the task", { taskId: task.taskId }); return; }
 		if (message.type === "task.unobserve") taskObserverDeviceIds.get(task.taskId)?.delete(deviceId);
-		if (message.type !== "task.unobserve") send(socket, { type: "task.updated", task }, counterpartFor(deviceId));
+		if (message.type !== "task.unobserve") send(socket, { type: "task.snapshot", task: TaskProjection.snapshot(task) }, counterpartFor(deviceId));
+		return;
+	}
+	if (message.type === "task.history") {
+		const task = taskStore.get(message.taskId);
+		if (!task) { sendError(socket, counterpartFor(deviceId), "TASK_NOT_FOUND", "Task was not found", { taskId: message.taskId }); return; }
+		if (mayReadTask(deviceId, task.taskId) === false) { sendError(socket, counterpartFor(deviceId), "AUTHORISATION", "This connection is not allowed to read the task", { taskId: task.taskId }); return; }
+		send(socket, { type: "task.history", taskId: task.taskId, events: task.events }, counterpartFor(deviceId));
 		return;
 	}
 	if (message.type === "task.observer.grant" || message.type === "task.observer.revoke") {

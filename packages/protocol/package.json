@@ -12,6 +12,10 @@
     "./message_logger": {
       "types": "./dist/message_logger.d.ts",
       "default": "./dist/message_logger.js"
+    },
+    "./task_projection": {
+      "types": "./dist/task_projection.d.ts",
+      "default": "./dist/task_projection.js"
     }
   },
   "scripts": {
