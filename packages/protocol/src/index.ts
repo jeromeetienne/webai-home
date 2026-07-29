@@ -100,6 +100,8 @@ export interface Task {
   updatedAt: string;
   assignment?: StageAssignment | undefined;
   assignmentAttempts: StageAssignment[];
+  /** Number of assignments attempted for the stage that is currently pending. */
+  currentStageAttempts: number;
   events: TaskEvent[];
   submissionDeadlineAt: string;
   /** Monotonic task-state revision. Clients ignore older snapshots and resynchronise after gaps. */

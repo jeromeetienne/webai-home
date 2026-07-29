@@ -177,3 +177,19 @@ test("loops an LLM task through its three shards once per generated token", () =
   const afterSecondToken = store.addStage(current.taskId, { name: "stage_llm_shard3", value: { text: "The capital", done: true } });
   assert.equal(TaskStore.nextStage(afterSecondToken), undefined);
 });
+
+test("resets the retry budget after each successful LLM stage", () => {
+  const store = new TaskStore();
+  const task = store.create({ taskType: "task_type_llm", input: "hello" });
+  let current = store.assign(task.taskId, "worker-1", "stage_llm_shard1", { text: "hello" });
+  assert.equal(current.assignment?.attempt, 1);
+  current = store.addStage(current.taskId, { name: "stage_llm_shard1", value: { tensors: {} } });
+  assert.equal(current.currentStageAttempts, 0);
+  current = store.assign(current.taskId, "worker-2", "stage_llm_shard2", { tensors: {} });
+  assert.equal(current.assignment?.attempt, 1);
+  current = store.addStage(current.taskId, { name: "stage_llm_shard2", value: { tensors: {} } });
+  current = store.assign(current.taskId, "worker-3", "stage_llm_shard3", { tensors: {} });
+  current = store.addStage(current.taskId, { name: "stage_llm_shard3", value: { text: "The", done: false } });
+  current = store.assign(current.taskId, "worker-1", "stage_llm_shard1", { text: "The", done: false });
+  assert.equal(current.assignment?.attempt, 1);
+});

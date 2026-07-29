@@ -181,7 +181,7 @@ function assign(
 ): void {
 	const existing = taskStore.get(taskId);
 	if (!existing || existing.state === "cancelled" || existing.state === "completed" || existing.state === "failed") return;
-	if (existing.assignmentAttempts.length >= maximumAttempts) {
+	if (existing.currentStageAttempts >= maximumAttempts) {
 		taskStore.update(taskId, { state: "failed", error: "MAX_ATTEMPTS_EXHAUSTED", assignment: undefined });
 		broadcastTask(taskId);
 		return;

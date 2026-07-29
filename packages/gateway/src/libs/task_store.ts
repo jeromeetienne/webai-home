@@ -28,6 +28,7 @@ export class TaskStore {
 			state: "queued",
 			completedStages: [],
 			assignmentAttempts: [],
+			currentStageAttempts: 0,
 			events: [],
 			revision: 1,
 			submissionDeadlineAt: new Date(this.now().getTime() + this.submissionTimeoutMs).toISOString(),
@@ -51,7 +52,7 @@ export class TaskStore {
 		const assignment: StageAssignment = {
 			workerDeviceId,
 			assignmentId: `assignment-${crypto.randomUUID()}`,
-			attempt: task.assignmentAttempts.length + 1,
+			attempt: task.currentStageAttempts + 1,
 			stage,
 			value,
 			leaseUntil: new Date(this.now().getTime() + this.leaseMs).toISOString(),
@@ -61,6 +62,7 @@ export class TaskStore {
 			state: "assigned",
 			assignment,
 			assignmentAttempts: [...task.assignmentAttempts, assignment],
+			currentStageAttempts: assignment.attempt,
 			events: [...task.events, { type: retryReason === undefined ? "assignment_created" : "assignment_retried", timestamp: this.now().toISOString(), reason: retryReason, assignmentId: assignment.assignmentId, attempt: assignment.attempt }],
 		});
 	}
@@ -132,6 +134,7 @@ export class TaskStore {
 		return this.update(taskId, {
 			completedStages: [...task.completedStages, stage],
 			assignment: undefined,
+			currentStageAttempts: 0,
 			...(assignmentId === undefined ? {} : { acknowledgedAssignmentIds: [...(task.acknowledgedAssignmentIds ?? []), assignmentId] }),
 		});
 	}
@@ -152,8 +155,9 @@ export class TaskStore {
 		const document = JSON.parse(readFileSync(this.stateFilePath, "utf8")) as { schemaVersion: number; tasks: Task[] };
 		if (document.schemaVersion !== 1 || !Array.isArray(document.tasks)) throw new Error(`Unsupported task state schema in ${this.stateFilePath}`);
 		for (const task of document.tasks) {
-			this.tasks.set(task.taskId, task);
-			this.taskIdByConsumerRequest.set(this.requestKey(task.consumerDeviceId, task.requestId), task.taskId);
+			const restored = { ...task, currentStageAttempts: task.currentStageAttempts ?? task.assignment?.attempt ?? 0 };
+			this.tasks.set(restored.taskId, restored);
+			this.taskIdByConsumerRequest.set(this.requestKey(restored.consumerDeviceId, restored.requestId), restored.taskId);
 		}
 	}
 
