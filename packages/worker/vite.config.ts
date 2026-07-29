@@ -21,11 +21,28 @@ import { defineConfig } from "vite";
 const ortDistDir = resolve(import.meta.dirname, "node_modules/onnxruntime-web/dist");
 const ortDevServedFiles = ["ort-wasm-simd-threaded.jsep.mjs", "ort-wasm-simd-threaded.jsep.wasm"];
 const ortBuildEmittedFile = "ort-wasm-simd-threaded.jsep.mjs";
+const gatewayFaviconPath = resolve(import.meta.dirname, "../gateway/public/images/favicons/webai-at-home-logo.svg");
 
 export default defineConfig({
 	root: resolve(import.meta.dirname, "public"),
 	base: "/",
 	plugins: [
+		{
+			name: "serve-gateway-favicon",
+			configureServer(server) {
+				server.middlewares.use((request, response, next) => {
+					if (request.url?.split("?")[0] !== "/images/favicons/webai-at-home-logo.svg") {
+						next();
+						return;
+					}
+					response.setHeader("Content-Type", "image/svg+xml");
+					response.end(readFileSync(gatewayFaviconPath));
+				});
+			},
+			generateBundle() {
+				this.emitFile({ type: "asset", fileName: "images/favicons/webai-at-home-logo.svg", source: readFileSync(gatewayFaviconPath) });
+			},
+		},
 		{
 			name: "serve-onnxruntime-web-assets",
 			configureServer(server) {

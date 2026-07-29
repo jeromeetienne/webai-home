@@ -832,6 +832,7 @@ const pageRoutes: Record<string, string> = {
 const assetContentTypeByExtension: Record<string, string> = {
 	".js": "application/javascript; charset=utf-8",
 	".css": "text/css; charset=utf-8",
+	".svg": "image/svg+xml",
 };
 
 /**
