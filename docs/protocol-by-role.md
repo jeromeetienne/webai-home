@@ -95,9 +95,10 @@ The gateway replies with `devices` and does not send `registered`.
 | `registered` | Gateway | Consumer or worker | Confirm registration and provide `deviceId`. |
 | `task.submit` | Consumer | Gateway | Submit a validated formula or language-model task input. |
 | `task.accepted` | Gateway | Consumer | Return the newly created task. |
-| `task.get` | Registered client | Gateway | Request one task by identifier. |
-| `task.updated` | Gateway | Registered clients | Broadcast or return the current task state. |
+| `task.get` | Task owner or granted observer | Gateway | Request one task by identifier. |
+| `task.updated` | Gateway | Task owner and granted observers | Broadcast or return the current task state. Never sent to a worker. |
 | `stage.assign` | Gateway | Worker | Ask a worker to execute one stage for one task. |
+| `stage.cancel` | Gateway | Worker | Tell a worker that its assignment was cancelled or superseded, so it can drop any state it holds for the task. |
 | `stage.result` | Worker | Gateway | Return the output of the expected next stage. |
 | `stage.failed` | Worker | Gateway | Report that a stage could not be completed. |
 | `signal` | Any connected client | Gateway, then target client | Relay peer-connection signalling data. |
@@ -122,6 +123,8 @@ gateway log directory.
    stores the result, and either assigns the next stage or completes the task.
 7. The gateway broadcasts `task.updated` after each state change. The task
    ends in `completed` with `result`, or in `failed` with `error`.
+
+A worker never receives `task.updated`, and a worker holding a stage assignment may not read the whole task through `task.get` or `task.resync`. A worker's entire view of a task is what `stage.assign` carries: the task identifier, the assignment identity, the stage name, the stage input value, and the lease expiry. A worker therefore never sees the original task input, the identity of the consumer that submitted the task, or the results of stages assigned to other workers. When an assignment stops being current — the task was cancelled, the lease expired, the worker relinquished the assignment, or the worker disconnected and the stage was reassigned — the gateway sends that worker the narrow `stage.cancel` message instead.
 
 The current task states are `queued`, `assigned`, `running`, `completed`,
 `failed`, and `cancelled`. The prototype currently sets `queued`, `assigned`,

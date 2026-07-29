@@ -194,7 +194,14 @@ function assign(
 		broadcastTask(taskId);
 		return;
 	}
-	if (existing.assignment) releaseWorkerAssignment(existing.assignment.workerDeviceId);
+	if (existing.assignment) {
+		releaseWorkerAssignment(existing.assignment.workerDeviceId);
+		// A worker no longer learns that its assignment was superseded from a task
+		// snapshot, because task updates are not sent to workers any more. Tell the
+		// superseded worker directly, so it can drop any state it holds for the task.
+		const supersededSocket = socketMap.get(existing.assignment.workerDeviceId);
+		if (supersededSocket) send(supersededSocket, { type: "stage.cancel", taskId, assignmentId: existing.assignment.assignmentId, attempt: existing.assignment.attempt, reason: retryReason ?? "assignment_superseded" }, counterpartFor(existing.assignment.workerDeviceId));
+	}
 	const task = taskStore.assign(taskId, device.deviceId, stage, value, retryReason);
 	occupyWorkerAssignment(device.deviceId);
 	const socket = socketMap.get(device.deviceId);
@@ -243,21 +250,36 @@ function recoverWorkerAssignments(deviceId: string): void {
 /**
  * Broadcasts the current state of a task when the task exists.
  *
+ * The assigned worker is deliberately not a recipient. A worker sees only its own
+ * stage, which `stage.assign` already carries in full. Sending the whole task to a
+ * worker would disclose the original task input, the identity of the consumer that
+ * submitted the task, and the results of every other stage.
+ *
  * @param taskId - The task identifier to broadcast.
  */
 function broadcastTask(taskId: string): void {
 	const task = taskStore.get(taskId);
 	if (!task) return;
-	const recipients = new Set<string>([task.consumerDeviceId, ...(taskObserverDeviceIds.get(taskId) ?? []), ...(task.assignment ? [task.assignment.workerDeviceId] : [])]);
+	const recipients = new Set<string>([task.consumerDeviceId, ...(taskObserverDeviceIds.get(taskId) ?? [])]);
 	for (const recipient of recipients) {
 		const recipientSocket = socketMap.get(recipient);
 		if (recipientSocket) send(recipientSocket, { type: "task.updated", task }, counterpartFor(recipient));
 	}
 }
 
+/**
+ * Reports whether a connection is allowed to read a whole task.
+ *
+ * Holding a stage assignment does not grant this permission: a worker sees only the
+ * stage it was assigned, never the whole task.
+ *
+ * @param deviceId - The identifier of the connection asking to read the task.
+ * @param taskId - The task identifier being read.
+ * @returns `true` when the connection owns the task or was granted observation of it.
+ */
 function mayReadTask(deviceId: string, taskId: string): boolean {
 	const task = taskStore.get(taskId);
-	return task?.consumerDeviceId === deviceId || task?.assignment?.workerDeviceId === deviceId || taskObserverDeviceIds.get(taskId)?.has(deviceId) === true;
+	return task?.consumerDeviceId === deviceId || taskObserverDeviceIds.get(taskId)?.has(deviceId) === true;
 }
 
 /**
@@ -329,6 +351,7 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 			const observers = taskObserverDeviceIds.get(task.taskId) ?? new Set<string>();
 			observers.add(deviceId); taskObserverDeviceIds.set(task.taskId, observers);
 		}
+		if (message.type === "task.resync" && mayReadTask(deviceId, task.taskId) === false) { sendError(socket, counterpartFor(deviceId), "AUTHORISATION", "This connection is not allowed to read the task", { taskId: task.taskId }); return; }
 		if (message.type === "task.unobserve") taskObserverDeviceIds.get(task.taskId)?.delete(deviceId);
 		if (message.type !== "task.unobserve") send(socket, { type: "task.updated", task }, counterpartFor(deviceId));
 		return;
