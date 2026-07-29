@@ -107,6 +107,17 @@ test("keeps consumer request identifiers and assignment ownership in task state"
   assert.equal(completed.assignment, undefined);
 });
 
+test("keeps repeated request identifiers idempotent and rejects stale assignment state", () => {
+  const store = new TaskStore();
+  const original = store.create({ taskType: "task_type_formula", input: 5 }, "consumer-1", "request-1");
+  assert.equal(store.findByRequest("consumer-1", "request-1")?.taskId, original.taskId);
+  const first = store.assign(original.taskId, "worker-1", "stage_formula_multiply", 5);
+  const replacement = store.assign(original.taskId, "worker-2", "stage_formula_multiply", 5, "worker_relinquished");
+  assert.notEqual(first.assignment?.assignmentId, replacement.assignment?.assignmentId);
+  assert.equal(replacement.assignment?.workerDeviceId, "worker-2");
+  assert.equal(replacement.assignmentAttempts.length, 2);
+});
+
 test("records deterministic lease attempts, acknowledgement, and cancellation", () => {
   const now = new Date("2026-01-01T00:00:00.000Z");
   const store = new TaskStore(() => now, 1000, 500);

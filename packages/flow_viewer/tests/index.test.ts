@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import test from "node:test";
 import { calculateStatistics } from "../public/src/statistics.js";
+import { TimelineModel } from "../public/src/timeline_model.js";
 import type { LogEntry } from "@webai/protocol/message_logger";
 import type { TimelineEvent } from "../public/src/types.js";
 
@@ -34,4 +37,13 @@ test("marks old entries as estimates", () => {
 	const report = calculateStatistics([{ id: "run", label: "Run", entries: [item] }], [event(0, item, undefined, "gateway:run", "consumer:c")], { fromMs: 0, toMs: Date.now() });
 	assert.equal(report.total.measuredMessages, 0);
 	assert.equal(report.total.estimatedMessages, 1);
+});
+
+test("renders request and assignment identities from the issue 37 formula fixture", () => {
+	const fixturePath = join(process.cwd(), "fixtures/issue-37-formula.jsonl");
+	const entries = readFileSync(fixturePath, "utf8").trim().split("\n").map((line) => JSON.parse(line) as LogEntry);
+	const model = TimelineModel.build([{ id: "issue-37", label: "Issue 37", entries }], { fromMs: 0, toMs: Number.MAX_SAFE_INTEGER }, { showChatter: true, showSignaling: true });
+	assert.equal(model.events.some((item) => item.summary.includes("request formula-request-1")), true);
+	assert.equal(model.events.some((item) => item.summary.includes("assignment assignment-multiply-1, attempt 1")), true);
+	assert.equal(model.events.some((item) => item.summary.includes("to completed")), true);
 });

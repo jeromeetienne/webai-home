@@ -48,3 +48,9 @@ test("validates every inbound client message shape", () => {
   assert.equal(ClientMessageSchema.safeParse({ type: "stage.result", taskId: "task-1", stage: "stage_formula_multiply", value: 10 }).success, false);
   assert.equal(ClientMessageSchema.safeParse({ type: "register", role: "consumer", name: "consumer", unexpected: true }).success, false);
 });
+
+test("rejects malformed and oversized identity-bearing task messages", () => {
+  assert.equal(ClientMessageSchema.safeParse({ type: "task.submit", requestId: "", input: { taskType: "task_type_formula", input: 5 } }).success, false);
+  assert.equal(ClientMessageSchema.safeParse({ type: "stage.result", taskId: "task-1", assignmentId: "assignment-1", attempt: 0, stage: "stage_formula_multiply", value: 10 }).success, false);
+  assert.equal(ClientMessageSchema.safeParse({ type: "stage.failed", taskId: "task-1", assignmentId: "assignment-1", attempt: 1, stage: "stage_formula_multiply", error: "x".repeat(10_001) }).success, false);
+});
