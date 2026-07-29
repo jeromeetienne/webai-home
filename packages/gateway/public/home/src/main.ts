@@ -1,5 +1,6 @@
 export { };
 import type { Device, DeviceActivity, DeviceRole, TaskSnapshot, TaskUpdate } from "@webai/protocol";
+import { Envelope } from "@webai/protocol/envelope";
 import { splitDevices, stageStatistics } from "../../../src/dashboard.js";
 
 type DeviceSummary = {
@@ -171,15 +172,21 @@ const configureFoldablePanels = (): void => {
 	const socketEl: WebSocket = new WebSocket(`${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}`);
 
 	socketEl.addEventListener("open", (): void => {
-		socketEl.send(JSON.stringify({ type: "authenticate", token: gatewayAuthenticationToken }));
-		statusEl.textContent = "Connected to the central gateway.";
-		statusBadgeEl.textContent = "Connected";
-		statusBadgeEl.className = "badge rounded-pill text-bg-success";
+		const authenticateMessage = { type: "authenticate" as const, token: gatewayAuthenticationToken };
+		socketEl.send(JSON.stringify(Envelope.fromClient(authenticateMessage)));
+		statusEl.textContent = "Authenticating with the central gateway.";
+		statusBadgeEl.textContent = "Authenticating";
+		statusBadgeEl.className = "badge rounded-pill text-bg-warning";
 	});
 	socketEl.addEventListener("message", (event: MessageEvent): void => {
-		const message: GatewayMessage = JSON.parse(event.data as string) as GatewayMessage;
+		const frame = JSON.parse(event.data as string) as { body?: GatewayMessage };
+		const message = frame.body;
+		if (message === undefined) return;
 		if (message.type === "authenticated") {
-			socketEl.send(JSON.stringify({ type: "observe" }));
+			statusEl.textContent = "Connected to the central gateway.";
+			statusBadgeEl.textContent = "Connected";
+			statusBadgeEl.className = "badge rounded-pill text-bg-success";
+			socketEl.send(JSON.stringify(Envelope.fromClient({ type: "observe" })));
 			addEvent({ type: "Authenticated", timestamp: new Date().toISOString(), details: "Now observing the central gateway" });
 			return;
 		}
