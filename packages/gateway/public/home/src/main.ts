@@ -2,6 +2,7 @@ export { };
 import type { Device, DeviceActivity, DeviceRole, TaskSnapshot, TaskUpdate } from "@webai/protocol";
 import { Envelope } from "@webai/protocol/envelope";
 import { SessionRenewal } from "@webai/protocol/session_renewal";
+import { setupThemeToggle } from "../../../../shared/theme.js";
 import { splitDevices, stageStatistics } from "../../../src/dashboard.js";
 
 type DeviceSummary = {
@@ -127,6 +128,7 @@ const configureFoldablePanels = (): void => {
 };
 
 ((): void => {
+	setupThemeToggle();
 	configureFoldablePanels();
 	const statusEl: HTMLElement = getElement("#status");
 	const statusBadgeEl: HTMLElement = getElement("#status-badge");

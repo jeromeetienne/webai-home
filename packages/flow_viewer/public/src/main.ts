@@ -7,6 +7,7 @@ import { EventLogPanel } from "./event_log_panel.js";
 import type { CategoryFilters, LogSource, SessionPayload, TimeRangeMs, TimelineEvent } from "./types.js";
 import { calculateStatistics, formatBytes, formatLatency, type StatisticsReport, type StatisticsTotals } from "./statistics.js";
 import SAMPLE_LOG_TEXT from "../../fixtures/sample-gateway-log.jsonl?raw";
+import { setupThemeToggle } from "../../../shared/theme.js";
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -117,6 +118,7 @@ class FlowViewerApp {
 
 	/** Wires up every DOM event listener and attempts to load a CLI-prepared session. Call once after construction. */
 	start(): void {
+		setupThemeToggle();
 		this.fileInputEl.addEventListener("change", (): void => {
 			const file: File | undefined = this.fileInputEl.files?.[0];
 			if (file !== undefined) void this._handleDroppedFile(file);

@@ -2,6 +2,20 @@ body {
     background: #f5f7fb;
 }
 
+html[data-theme="dark"] body {
+    background: #18202b;
+}
+
+html[data-theme="dark"] .card,
+html[data-theme="dark"] .card-header {
+    background-color: #232d3b !important;
+    color: #e9eef7;
+}
+
+html[data-theme="dark"] .event-item {
+    border-color: #3a4656;
+}
+
 .card {
     border-radius: 1rem;
 }

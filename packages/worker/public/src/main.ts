@@ -8,6 +8,7 @@ import { StageLlmHelper } from "./stage_llm_helper";
 import { centralGatewayAuthToken, centralGatewayWebSocketUrl } from "./gateway_config";
 import { DiagnosticsReporter } from "./diagnostics_reporter";
 import { SessionRenewal } from "@webai/protocol/session_renewal";
+import { setupThemeToggle } from "../../../shared/theme.js";
 
 /**
  * Reads the stages the page URL restricts this worker browser to.
@@ -249,6 +250,7 @@ const stopLeaseHeartbeat = (assignmentId?: string): void => {
 
 /** Starts the worker browser user interface. */
 ((): void => {
+	setupThemeToggle();
 	/** The connection status element. */
 	const statusEl: HTMLElement = getElement("#status");
 	/** The input containing the worker browser name. */

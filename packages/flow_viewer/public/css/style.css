@@ -10,6 +10,16 @@
 	--neutral-packet: #6c757d;
 }
 
+:root[data-theme="dark"] {
+	color-scheme: dark;
+	--page-bg: #18202b;
+	--panel-bg: #232d3b;
+	--border: #3a4656;
+	--text: #e9eef7;
+	--text-muted: #aeb9c8;
+	--accent-soft: #293b58;
+}
+
 * { box-sizing: border-box; }
 
 html, body {
@@ -113,7 +123,7 @@ html, body {
 	min-width: 0;
 	min-height: 0;
 	height: 100%;
-	background: #fbfcfe;
+	background: var(--page-bg);
 }
 
 .timeline-svg { width: 100%; min-height: 100%; display: block; }
@@ -185,18 +195,20 @@ html, body {
 	font-weight: 500;
 	pointer-events: none;
 	paint-order: stroke;
-	stroke: #fbfcfe;
+	stroke: var(--page-bg);
 	stroke-width: 3px;
 	stroke-linejoin: round;
 }
 
 .packet-detail { fill: #6c757d; font-weight: 400; }
-.event-packet { cursor: pointer; stroke: #fbfcfe; stroke-width: 1.5; }
+.event-packet { cursor: pointer; stroke: var(--page-bg); stroke-width: 1.5; }
 .event-packet:focus { outline: none; stroke: #212529; stroke-width: 2; }
 
 .event-details-body { position: relative; }
 .event-details-toolbar { display: flex; justify-content: flex-end; margin-bottom: 0.5rem; }
 .event-details-json { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text); font-size: 0.82rem; }
+
+:root[data-theme="dark"] .modal-content.text-dark { color: var(--text) !important; }
 
 @media (max-width: 991.98px) {
 	.viz-main { overflow: auto; flex-wrap: wrap; }
