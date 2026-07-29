@@ -23,6 +23,8 @@ When writing TypeScript, use the following technologies:
 
 For GitHub tasks, use the authenticated `gh` command-line tool. Do not request a GitHub connector, Model Context Protocol server, or broad permissions when `gh` can perform the task.
 
+When creating or editing GitHub issue bodies with multiple lines, pass real line breaks. Prefer a quoted multiline body or a temporary body file with `gh issue create --body-file` or `gh issue edit --body-file`. Never pass literal `\\n` sequences as the issue body.
+
 ## Git
 
 ### Commit messages
