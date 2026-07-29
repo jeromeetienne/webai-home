@@ -492,7 +492,11 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage, req
 			? deviceRegistry.findByName(message.name, "worker")
 			: undefined;
 		if (existingDevice && existingDevice.deviceId !== deviceId) {
-			deviceRegistry.remove(existingDevice.deviceId);
+			// The replaced device is announced as having left. Removing it quietly left every
+			// dashboard showing it next to the connection that replaced it, for as long as that
+			// page stayed open, because the removal was the only thing that would have taken it
+			// off the list (see https://github.com/webai-at-home/webai-at-home/issues/58).
+			publishDevice(deviceRegistry.remove(existingDevice.deviceId));
 			const existingSocket = socketMap.get(existingDevice.deviceId);
 			socketMap.delete(existingDevice.deviceId);
 			existingSocket?.close(1000, "Replaced by a newer connection with the same worker name");

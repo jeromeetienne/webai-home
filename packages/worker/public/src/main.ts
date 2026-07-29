@@ -321,8 +321,13 @@ const stopLeaseHeartbeat = (assignmentId?: string): void => {
 	renderStages();
 	renderEvents(events);
 
-	/** Opens a WebSocket connection when the connect button is clicked. */
-	connectButtonEl.addEventListener("click", async (): Promise<void> => {
+	/**
+	 * Opens a connection to the central gateway and registers this browser as a worker.
+	 *
+	 * The connect button calls this, and so does a page restored from the back/forward cache,
+	 * whose earlier connection was closed as the page was put away.
+	 */
+	const connectToGateway = (): void => {
 
 		// Do not open a new connection if one is already open or in the process of opening.
 		if (isPreparing || (socket && socket.readyState !== WebSocket.CLOSED)) return;
@@ -336,6 +341,14 @@ const stopLeaseHeartbeat = (assignmentId?: string): void => {
 
 		// Open a WebSocket connection to the central gateway.
 		socket = new WebSocket(centralGatewayWebSocketUrl());
+		/**
+		 * The connection this attempt opened.
+		 *
+		 * A connection that is closed while the page is not being displayed can deliver its
+		 * close event after the page has already opened a replacement, so every handler below
+		 * checks that it is still the current connection before changing shared page state.
+		 */
+		const openedSocket = socket;
 		isRegistered = false;
 
 		// update ui
@@ -485,6 +498,7 @@ const stopLeaseHeartbeat = (assignmentId?: string): void => {
 
 		/** Restores the disconnected state when the WebSocket closes. */
 		socket.addEventListener("close", (): void => {
+			if (socket !== undefined && socket !== openedSocket) return;
 			stopLeaseHeartbeat();
 			isRegistered = false;
 			if (sessionRenewalTimer !== undefined) window.clearTimeout(sessionRenewalTimer);
@@ -500,6 +514,11 @@ const stopLeaseHeartbeat = (assignmentId?: string): void => {
 			nameInputEl.disabled = false;
 			socket = undefined;
 		});
+	};
+
+	/** Opens a WebSocket connection when the connect button is clicked. */
+	connectButtonEl.addEventListener("click", (): void => {
+		connectToGateway();
 	});
 
 	/** Closes the WebSocket connection when the disconnect button is clicked. */
@@ -509,6 +528,37 @@ const stopLeaseHeartbeat = (assignmentId?: string): void => {
 		}
 	});
 
+	// Leaving a page does not always destroy it. A browser tab that navigates away keeps the
+	// page it left, and every connection that page holds, in its back/forward cache, so that
+	// going back can restore the page instead of loading it again. The central gateway learns
+	// that a worker browser has gone only when that browser's connection closes, so a worker
+	// page held in the back/forward cache stayed registered: opening one debug page after
+	// another in the same browser tab left the first page's workers listed and still offered
+	// work (see https://github.com/webai-at-home/webai-at-home/issues/58).
+	//
+	// Closing the connection while the page is being put away is what makes the departure
+	// visible to the gateway. The connection is not reopened here, because the page may never
+	// be displayed again.
+	window.addEventListener("pagehide", (): void => {
+		if (socket === undefined) return;
+		stopLeaseHeartbeat();
+		DiagnosticsReporter.stop();
+		socket.close(1000, "Worker page is no longer displayed");
+		socket = undefined;
+		isRegistered = false;
+	});
+
+	// Going back displays this page again, restored from the back/forward cache with the
+	// connection closed above. The page is not loaded again in that case, so nothing else
+	// would reconnect it, and the restored page would sit there offering no work at all.
+	window.addEventListener("pageshow", (event: PageTransitionEvent): void => {
+		if (event.persisted === false) return;
+		// A page put away while its language-model shards were still loading left this set,
+		// which would refuse the reconnection below.
+		isPreparing = false;
+		connectToGateway();
+	});
+
 	// Connect automatically once the page controls and event handlers are ready.
-	connectButtonEl.click();
+	connectToGateway();
 })();
