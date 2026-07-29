@@ -33,18 +33,18 @@ export class EventLogPanel {
 		this.containerEl.replaceChildren();
 	}
 
-	/** Appends one row for a newly-reached event and scrolls it into view. */
+	/** Adds one row for a newly-reached event at the top of the list. */
 	appendEvent(event: TimelineEvent): void {
-		this.containerEl.appendChild(this._buildRow(event));
-		while (this.containerEl.childElementCount > MAX_ROWS) this.containerEl.firstElementChild?.remove();
-		this.containerEl.scrollTop = this.containerEl.scrollHeight;
+		this.containerEl.prepend(this._buildRow(event));
+		while (this.containerEl.childElementCount > MAX_ROWS) this.containerEl.lastElementChild?.remove();
+		this.containerEl.scrollTop = 0;
 	}
 
 	/** Replaces the whole list with every event up to a seek target, without per-row scrolling. */
 	showEventsUpTo(events: TimelineEvent[]): void {
-		const rows: HTMLElement[] = events.slice(-MAX_ROWS).map((event: TimelineEvent): HTMLElement => this._buildRow(event));
+		const rows: HTMLElement[] = events.slice(-MAX_ROWS).reverse().map((event: TimelineEvent): HTMLElement => this._buildRow(event));
 		this.containerEl.replaceChildren(...rows);
-		this.containerEl.scrollTop = this.containerEl.scrollHeight;
+		this.containerEl.scrollTop = 0;
 	}
 
 	///////////////////////////////////////////////////////////////////////////////
