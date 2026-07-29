@@ -24,6 +24,7 @@ import { TaskProjection } from "@webai/protocol/task_projection";
 import { DeviceRegistry, type DeviceRegistryChange } from "./libs/device_registry.js";
 import { TaskStore } from "./libs/task_store.js";
 import { PipelineRegistry, builtinPipelineSpecifications } from "./libs/pipeline_registry.js";
+import { StagePolicyResolver } from "./libs/stage_policy_resolver.js";
 
 const options = new Command()
 	.option("-p, --port <number>", "HTTP and WebSocket port", "8787")
@@ -60,6 +61,7 @@ if (options.pipelineFile) {
 	const additions = JSON.parse(readFileSync(options.pipelineFile, "utf8")) as unknown[];
 	for (const specification of additions) pipelineRegistry.add(specification);
 }
+const stagePolicyResolver = new StagePolicyResolver(pipelineRegistry, Number(options.leaseMs));
 
 // Logs this gateway's own message traffic (one file per run), plus one log file per
 // connected worker, relayed to us since a browser page cannot write files itself.
@@ -234,18 +236,43 @@ function occupyWorkerAssignment(workerDeviceId: string): void {
 }
 
 /**
+ * Reports whether the worker that just lost a stage can be given that stage again.
+ *
+ * The worker's assignment counter still includes the assignment that is about to be
+ * released, so that assignment is discounted before the counter is compared against the
+ * worker's own limit. Every other condition is the one `DeviceRegistry.findWorker` applies.
+ *
+ * @param workerDeviceId - The worker that previously held the stage.
+ * @param stage - The stage being retried.
+ * @returns The worker device when it can take the stage again, or `undefined`.
+ */
+function reusableWorker(workerDeviceId: string, stage: StageName): Device | undefined {
+	const device = deviceRegistry.get(workerDeviceId);
+	if (device === undefined || device.deviceRole !== "worker") return undefined;
+	if (device.workerState === "draining" || device.ready === false) return undefined;
+	if (device.stageNames.includes(stage) === false) return undefined;
+	if (Math.max(0, (device.activeAssignments ?? 0) - 1) >= (device.maxConcurrentAssignments ?? 1)) return undefined;
+	return device;
+}
+
+/**
  * Assigns a task stage to an available worker device.
  *
  * @param taskId - The task identifier to assign.
  * @param value - The value that the worker must process.
  * @param stage - The stage to assign.
  * @param excluded - Device identifiers that must not receive the assignment.
+ * @param retryReason - Why this assignment replaces an earlier one, when it does.
+ * @param preferredWorkerDeviceId - A worker to place the stage on before considering any
+ * other, used when the stage keeps state between assignments and a retry should go back to
+ * the device that already holds that state.
  */
 function assign(
 	taskId: string,
 	value: StagePayload,
 	stage: StageName,
 	excluded: string[] = [], retryReason?: "lease_expired" | "worker_disconnected" | "worker_relinquished",
+	preferredWorkerDeviceId?: string,
 ): void {
 	const existing = taskStore.get(taskId);
 	if (!existing || existing.state === "cancelled" || existing.state === "completed" || existing.state === "failed") return;
@@ -254,9 +281,10 @@ function assign(
 		broadcastTask(taskId);
 		return;
 	}
-	const device = retryReason === undefined
+	const preferred = preferredWorkerDeviceId === undefined ? undefined : reusableWorker(preferredWorkerDeviceId, stage);
+	const device = preferred ?? (retryReason === undefined
 		? deviceRegistry.findWorker(stage, excluded) ?? deviceRegistry.findWorker(stage)
-		: deviceRegistry.findWorker(stage, excluded);
+		: deviceRegistry.findWorker(stage, excluded));
 	if (!device) {
 		taskStore.update(taskId, { state: "queued", assignment: undefined });
 		broadcastTask(taskId);
@@ -270,7 +298,7 @@ function assign(
 		const supersededSocket = socketMap.get(existing.assignment.workerDeviceId);
 		if (supersededSocket) send(supersededSocket, { type: "stage.cancel", taskId, assignmentId: existing.assignment.assignmentId, attempt: existing.assignment.attempt, reason: retryReason ?? "assignment_superseded" }, counterpartFor(existing.assignment.workerDeviceId));
 	}
-	const task = taskStore.assign(taskId, device.deviceId, stage, value, retryReason);
+	const task = taskStore.assign(taskId, device.deviceId, stage, value, retryReason, stagePolicyResolver.resolve(existing, stage).leaseMs);
 	occupyWorkerAssignment(device.deviceId);
 	const socket = socketMap.get(device.deviceId);
 	if (socket) {
@@ -300,10 +328,24 @@ function scheduleQueuedTasks(): void {
 	}
 }
 
+/**
+ * Retries every assignment whose lease has run out without the worker extending it.
+ *
+ * A stage that keeps state between assignments is retried on the same worker rather than
+ * away from it. Moving such a stage elsewhere throws away the state the previous worker
+ * holds — for a language-model shard, its key-value cache — at exactly the moment the model
+ * is slow, so the retry is more likely to be slow again than the attempt it replaced. A
+ * stage that keeps no state is still retried away from the worker that missed its lease.
+ */
 function recoverAssignments(): void {
 	for (const task of taskStore.list()) {
 		const assignment = task.assignment;
 		if (!assignment || Date.parse(assignment.leaseUntil) > Date.now()) continue;
+		const policy = stagePolicyResolver.resolve(task, assignment.stage);
+		if (policy.prefersSameWorkerOnRetry) {
+			assign(task.taskId, assignment.value, assignment.stage, [], "lease_expired", assignment.workerDeviceId);
+			continue;
+		}
 		assign(task.taskId, assignment.value, assignment.stage, [assignment.workerDeviceId], "lease_expired");
 	}
 }
@@ -547,6 +589,31 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 			if (workerSocket) send(workerSocket, { type: "stage.cancel", taskId: task.taskId, assignmentId: assignment.assignmentId, attempt: assignment.attempt, reason: message.reason }, counterpartFor(assignment.workerDeviceId));
 		}
 		broadcastTask(cancelled.taskId);
+		return;
+	}
+
+	// A worker that is still working on its stage extends the lease rather than losing the
+	// assignment mid-computation. Without this, a stage that takes longer than the lease is
+	// reassigned while it is still running, its eventual result is refused as stale, and the
+	// work is thrown away.
+	if (message.type === "stage.heartbeat") {
+		const device = deviceRegistry.get(deviceId);
+		const task = taskStore.get(message.taskId);
+		const assignment = task?.assignment;
+		if (!device || device.deviceRole !== "worker") {
+			send(socket, { type: "error", code: "WORKER_REQUIRED", message: "Only worker browser tabs may extend an assignment lease" }, counterpartFor(deviceId));
+			return;
+		}
+		// The gateway refuses to extend a lease for an assignment that is no longer current,
+		// and says so with the same message it uses to withdraw an assignment, so the worker
+		// stops work and drops any state it holds rather than finishing work nobody wants.
+		if (!task || !assignment || assignment.assignmentId !== message.assignmentId || assignment.attempt !== message.attempt || assignment.workerDeviceId !== deviceId) {
+			send(socket, { type: "stage.cancel", taskId: message.taskId, assignmentId: message.assignmentId, attempt: message.attempt, reason: "assignment_superseded" }, counterpartFor(deviceId));
+			return;
+		}
+		const leaseUntil = taskStore.renewLease(task.taskId, stagePolicyResolver.resolve(task, assignment.stage).leaseMs);
+		if (leaseUntil === undefined) return;
+		send(socket, { type: "stage.lease.extended", taskId: task.taskId, assignmentId: assignment.assignmentId, attempt: assignment.attempt, leaseUntil }, counterpartFor(deviceId));
 		return;
 	}
 
@@ -877,10 +944,18 @@ websocketServer.on("connection", (socket) => {
 		recoverWorkerAssignments(deviceId);
 	});
 });
+// A stage may declare a lease shorter than the gateway's --lease-ms default, so the sweep
+// that notices an expired lease runs at least as often as the shortest lease any registered
+// stage states. Sweeping less often than that would leave a short lease unnoticed for longer
+// than it lasts.
+const shortestStageLeaseMs = Math.min(
+	Number(options.leaseMs),
+	...pipelineRegistry.list().flatMap((specification) => specification.stages.map((stage) => stage.leaseMs ?? Number(options.leaseMs))),
+);
 const recoveryTimer = setInterval(() => {
 	recoverAssignments();
 	scheduleQueuedTasks();
-}, Math.max(100, Math.min(Number(options.leaseMs), Number(options.submissionTimeoutMs))));
+}, Math.max(100, Math.min(shortestStageLeaseMs, Number(options.submissionTimeoutMs))));
 httpServer.listen(port, () => {
 	console.log(`Central gateway listening on http://localhost:${port}`);
 });

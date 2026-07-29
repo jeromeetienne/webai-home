@@ -26,6 +26,19 @@ export const PipelineStageSchema = z.object({
   inputSchemaId: z.string().min(1).max(200),
   outputSchemaId: z.string().min(1).max(200),
   encoding: z.enum(["inline-json"]),
+  /**
+   * How long the assignment lease for this stage lasts, in milliseconds. A stage that does
+   * not state one uses the gateway's `--lease-ms` default. A worker extends the lease while
+   * it is still working by sending `stage.heartbeat`.
+   */
+  leaseMs: z.number().int().positive().max(3_600_000).optional(),
+  /**
+   * Whether a retry of this stage should go back to the worker that previously held it,
+   * rather than deliberately avoiding that worker. Set this for a stage that keeps state
+   * between assignments, such as a language-model shard holding a key-value cache, where
+   * moving the work to a different device throws that state away.
+   */
+  prefersSameWorkerOnRetry: z.boolean().optional(),
 }).strict();
 export const PipelineSpecificationSchema = z.object({
   pipelineId: z.string().min(1).max(200),
@@ -208,6 +221,7 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("stage.failed"), taskId: Identifier, assignmentId: AssignmentId, attempt: z.number().int().positive(), stage: StageName, error: z.string().min(1).max(10_000) }).strict(),
 	 z.object({ type: z.literal("stage.accepted"), taskId: Identifier, assignmentId: AssignmentId, attempt: z.number().int().positive() }).strict(),
 	 z.object({ type: z.literal("stage.relinquish"), taskId: Identifier, assignmentId: AssignmentId, attempt: z.number().int().positive() }).strict(),
+	 z.object({ type: z.literal("stage.heartbeat"), taskId: Identifier, assignmentId: AssignmentId, attempt: z.number().int().positive() }).strict(),
 	 z.object({ type: z.literal("task.cancel"), taskId: Identifier, reason: z.string().min(1).max(10_000) }).strict(),
 	 z.object({ type: z.literal("worker.state"), state: z.enum(["ready", "draining"]), maxConcurrentAssignments: z.number().int().min(1).max(100).optional() }).strict(),
   z.object({ type: z.literal("signal"), to: Identifier, data: z.unknown() }).strict(),
@@ -242,6 +256,7 @@ export type GatewayMessage =
   | { type: "task.history"; taskId: string; events: TaskEvent[] }
   | { type: "stage.assign"; taskId: string; assignmentId: string; attempt: number; stage: StageName; value: StagePayload; leaseUntil: string; peerId?: string }
   | { type: "stage.cancel"; taskId: string; assignmentId: string; attempt: number; reason: string }
+  | { type: "stage.lease.extended"; taskId: string; assignmentId: string; attempt: number; leaseUntil: string }
   | { type: "stage.result.accepted"; taskId: string; assignmentId: string; attempt: number; revision: number; status: "assigned" | "completed" | "failed" }
   | { type: "signal"; from: string; data: unknown }
   | { type: "devices"; devices: Device[]; revision: number }

@@ -40,6 +40,8 @@ type GatewayMessage = {
 	stage?: StageName;
 	/** The value for a stage message: a plain number for formula stages, or an LLM payload. */
 	value?: StagePayload;
+	/** When the assignment lease runs out, unless the worker extends it with `stage.heartbeat`. */
+	leaseUntil?: string;
 };
 
 type WorkerEvent = {
@@ -139,6 +141,59 @@ const relayLogEntry = (socket: WebSocket, direction: "received" | "sent", messag
 		payload: message,
 	};
 	if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(logEntryMessage));
+};
+
+/** The repeating timer that extends the lease of one running assignment, by assignment identifier. */
+const leaseHeartbeatTimers = new Map<string, number>();
+
+/**
+ * The shortest gap allowed between two lease heartbeats, in milliseconds.
+ *
+ * A very short lease would otherwise make this browser send heartbeats continuously.
+ */
+const minimumHeartbeatIntervalMs = 1_000;
+
+/**
+ * Starts extending the lease of an assignment this browser is working on.
+ *
+ * The gateway takes an assignment away from a worker whose lease runs out, so a stage that
+ * takes longer than its lease would be reassigned while it is still running and its
+ * eventual result refused as stale. Sending `stage.heartbeat` says the worker is still
+ * working, and the gateway answers with a later lease expiry.
+ *
+ * The heartbeat is sent three times per lease, so a single lost or late message does not
+ * cost the assignment.
+ *
+ * @param socket The open connection to the central gateway.
+ * @param assignment The task, assignment, attempt, and lease expiry from `stage.assign`.
+ */
+const startLeaseHeartbeat = (socket: WebSocket, assignment: { taskId: string; assignmentId: string; attempt: number; leaseUntil?: string | undefined }): void => {
+	const leaseMs = assignment.leaseUntil === undefined ? Number.NaN : Date.parse(assignment.leaseUntil) - Date.now();
+	const intervalMs = Number.isFinite(leaseMs) ? Math.max(minimumHeartbeatIntervalMs, Math.floor(leaseMs / 3)) : minimumHeartbeatIntervalMs;
+	const timer = window.setInterval((): void => {
+		if (socket.readyState !== WebSocket.OPEN) return;
+		const heartbeatMessage: ClientMessage = { type: "stage.heartbeat", taskId: assignment.taskId, assignmentId: assignment.assignmentId, attempt: assignment.attempt };
+		socket.send(JSON.stringify(heartbeatMessage));
+	}, intervalMs);
+	leaseHeartbeatTimers.set(assignment.assignmentId, timer);
+};
+
+/**
+ * Stops extending the lease of an assignment this browser is no longer working on.
+ *
+ * @param assignmentId The assignment whose heartbeat should stop. When it is not given,
+ * every running heartbeat stops, which is what a closed connection needs.
+ */
+const stopLeaseHeartbeat = (assignmentId?: string): void => {
+	if (assignmentId === undefined) {
+		for (const timer of leaseHeartbeatTimers.values()) window.clearInterval(timer);
+		leaseHeartbeatTimers.clear();
+		return;
+	}
+	const timer = leaseHeartbeatTimers.get(assignmentId);
+	if (timer === undefined) return;
+	window.clearInterval(timer);
+	leaseHeartbeatTimers.delete(assignmentId);
 };
 
 /** Starts the worker browser user interface. */
@@ -245,15 +300,20 @@ const relayLogEntry = (socket: WebSocket, direction: "received" | "sent", messag
 			}
 			if (socket && isRegisteredWithGateway) relayLogEntry(socket, "received", message);
 			if (message.type === "stage.cancel" && message.taskId !== undefined) {
+				stopLeaseHeartbeat(message.assignmentId);
 				StageLlmHelper.clearTask(message.taskId);
 				return;
 			}
+			// The gateway answers each lease heartbeat with a later expiry. Nothing has to be
+			// done with it: the assignment is still this browser's, which is the whole point.
+			if (message.type === "stage.lease.extended") return;
 			if (message.type !== "stage.assign" || message.stage === undefined || message.value === undefined || message.taskId === undefined || message.assignmentId === undefined || message.attempt === undefined) return;
 			/** The task identifier and stage captured for the async result below. */
 			const { taskId, assignmentId, attempt, stage, value } = message;
 			const acceptedMessage: ClientMessage = { type: "stage.accepted", taskId, assignmentId, attempt };
 			if (socket && isRegisteredWithGateway) relayLogEntry(socket, "sent", acceptedMessage);
 			socket?.send(JSON.stringify(acceptedMessage));
+			if (socket) startLeaseHeartbeat(socket, { taskId, assignmentId, attempt, leaseUntil: message.leaseUntil });
 			/** Whether the assigned stage is one of this browser's LLM shards, as opposed to a formula stage. */
 			const isLlmStage = StageLlmHelper.stageNames.includes(stage);
 			/** Computes the result for the assigned stage and sends it back once ready. */
@@ -262,6 +322,7 @@ const relayLogEntry = (socket: WebSocket, direction: "received" | "sent", messag
 				: Promise.resolve(StageFormulaHelper.compute(stage, value as number));
 			computeResult
 				.then((value) => {
+					stopLeaseHeartbeat(assignmentId);
 					const resultMessage: ClientMessage = {
 						type: "stage.result",
 						taskId,
@@ -275,6 +336,7 @@ const relayLogEntry = (socket: WebSocket, direction: "received" | "sent", messag
 					addEvent({ direction: "sent", type: resultMessage.type, timestamp: new Date().toISOString(), taskId, stage });
 				})
 				.catch((error: unknown) => {
+					stopLeaseHeartbeat(assignmentId);
 					// A failed LLM stage abandons the task; drop its in-memory key-value cache
 					// rather than leaving it in memory for a task that will never resume.
 					if (isLlmStage) StageLlmHelper.clearTask(taskId);
@@ -294,6 +356,7 @@ const relayLogEntry = (socket: WebSocket, direction: "received" | "sent", messag
 
 		/** Restores the disconnected state when the WebSocket closes. */
 		socket.addEventListener("close", (): void => {
+			stopLeaseHeartbeat();
 			statusEl.textContent = "Disconnected";
 			statusEl.className = "badge text-bg-danger";
 			connectButtonEl.classList.remove("d-none");

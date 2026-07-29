@@ -9,6 +9,7 @@ import test from "node:test";
 import { DeviceRegistry } from "../src/libs/device_registry.js";
 import { TaskStore } from "../src/libs/task_store.js";
 import { PipelineRegistry, builtinPipelineSpecifications } from "../src/libs/pipeline_registry.js";
+import { StagePolicyResolver } from "../src/libs/stage_policy_resolver.js";
 import { splitDevices, stageStatistics } from "../src/dashboard.js";
 
 const worker = (deviceId: string, stageNames: ("stage_formula_multiply" | "stage_formula_add")[] = ["stage_formula_multiply", "stage_formula_add"]) => ({
@@ -214,4 +215,55 @@ test("tells a device joining apart from a change to its description, its activit
   assert.equal(touched.revision, first.revision);
   assert.equal(registry.get("one")?.lastSeenAt, "2026-01-01T00:00:06.000Z");
   assert.equal(registry.membershipRevision(), restaged.revision);
+});
+
+test("a lease renewal extends the lease without raising the task revision", () => {
+  const store = new TaskStore(undefined, 30_000, 2_000);
+  const task = store.create({ taskType: "task_type_formula", input: 5 }, "consumer-1", "request-1");
+  const assigned = store.assign(task.taskId, "worker-1", "stage_formula_multiply", 5);
+  const before = store.get(task.taskId)!;
+
+  const leaseUntil = store.renewLease(task.taskId, 60_000)!;
+  const after = store.get(task.taskId)!;
+
+  assert.ok(Date.parse(leaseUntil) > Date.parse(assigned.assignment!.leaseUntil));
+  assert.equal(after.assignment?.leaseUntil, leaseUntil);
+  // A heartbeat says only that the worker is still alive. Raising the revision would send a
+  // task update to every reader on every heartbeat.
+  assert.equal(after.revision, before.revision);
+  assert.equal(after.updatedAt, before.updatedAt);
+  // The per-attempt history holds the same assignment and must not drift from it.
+  assert.equal(after.assignmentAttempts.at(-1)?.leaseUntil, leaseUntil);
+});
+
+test("a stage assignment can be given a lease shorter or longer than the store default", () => {
+  const store = new TaskStore(undefined, 30_000, 2_000);
+  const task = store.create({ taskType: "task_type_formula", input: 5 }, "consumer-1", "request-1");
+  const assigned = store.assign(task.taskId, "worker-1", "stage_formula_multiply", 5, undefined, 60_000);
+  assert.ok(Date.parse(assigned.assignment!.leaseUntil) - Date.now() > 30_000);
+});
+
+test("stage settings come from the pipeline specification, and language-model shards keep their worker", () => {
+  const registry = new PipelineRegistry(builtinPipelineSpecifications);
+  registry.add({
+    pipelineId: "formula", version: 2, taskType: "task_type_formula",
+    stages: [
+      { name: "stage_formula_multiply", inputSchemaId: "number@1", outputSchemaId: "number@1", encoding: "inline-json", leaseMs: 9_000, prefersSameWorkerOnRetry: true },
+      { name: "stage_formula_add", inputSchemaId: "number@1", outputSchemaId: "number@1", encoding: "inline-json" },
+    ],
+  });
+  const resolver = new StagePolicyResolver(registry, 2_000);
+  const store = new TaskStore(undefined, 30_000, 2_000);
+
+  const specified = store.create({ taskType: "task_type_formula", input: 5 }, "consumer-1", "request-1", undefined, { pipelineId: "formula", pipelineVersion: 2 });
+  assert.deepEqual(resolver.resolve(specified, "stage_formula_multiply"), { leaseMs: 9_000, prefersSameWorkerOnRetry: true });
+  // A stage that states no lease of its own falls back to the gateway's --lease-ms default.
+  assert.deepEqual(resolver.resolve(specified, "stage_formula_add"), { leaseMs: 2_000, prefersSameWorkerOnRetry: false });
+
+  // The built-in language-model pipeline has no specification, because its three shards
+  // cycle once per generated token rather than running once each. Its shards keep their
+  // worker anyway, so a retry does not throw away the key-value cache.
+  const builtin = store.create({ taskType: "task_type_llm", input: "hello" }, "consumer-1", "request-2");
+  assert.deepEqual(resolver.resolve(builtin, "stage_llm_shard1"), { leaseMs: 2_000, prefersSameWorkerOnRetry: true });
+  assert.deepEqual(resolver.resolve(builtin, "stage_formula_multiply"), { leaseMs: 2_000, prefersSameWorkerOnRetry: false });
 });

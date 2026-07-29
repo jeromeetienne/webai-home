@@ -46,7 +46,14 @@ export class TaskStore {
 		return taskId === undefined ? undefined : this.tasks.get(taskId);
 	}
 
-	assign(taskId: string, workerDeviceId: string, stage: StageName, value: StagePayload, retryReason?: AssignmentRetryReason): Task {
+	/**
+	 * Assigns a stage to a worker device.
+	 *
+	 * @param leaseMs - How long this assignment's lease lasts. Defaults to the store's own
+	 * lease duration, which is the gateway's `--lease-ms` value. A stage that states its own
+	 * lease in its pipeline specification passes that value here instead.
+	 */
+	assign(taskId: string, workerDeviceId: string, stage: StageName, value: StagePayload, retryReason?: AssignmentRetryReason, leaseMs: number = this.leaseMs): Task {
 		const task = this.get(taskId);
 		if (!task) throw new Error(`Task ${taskId} was not found`);
 		const assignment: StageAssignment = {
@@ -55,7 +62,7 @@ export class TaskStore {
 			attempt: task.currentStageAttempts + 1,
 			stage,
 			value,
-			leaseUntil: new Date(this.now().getTime() + this.leaseMs).toISOString(),
+			leaseUntil: new Date(this.now().getTime() + leaseMs).toISOString(),
 			...(retryReason === undefined ? {} : { retryReason }),
 		};
 		return this.update(taskId, {
@@ -73,6 +80,33 @@ export class TaskStore {
 		const acceptedAt = this.now().toISOString();
 		const assignment = { ...task.assignment, acceptedAt };
 		return this.update(taskId, { state: "running", assignment, assignmentAttempts: task.assignmentAttempts.map((item) => item.assignmentId === assignment.assignmentId ? assignment : item), events: [...task.events, { type: "assignment_accepted", timestamp: acceptedAt, assignmentId: assignment.assignmentId, attempt: assignment.attempt }] });
+	}
+
+	/**
+	 * Extends the lease of the assignment a task is currently working on.
+	 *
+	 * This deliberately does not raise the task's revision and does not touch `updatedAt`. A
+	 * lease extension says only that the assigned worker is still alive; nothing a consumer
+	 * or an observer displays has changed. Raising the revision would send a task update to
+	 * every reader on every heartbeat, which is the traffic the slim task projection exists
+	 * to avoid.
+	 *
+	 * @param taskId - The task whose current assignment is being extended.
+	 * @param leaseMs - How much longer the lease should last, measured from now.
+	 * @returns The new lease expiry, or `undefined` when the task has no current assignment.
+	 */
+	renewLease(taskId: string, leaseMs: number): string | undefined {
+		const task = this.get(taskId);
+		if (task?.assignment === undefined) return undefined;
+		const leaseUntil = new Date(this.now().getTime() + leaseMs).toISOString();
+		const assignment = { ...task.assignment, leaseUntil };
+		this.tasks.set(taskId, {
+			...task,
+			assignment,
+			assignmentAttempts: task.assignmentAttempts.map((item) => item.assignmentId === assignment.assignmentId ? assignment : item),
+		});
+		this.persist();
+		return leaseUntil;
 	}
 
 	cancel(taskId: string, reason: string): Task {

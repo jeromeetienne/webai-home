@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { ClientMessageSchema, StageName, StagePayloadFactory, TaskInput, TaskState, maximumSnapshotEventCount } from "../src/index.js";
+import { ClientMessageSchema, PipelineStageSchema, StageName, StagePayloadFactory, TaskInput, TaskState, maximumSnapshotEventCount } from "../src/index.js";
 import type { Task, TaskEvent } from "../src/index.js";
 import { MessageLogger } from "../src/message_logger.js";
 import type { LogEntry } from "../src/message_logger.js";
@@ -104,6 +104,19 @@ test("leaves the message it redacts unmodified", () => {
   const original = { type: "task.updated", update: { result: 17 } };
   MessageLogger.redactPayload(original);
   assert.equal(original.update.result, 17);
+});
+
+test("accepts a lease heartbeat and the stage settings that control leasing", () => {
+  assert.equal(ClientMessageSchema.safeParse({ type: "stage.heartbeat", taskId: "task-1", assignmentId: "assignment-1", attempt: 1 }).success, true);
+  assert.equal(ClientMessageSchema.safeParse({ type: "stage.heartbeat", taskId: "task-1", assignmentId: "assignment-1" }).success, false);
+  assert.equal(ClientMessageSchema.safeParse({ type: "stage.heartbeat", taskId: "task-1", assignmentId: "assignment-1", attempt: 0 }).success, false);
+
+  const stage = { name: "stage_formula_multiply", inputSchemaId: "number@1", outputSchemaId: "number@1", encoding: "inline-json" } as const;
+  assert.equal(PipelineStageSchema.safeParse({ ...stage, leaseMs: 60_000, prefersSameWorkerOnRetry: true }).success, true);
+  // A stage that states neither setting is valid, and takes the gateway's --lease-ms default.
+  assert.equal(PipelineStageSchema.safeParse(stage).success, true);
+  assert.equal(PipelineStageSchema.safeParse({ ...stage, leaseMs: 0 }).success, false);
+  assert.equal(PipelineStageSchema.safeParse({ ...stage, leaseMs: -1 }).success, false);
 });
 
 test("rejects malformed and oversized identity-bearing task messages", () => {

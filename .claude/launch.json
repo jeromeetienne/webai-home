@@ -4,8 +4,14 @@
     {
       "name": "webai-gateway",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev:gateway"],
+      "runtimeArgs": ["run", "dev", "--workspace", "@webai/gateway"],
       "port": 8787
+    },
+    {
+      "name": "worker-page",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--workspace", "@webai/worker", "--", "--port", "5299", "--strictPort"],
+      "port": 5299
     },
     {
       "name": "log-visu",

@@ -101,6 +101,8 @@ The gateway replies with `devices` and does not send `registered`.
 | `task.updated` | Gateway | Task owner and granted observers | Announce one task revision, as the slim projection rather than the whole task. Never sent to a worker. |
 | `stage.assign` | Gateway | Worker | Ask a worker to execute one stage for one task. |
 | `stage.cancel` | Gateway | Worker | Tell a worker that its assignment was cancelled or superseded, so it can drop any state it holds for the task. |
+| `stage.heartbeat` | Worker | Gateway | Say that the worker is still running its assigned stage, so the gateway extends the assignment lease. |
+| `stage.lease.extended` | Gateway | Worker | Return the new lease expiry, in reply to `stage.heartbeat`. |
 | `stage.result` | Worker | Gateway | Return the output of the expected next stage. |
 | `stage.failed` | Worker | Gateway | Report that a stage could not be completed. |
 | `signal` | Any connected client | Gateway, then target client | Relay peer-connection signalling data. |
@@ -158,6 +160,21 @@ A device record is split by how often its fields change:
 
 A change that moves nothing but `lastSeenAt` is never announced, and never spends a membership revision. A liveness timestamp that nobody displays to the millisecond does not justify a message. This applies to the refresh that happens on every message a device sends.
 
+### The assignment lease
+
+Every `stage.assign` carries a `leaseUntil` time. If that time passes and the assignment is still not finished, the gateway takes the stage away from the worker and assigns it again. The worker's eventual result is then refused with the error code `STALE_ASSIGNMENT`, and the work it did is thrown away.
+
+A worker that is still running its stage keeps the assignment by sending `stage.heartbeat`, carrying the task identifier, the assignment identifier, and the attempt number. The gateway answers with `stage.lease.extended` and a later `leaseUntil`. The worker browser page sends a heartbeat three times per lease, so one lost or late message does not cost the assignment. A lease extension deliberately does not raise the task's revision, because nothing a consumer or an observer displays has changed; a heartbeat therefore produces no `task.updated` message to anyone.
+
+The gateway refuses to extend the lease of an assignment that is no longer current, and answers the heartbeat with `stage.cancel` instead. A worker whose assignment was taken away therefore stops work and drops the state it holds, rather than finishing work nobody wants.
+
+Two properties of a stage control leasing, both stated in the pipeline specification:
+
+- `leaseMs` is how long that stage's lease lasts. A stage that states no lease uses the gateway's `--lease-ms` option, which defaults to 15,000 milliseconds. A multiplication and a language-model shard no longer have to share one duration.
+- `prefersSameWorkerOnRetry` says that a retry of the stage should go back to the worker that previously held it, rather than deliberately avoiding that worker. Set it for a stage that keeps state between assignments. The three language-model shards behave this way even without a pipeline specification, because all shards of one task must stay on one device for the worker to retain its key-value cache. Retrying such a stage on a different device throws that cache away at exactly the moment the model is slow, so the retry is more likely to be slow again than the attempt it replaced.
+
+A stage that keeps no state is still retried away from the worker that missed its lease. Both kinds of retry remain bounded by the gateway's `--max-attempts` option.
+
 ### What a worker sees
 
 A worker never receives `task.updated`, and a worker holding a stage assignment may not read the whole task through `task.get` or `task.resync`. A worker's entire view of a task is what `stage.assign` carries: the task identifier, the assignment identity, the stage name, the stage input value, and the lease expiry. A worker therefore never sees the original task input, the identity of the consumer that submitted the task, or the results of stages assigned to other workers. When an assignment stops being current — the task was cancelled, the lease expired, the worker relinquished the assignment, or the worker disconnected and the stage was reassigned — the gateway sends that worker the narrow `stage.cancel` message instead.
@@ -213,8 +230,7 @@ gateway rejects malformed task input with `error`. The gateway also rejects:
 
 The worker reports computation errors with `stage.failed`. The gateway marks the
 task as `failed` and broadcasts the failure. A disconnected worker is removed
-from the registry, but the current prototype does not automatically retry an
-unfinished assignment.
+from the registry, and its unfinished assignment is retried on another worker.
 
 ## Related implementation
 
