@@ -1,0 +1,57 @@
+<svg width="680" height="680" viewBox="0 0 680 680" xmlns="http://www.w3.org/2000/svg">
+<title>webai-at-home logo</title>
+<desc>Light-background version of the globe and neural network mark.</desc>
+<style>
+.bg { fill:#f4f2ff; }
+.globe { fill:none; stroke:#8f7cf0; stroke-width:3; opacity:0.6; }
+.edge { stroke:#4c3bcf; stroke-width:2.5; }
+.edge-dim { stroke:#8f7cf0; stroke-width:2; opacity:0.6; }
+.node { fill:#4c3bcf; }
+.node-lit { fill:#2a1f80; }
+.node-ring { fill:none; stroke:#4c3bcf; stroke-width:2.5; opacity:0.6; }
+</style>
+
+<rect x="60" y="60" width="560" height="560" rx="120" class="bg"/>
+
+<circle cx="340" cy="340" r="230" class="globe"/>
+<ellipse cx="340" cy="340" rx="230" ry="90" class="globe"/>
+<ellipse cx="340" cy="340" rx="230" ry="180" class="globe"/>
+<line x1="110" y1="340" x2="570" y2="340" class="globe"/>
+<line x1="340" y1="110" x2="340" y2="570" class="globe"/>
+<line x1="167" y1="200" x2="513" y2="480" class="globe"/>
+<line x1="167" y1="480" x2="513" y2="200" class="globe"/>
+
+<g>
+<line x1="340" y1="340" x2="230" y2="230" class="edge"/>
+<line x1="340" y1="340" x2="450" y2="240" class="edge"/>
+<line x1="340" y1="340" x2="220" y2="420" class="edge"/>
+<line x1="340" y1="340" x2="460" y2="440" class="edge"/>
+<line x1="340" y1="340" x2="340" y2="200" class="edge"/>
+<line x1="230" y1="230" x2="230" y2="130" class="edge-dim"/>
+<line x1="450" y1="240" x2="520" y2="170" class="edge-dim"/>
+<line x1="450" y1="240" x2="380" y2="150" class="edge-dim"/>
+<line x1="220" y1="420" x2="150" y2="470" class="edge-dim"/>
+<line x1="220" y1="420" x2="190" y2="530" class="edge-dim"/>
+<line x1="460" y1="440" x2="530" y2="500" class="edge-dim"/>
+<line x1="460" y1="440" x2="420" y2="540" class="edge-dim"/>
+<line x1="340" y1="200" x2="270" y2="130" class="edge-dim"/>
+</g>
+
+<circle cx="340" cy="340" r="18" class="node-lit"/>
+<circle cx="340" cy="340" r="28" class="node-ring"/>
+
+<circle cx="230" cy="230" r="13" class="node-lit"/>
+<circle cx="450" cy="240" r="13" class="node-lit"/>
+<circle cx="220" cy="420" r="13" class="node-lit"/>
+<circle cx="460" cy="440" r="13" class="node-lit"/>
+<circle cx="340" cy="200" r="13" class="node-lit"/>
+
+<circle cx="230" cy="130" r="9" class="node"/>
+<circle cx="520" cy="170" r="9" class="node"/>
+<circle cx="380" cy="150" r="9" class="node"/>
+<circle cx="150" cy="470" r="9" class="node"/>
+<circle cx="190" cy="530" r="9" class="node"/>
+<circle cx="530" cy="500" r="9" class="node"/>
+<circle cx="420" cy="540" r="9" class="node"/>
+<circle cx="270" cy="130" r="9" class="node"/>
+</svg>
