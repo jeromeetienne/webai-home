@@ -156,6 +156,8 @@ const relayLogEntry = (socket: WebSocket, direction: "received" | "sent", messag
 	const stagesEl: HTMLElement = getElement("#stages");
 	/** The active WebSocket connection, when the worker browser is connected. */
 	let socket: WebSocket | undefined;
+	/** Whether the gateway has accepted this worker browser's registration. */
+	let isRegisteredWithGateway = false;
 	/** The stages this worker browser advertises to the central gateway. */
 	const enabledStageNames = enabledStageNamesFromUrl(location.search);
 	/** Prevents another connection attempt while enabled LLM shards are preloading. */
@@ -202,6 +204,7 @@ const relayLogEntry = (socket: WebSocket, direction: "received" | "sent", messag
 
 		// Open a WebSocket connection to the central gateway.
 		socket = new WebSocket(centralGatewayWebSocketUrl());
+		isRegisteredWithGateway = false;
 
 		// update ui
 		statusEl.textContent = "Connecting";
@@ -216,7 +219,6 @@ const relayLogEntry = (socket: WebSocket, direction: "received" | "sent", messag
 			disconnectButtonEl.classList.remove("d-none");
 			nameInputEl.disabled = true;
 			const message: ClientMessage = { type: "authenticate", token: "development-token" };
-			if (socket) relayLogEntry(socket, "sent", message);
 			socket?.send(JSON.stringify(message));
 			addEvent({ direction: "sent", type: message.type, timestamp: new Date().toISOString() });
 		});
@@ -234,12 +236,14 @@ const relayLogEntry = (socket: WebSocket, direction: "received" | "sent", messag
 			});
 			if (message.type === "authenticated" && socket) {
 				const register: ClientMessage = { type: "register", role: "worker", name: nameInputEl.value, stageNames: enabledStageNames };
-				relayLogEntry(socket, "sent", register);
 				socket.send(JSON.stringify(register));
 				return;
 			}
-			if (message.type === "registered") deviceIdEl.textContent = message.deviceId ?? "Not assigned";
-			if (socket) relayLogEntry(socket, "received", message);
+			if (message.type === "registered") {
+				isRegisteredWithGateway = true;
+				deviceIdEl.textContent = message.deviceId ?? "Not assigned";
+			}
+			if (socket && isRegisteredWithGateway) relayLogEntry(socket, "received", message);
 			if (message.type === "stage.cancel" && message.taskId !== undefined) {
 				StageLlmHelper.clearTask(message.taskId);
 				return;
@@ -248,7 +252,7 @@ const relayLogEntry = (socket: WebSocket, direction: "received" | "sent", messag
 			/** The task identifier and stage captured for the async result below. */
 			const { taskId, assignmentId, attempt, stage, value } = message;
 			const acceptedMessage: ClientMessage = { type: "stage.accepted", taskId, assignmentId, attempt };
-			if (socket) relayLogEntry(socket, "sent", acceptedMessage);
+			if (socket && isRegisteredWithGateway) relayLogEntry(socket, "sent", acceptedMessage);
 			socket?.send(JSON.stringify(acceptedMessage));
 			/** Whether the assigned stage is one of this browser's LLM shards, as opposed to a formula stage. */
 			const isLlmStage = StageLlmHelper.stageNames.includes(stage);
@@ -266,7 +270,7 @@ const relayLogEntry = (socket: WebSocket, direction: "received" | "sent", messag
 						stage,
 						value
 					};
-					if (socket) relayLogEntry(socket, "sent", resultMessage);
+					if (socket && isRegisteredWithGateway) relayLogEntry(socket, "sent", resultMessage);
 					socket?.send(JSON.stringify(resultMessage));
 					addEvent({ direction: "sent", type: resultMessage.type, timestamp: new Date().toISOString(), taskId, stage });
 				})
@@ -282,7 +286,7 @@ const relayLogEntry = (socket: WebSocket, direction: "received" | "sent", messag
 						stage,
 						error: error instanceof Error ? error.message : String(error),
 					};
-					if (socket) relayLogEntry(socket, "sent", failedMessage);
+					if (socket && isRegisteredWithGateway) relayLogEntry(socket, "sent", failedMessage);
 					socket?.send(JSON.stringify(failedMessage));
 					addEvent({ direction: "sent", type: failedMessage.type, timestamp: new Date().toISOString(), taskId, stage, message: failedMessage.error });
 				});
@@ -296,6 +300,7 @@ const relayLogEntry = (socket: WebSocket, direction: "received" | "sent", messag
 			connectButtonEl.disabled = false;
 			disconnectButtonEl.classList.add("d-none");
 			nameInputEl.disabled = false;
+			isRegisteredWithGateway = false;
 			socket = undefined;
 		});
 	});

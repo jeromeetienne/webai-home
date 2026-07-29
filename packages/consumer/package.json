@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "clean:logs": "tsx src/clean_logs.ts",
     "sample:formula": "node --import tsx src/cli.ts --type formula --name formula-consumer 5 | jq",
     "sample:llm": "node --import tsx src/cli.ts --type llm --name llm-consumer 'What is the capital of France?' | jq",
     "build": "vite build && tsc -p tsconfig.build.json",

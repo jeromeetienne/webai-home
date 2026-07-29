@@ -78,7 +78,16 @@ const TASK_COLOR_PALETTE: readonly string[] = [
 // Connection setup is not task traffic. Keeping authentication in chatter also
 // prevents pre-registration `unknown` counterparts from becoming actor nodes
 // when the viewer is using its default filters.
-const CHATTER_MESSAGE_TYPES: ReadonlySet<string> = new Set(["authenticate", "authenticated", "register", "registered", "devices"]);
+const CHATTER_MESSAGE_TYPES: ReadonlySet<string> = new Set([
+	"authenticate",
+	"authenticated",
+	"register",
+	"registered",
+	"devices",
+	"device.joined",
+	"device.updated",
+	"device.left",
+]);
 const SIGNALING_MESSAGE_TYPES: ReadonlySet<string> = new Set(["signal"]);
 
 ///////////////////////////////////////////////////////////////////////////////
