@@ -9,7 +9,9 @@ import { Command } from "commander";
 import { WebSocketServer, type WebSocket } from "ws";
 import {
 	StagePayloadFactory,
-	ClientMessageSchema,
+	ClientEnvelopeSchema,
+	protocolVersion,
+	supportedProtocolVersions,
 	type ClientMessage,
 	type Device,
 	type DeviceActivity,
@@ -17,6 +19,7 @@ import {
 	type StageName,
 	type StagePayload,
 } from "@webai/protocol";
+import { Envelope } from "@webai/protocol/envelope";
 import { MessageLogger, type LogCounterpart } from "@webai/protocol/message_logger";
 import { TaskProjection } from "@webai/protocol/task_projection";
 
@@ -109,13 +112,17 @@ function counterpartFor(deviceId: string, registerMessage?: ClientMessage): LogC
  * @param socket - The WebSocket that should receive the message.
  * @param message - The gateway message to serialize and send.
  * @param counterpart - Who the message is being sent to.
+ * @param inReplyTo - The identifier of the client request this message answers. Leave it out
+ * for a message the gateway pushes on its own initiative; that absence is what tells a client
+ * the message is a push rather than an answer.
  */
-function send(socket: WebSocket, message: GatewayMessage, counterpart: LogCounterpart): void {
+function send(socket: WebSocket, message: GatewayMessage, counterpart: LogCounterpart, inReplyTo?: string): void {
+	const frame = Envelope.fromGateway(message, inReplyTo);
 	if (![...observerDeviceIds].some((deviceId): boolean => socketMap.get(deviceId) === socket)) {
-		gatewayMessageLogger.log("sent", counterpart, message.type, message);
+		gatewayMessageLogger.log("sent", counterpart, message.type, message, frame.ts, frame);
 	}
 	if (socket.readyState === socket.OPEN) {
-		socket.send(JSON.stringify(message));
+		socket.send(JSON.stringify(frame));
 	}
 }
 
@@ -131,9 +138,14 @@ function sendToDeviceSubscribers(message: GatewayMessage): void {
 	}
 }
 
-/** Sends a stable, machine-readable error. */
-function sendError(socket: WebSocket, counterpart: LogCounterpart, code: Extract<GatewayMessage, { type: "error" }> ["code"], message: string, options: { taskId?: string; requestId?: string; details?: Record<string, unknown>; retryable?: boolean } = {}): void {
-	send(socket, { type: "error", code, message, retryable: options.retryable ?? false, ...(options.taskId === undefined ? {} : { taskId: options.taskId }), ...(options.requestId === undefined ? {} : { requestId: options.requestId }), ...(options.details === undefined ? {} : { details: options.details }) }, counterpart);
+/**
+ * Sends a stable, machine-readable error.
+ *
+ * An error is always an answer to something, so it echoes the identifier of the request that
+ * caused it whenever that request is known.
+ */
+function sendError(socket: WebSocket, inReplyTo: string | undefined, counterpart: LogCounterpart, code: Extract<GatewayMessage, { type: "error" }> ["code"], message: string, options: { taskId?: string; requestId?: string; details?: Record<string, unknown>; retryable?: boolean } = {}): void {
+	send(socket, { type: "error", code, message, retryable: options.retryable ?? false, ...(options.taskId === undefined ? {} : { taskId: options.taskId }), ...(options.requestId === undefined ? {} : { requestId: options.requestId }), ...(options.details === undefined ? {} : { details: options.details }) }, counterpart, inReplyTo);
 }
 
 /**
@@ -410,19 +422,19 @@ function mayReadTask(deviceId: string, taskId: string): boolean {
  * @param deviceId - The identifier assigned to the WebSocket connection.
  * @param message - The client message to process.
  */
-function handle(socket: WebSocket, deviceId: string, message: ClientMessage): void {
-	if (message.type !== "authenticate" && !authenticatedPrincipals.has(deviceId)) { sendError(socket, counterpartFor(deviceId), "AUTHENTICATION_REQUIRED", "Authenticate before using the protocol", { retryable: false }); return; }
+function handle(socket: WebSocket, deviceId: string, message: ClientMessage, requestFrameId: string): void {
+	if (message.type !== "authenticate" && !authenticatedPrincipals.has(deviceId)) { sendError(socket, requestFrameId, counterpartFor(deviceId), "AUTHENTICATION_REQUIRED", "Authenticate before using the protocol", { retryable: false }); return; }
 	if (message.type === "observe") {
 		observerDeviceIds.add(deviceId);
 		// An observer connection exists to watch the cluster, so observing implies a
 		// device membership subscription and no separate "devices.subscribe" is needed.
 		deviceSubscriberIds.add(deviceId);
-		send(socket, { type: "devices", devices: connectedDevices(), revision: deviceRegistry.membershipRevision() }, counterpartFor(deviceId));
+		send(socket, { type: "devices", devices: connectedDevices(), revision: deviceRegistry.membershipRevision() }, counterpartFor(deviceId), requestFrameId);
 		return;
 	}
 	if (message.type === "devices.subscribe") {
 		deviceSubscriberIds.add(deviceId);
-		send(socket, { type: "devices", devices: connectedDevices(), revision: deviceRegistry.membershipRevision() }, counterpartFor(deviceId));
+		send(socket, { type: "devices", devices: connectedDevices(), revision: deviceRegistry.membershipRevision() }, counterpartFor(deviceId), requestFrameId);
 		return;
 	}
 	if (message.type === "devices.unsubscribe") {
@@ -430,16 +442,16 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 		return;
 	}
 	if (message.type === "authenticate") {
-		if (message.token !== options.authToken) { sendError(socket, counterpartFor(deviceId), "AUTHENTICATION_REQUIRED", "Credentials were rejected", { retryable: false }); return; }
+		if (message.token !== options.authToken) { sendError(socket, requestFrameId, counterpartFor(deviceId), "AUTHENTICATION_REQUIRED", "Credentials were rejected", { retryable: false }); return; }
 		const principal = `principal-${message.token.slice(0, 12)}`;
 		authenticatedPrincipals.set(deviceId, principal);
-		send(socket, { type: "authenticated", principal, expiresAt: new Date(Date.now() + 3_600_000).toISOString() }, counterpartFor(deviceId));
+		send(socket, { type: "authenticated", principal, expiresAt: new Date(Date.now() + 3_600_000).toISOString() }, counterpartFor(deviceId), requestFrameId);
 		return;
 	}
 	// Answered before registration on purpose: a worker asks which pipelines the gateway has
 	// loaded so it can decide which stages to advertise, and that decision has to be made
 	// before it registers. A pipeline specification carries no task data.
-	if (message.type === "pipelines.get") { send(socket, { type: "pipelines", pipelines: pipelineRegistry.list().filter((specification) => specification.retired !== true) }, counterpartFor(deviceId)); return; }
+	if (message.type === "pipelines.get") { send(socket, { type: "pipelines", pipelines: pipelineRegistry.list().filter((specification) => specification.retired !== true) }, counterpartFor(deviceId), requestFrameId); return; }
 	if (message.type === "register") {
 		// The pipeline registry is the authority on which stage names exist. The shared
 		// protocol package only checks the shape of a stage name, so a worker advertising a
@@ -447,7 +459,7 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 		// successfully and then silently never receiving work.
 		const undefinedStageNames = (message.stageNames ?? []).filter((stageName) => pipelineRegistry.definesStage(stageName) === false);
 		if (message.role === "worker" && undefinedStageNames.length > 0) {
-			sendError(socket, counterpartFor(deviceId), "VALIDATION", "No loaded pipeline defines these stages", { retryable: false, details: { undefinedStageNames, definedStageNames: pipelineRegistry.stageNames() } });
+			sendError(socket, requestFrameId, counterpartFor(deviceId), "VALIDATION", "No loaded pipeline defines these stages", { retryable: false, details: { undefinedStageNames, definedStageNames: pipelineRegistry.stageNames() } });
 			return;
 		}
 		const existingDevice = message.role === "worker"
@@ -478,13 +490,13 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 		send(socket, {
 			type: "registered",
 			deviceId,
-		}, counterpartFor(deviceId, message));
+		}, counterpartFor(deviceId, message), requestFrameId);
 		publishDevice(change);
 		scheduleQueuedTasks();
 		return;
 	}
 	if (!deviceRegistry.get(deviceId)) {
-		sendError(socket, counterpartFor(deviceId), "NOT_REGISTERED", "Register before sending this message");
+		sendError(socket, requestFrameId, counterpartFor(deviceId), "NOT_REGISTERED", "Register before sending this message");
 		return;
 	}
 	const activeDevice = deviceRegistry.get(deviceId)!;
@@ -492,37 +504,37 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 
 	if (message.type === "task.observe" || message.type === "task.unobserve" || message.type === "task.resync") {
 		const task = taskStore.get(message.taskId);
-		if (!task) { sendError(socket, counterpartFor(deviceId), "TASK_NOT_FOUND", "Task was not found", { taskId: message.taskId }); return; }
+		if (!task) { sendError(socket, requestFrameId, counterpartFor(deviceId), "TASK_NOT_FOUND", "Task was not found", { taskId: message.taskId }); return; }
 		if (message.type === "task.observe") {
 			const requester = deviceRegistry.get(deviceId);
-			if (requester?.deviceRole !== "consumer" || (task.consumerDeviceId !== deviceId && !taskObserverDeviceIds.get(task.taskId)?.has(deviceId))) { sendError(socket, counterpartFor(deviceId), "AUTHORISATION", "Task observation requires an owner grant", { taskId: task.taskId }); return; }
+			if (requester?.deviceRole !== "consumer" || (task.consumerDeviceId !== deviceId && !taskObserverDeviceIds.get(task.taskId)?.has(deviceId))) { sendError(socket, requestFrameId, counterpartFor(deviceId), "AUTHORISATION", "Task observation requires an owner grant", { taskId: task.taskId }); return; }
 			const observers = taskObserverDeviceIds.get(task.taskId) ?? new Set<string>();
 			observers.add(deviceId); taskObserverDeviceIds.set(task.taskId, observers);
 		}
-		if (message.type === "task.resync" && mayReadTask(deviceId, task.taskId) === false) { sendError(socket, counterpartFor(deviceId), "AUTHORISATION", "This connection is not allowed to read the task", { taskId: task.taskId }); return; }
+		if (message.type === "task.resync" && mayReadTask(deviceId, task.taskId) === false) { sendError(socket, requestFrameId, counterpartFor(deviceId), "AUTHORISATION", "This connection is not allowed to read the task", { taskId: task.taskId }); return; }
 		if (message.type === "task.unobserve") taskObserverDeviceIds.get(task.taskId)?.delete(deviceId);
-		if (message.type !== "task.unobserve") send(socket, { type: "task.snapshot", task: TaskProjection.snapshot(task) }, counterpartFor(deviceId));
+		if (message.type !== "task.unobserve") send(socket, { type: "task.snapshot", task: TaskProjection.snapshot(task) }, counterpartFor(deviceId), requestFrameId);
 		return;
 	}
 	if (message.type === "task.history") {
 		const task = taskStore.get(message.taskId);
-		if (!task) { sendError(socket, counterpartFor(deviceId), "TASK_NOT_FOUND", "Task was not found", { taskId: message.taskId }); return; }
-		if (mayReadTask(deviceId, task.taskId) === false) { sendError(socket, counterpartFor(deviceId), "AUTHORISATION", "This connection is not allowed to read the task", { taskId: task.taskId }); return; }
-		send(socket, { type: "task.history", taskId: task.taskId, events: task.events }, counterpartFor(deviceId));
+		if (!task) { sendError(socket, requestFrameId, counterpartFor(deviceId), "TASK_NOT_FOUND", "Task was not found", { taskId: message.taskId }); return; }
+		if (mayReadTask(deviceId, task.taskId) === false) { sendError(socket, requestFrameId, counterpartFor(deviceId), "AUTHORISATION", "This connection is not allowed to read the task", { taskId: task.taskId }); return; }
+		send(socket, { type: "task.history", taskId: task.taskId, events: task.events }, counterpartFor(deviceId), requestFrameId);
 		return;
 	}
 	if (message.type === "task.observer.grant" || message.type === "task.observer.revoke") {
 		const task = taskStore.get(message.taskId);
-		if (!task) { sendError(socket, counterpartFor(deviceId), "TASK_NOT_FOUND", "Task was not found", { taskId: message.taskId }); return; }
-		if (task.consumerDeviceId !== deviceId) { sendError(socket, counterpartFor(deviceId), "AUTHORISATION", "Only the task owner may manage observers", { taskId: task.taskId }); return; }
+		if (!task) { sendError(socket, requestFrameId, counterpartFor(deviceId), "TASK_NOT_FOUND", "Task was not found", { taskId: message.taskId }); return; }
+		if (task.consumerDeviceId !== deviceId) { sendError(socket, requestFrameId, counterpartFor(deviceId), "AUTHORISATION", "Only the task owner may manage observers", { taskId: task.taskId }); return; }
 		const observer = deviceRegistry.get(message.consumerDeviceId);
-		if (!observer || observer.deviceRole !== "consumer") { sendError(socket, counterpartFor(deviceId), "VALIDATION", "An observer must be a connected consumer", { taskId: task.taskId }); return; }
+		if (!observer || observer.deviceRole !== "consumer") { sendError(socket, requestFrameId, counterpartFor(deviceId), "VALIDATION", "An observer must be a connected consumer", { taskId: task.taskId }); return; }
 		const observers = taskObserverDeviceIds.get(task.taskId) ?? new Set<string>();
 		if (message.type === "task.observer.grant") observers.add(message.consumerDeviceId); else observers.delete(message.consumerDeviceId);
 		taskObserverDeviceIds.set(task.taskId, observers);
 		return;
 	}
-	if (message.type === "devices.resync") { send(socket, { type: "devices", devices: connectedDevices(), revision: deviceRegistry.membershipRevision() }, counterpartFor(deviceId)); return; }
+	if (message.type === "devices.resync") { send(socket, { type: "devices", devices: connectedDevices(), revision: deviceRegistry.membershipRevision() }, counterpartFor(deviceId), requestFrameId); return; }
 
 	if (message.type === "task.submit") {
 		const device = deviceRegistry.get(deviceId);
@@ -532,26 +544,26 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 				code: "CONSUMER_REQUIRED",
 				message: "Only consumer browser tabs may submit tasks",
 				requestId: message.requestId,
-			}, counterpartFor(deviceId));
+			}, counterpartFor(deviceId), requestFrameId);
 			return;
 		}
 		const existingTask = taskStore.findByRequest(deviceId, message.requestId);
 		if (existingTask) {
 			if (JSON.stringify(existingTask.input) !== JSON.stringify(message.input)) {
-				send(socket, { type: "error", code: "REQUEST_ID_CONFLICT", message: "requestId was already used with different task contents", requestId: message.requestId, taskId: existingTask.taskId }, counterpartFor(deviceId));
+				send(socket, { type: "error", code: "REQUEST_ID_CONFLICT", message: "requestId was already used with different task contents", requestId: message.requestId, taskId: existingTask.taskId }, counterpartFor(deviceId), requestFrameId);
 				return;
 			}
-			send(socket, { type: "task.accepted", requestId: message.requestId, task: TaskProjection.snapshot(existingTask) }, counterpartFor(deviceId));
+			send(socket, { type: "task.accepted", requestId: message.requestId, task: TaskProjection.snapshot(existingTask) }, counterpartFor(deviceId), requestFrameId);
 			return;
 		}
 		const principal = devicePrincipalById.get(deviceId)!;
 		const activeTaskCount = taskStore.list().filter((candidate) => candidate.consumerPrincipal === principal && !["completed", "failed", "cancelled"].includes(candidate.state)).length;
-		if (activeTaskCount >= maximumTasksPerPrincipal) { sendError(socket, counterpartFor(deviceId), "RATE_LIMITED", "The principal has reached its active-task limit", { requestId: message.requestId, retryable: true, details: { limit: maximumTasksPerPrincipal } }); return; }
+		if (activeTaskCount >= maximumTasksPerPrincipal) { sendError(socket, requestFrameId, counterpartFor(deviceId), "RATE_LIMITED", "The principal has reached its active-task limit", { requestId: message.requestId, retryable: true, details: { limit: maximumTasksPerPrincipal } }); return; }
 		// Every task now runs a pipeline, including the formula and language-model ones. The
 		// stage sequence is data the task carries rather than a sequence built into the
 		// gateway, so a task whose pipeline is missing cannot be advanced at all.
 		const pipeline = pipelineRegistry.select(message.input, message.pipelineId, message.pipelineVersion);
-		if (!pipeline) { sendError(socket, counterpartFor(deviceId), "NO_COMPATIBLE_WORKER", "No active compatible pipeline specification exists", { requestId: message.requestId, retryable: false }); return; }
+		if (!pipeline) { sendError(socket, requestFrameId, counterpartFor(deviceId), "NO_COMPATIBLE_WORKER", "No active compatible pipeline specification exists", { requestId: message.requestId, retryable: false }); return; }
 		const task = taskStore.create(message.input, deviceId, message.requestId, principal, {
 			pipelineId: pipeline.pipelineId,
 			pipelineVersion: pipeline.version,
@@ -562,7 +574,7 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 			type: "task.accepted",
 			requestId: message.requestId,
 			task: TaskProjection.snapshot(task),
-		}, counterpartFor(deviceId));
+		}, counterpartFor(deviceId), requestFrameId);
 		const stage = TaskStore.nextStage(task);
 		if (stage) assign(task.taskId, message.input.taskType === "task_type_llm" ? StagePayloadFactory.llmPrompt(message.input.input) : StagePayloadFactory.formula(message.input.input), stage);
 		return;
@@ -574,16 +586,16 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 			send(socket, {
 				type: "task.snapshot",
 				task: TaskProjection.snapshot(task),
-			}, counterpartFor(deviceId));
+			}, counterpartFor(deviceId), requestFrameId);
 		} else if (task) {
-			sendError(socket, counterpartFor(deviceId), "AUTHORISATION", "This connection is not allowed to read the task", { taskId: message.taskId });
+			sendError(socket, requestFrameId, counterpartFor(deviceId), "AUTHORISATION", "This connection is not allowed to read the task", { taskId: message.taskId });
 		} else {
 			send(socket, {
 				type: "error",
 				code: "TASK_NOT_FOUND",
 				message: "Task was not found",
 				taskId: message.taskId,
-			}, counterpartFor(deviceId));
+			}, counterpartFor(deviceId), requestFrameId);
 		}
 		return;
 	}
@@ -591,7 +603,7 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 	if (message.type === "worker.state") {
 		const device = deviceRegistry.get(deviceId);
 		if (!device || device.deviceRole !== "worker") {
-			send(socket, { type: "error", code: "WORKER_REQUIRED", message: "Only worker browser tabs may change worker state" }, counterpartFor(deviceId));
+			send(socket, { type: "error", code: "WORKER_REQUIRED", message: "Only worker browser tabs may change worker state" }, counterpartFor(deviceId), requestFrameId);
 			return;
 		}
 		publishDevice(deviceRegistry.add({ ...device, workerState: message.state, ready: message.state === "ready", ...(message.maxConcurrentAssignments === undefined ? {} : { maxConcurrentAssignments: message.maxConcurrentAssignments }), lastSeenAt: new Date().toISOString() }));
@@ -602,11 +614,11 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 	if (message.type === "task.cancel") {
 		const task = taskStore.get(message.taskId);
 		if (!task) {
-			send(socket, { type: "error", code: "TASK_NOT_FOUND", message: "Task was not found", taskId: message.taskId }, counterpartFor(deviceId));
+			send(socket, { type: "error", code: "TASK_NOT_FOUND", message: "Task was not found", taskId: message.taskId }, counterpartFor(deviceId), requestFrameId);
 			return;
 		}
 		if (task.consumerDeviceId !== deviceId) {
-			send(socket, { type: "error", code: "TASK_OWNER_MISMATCH", message: "Only the task owner may cancel this task", taskId: message.taskId }, counterpartFor(deviceId));
+			send(socket, { type: "error", code: "TASK_OWNER_MISMATCH", message: "Only the task owner may cancel this task", taskId: message.taskId }, counterpartFor(deviceId), requestFrameId);
 			return;
 		}
 		const assignment = task.assignment;
@@ -629,19 +641,19 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 		const task = taskStore.get(message.taskId);
 		const assignment = task?.assignment;
 		if (!device || device.deviceRole !== "worker") {
-			send(socket, { type: "error", code: "WORKER_REQUIRED", message: "Only worker browser tabs may extend an assignment lease" }, counterpartFor(deviceId));
+			send(socket, { type: "error", code: "WORKER_REQUIRED", message: "Only worker browser tabs may extend an assignment lease" }, counterpartFor(deviceId), requestFrameId);
 			return;
 		}
 		// The gateway refuses to extend a lease for an assignment that is no longer current,
 		// and says so with the same message it uses to withdraw an assignment, so the worker
 		// stops work and drops any state it holds rather than finishing work nobody wants.
 		if (!task || !assignment || assignment.assignmentId !== message.assignmentId || assignment.attempt !== message.attempt || assignment.workerDeviceId !== deviceId) {
-			send(socket, { type: "stage.cancel", taskId: message.taskId, assignmentId: message.assignmentId, attempt: message.attempt, reason: "assignment_superseded" }, counterpartFor(deviceId));
+			send(socket, { type: "stage.cancel", taskId: message.taskId, assignmentId: message.assignmentId, attempt: message.attempt, reason: "assignment_superseded" }, counterpartFor(deviceId), requestFrameId);
 			return;
 		}
 		const leaseUntil = taskStore.renewLease(task.taskId, stagePolicyResolver.resolve(task, assignment.stage).leaseMs);
 		if (leaseUntil === undefined) return;
-		send(socket, { type: "stage.lease.extended", taskId: task.taskId, assignmentId: assignment.assignmentId, attempt: assignment.attempt, leaseUntil }, counterpartFor(deviceId));
+		send(socket, { type: "stage.lease.extended", taskId: task.taskId, assignmentId: assignment.assignmentId, attempt: assignment.attempt, leaseUntil }, counterpartFor(deviceId), requestFrameId);
 		return;
 	}
 
@@ -650,11 +662,11 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 		const task = taskStore.get(message.taskId);
 		const assignment = task?.assignment;
 		if (!device || device.deviceRole !== "worker") {
-			send(socket, { type: "error", code: "WORKER_REQUIRED", message: "Only worker browser tabs may update assignments" }, counterpartFor(deviceId));
+			send(socket, { type: "error", code: "WORKER_REQUIRED", message: "Only worker browser tabs may update assignments" }, counterpartFor(deviceId), requestFrameId);
 			return;
 		}
 		if (!assignment || assignment.assignmentId !== message.assignmentId || assignment.attempt !== message.attempt || assignment.workerDeviceId !== deviceId) {
-			send(socket, { type: "error", code: "STALE_ASSIGNMENT", message: "The stage assignment is no longer current", taskId: message.taskId }, counterpartFor(deviceId));
+			send(socket, { type: "error", code: "STALE_ASSIGNMENT", message: "The stage assignment is no longer current", taskId: message.taskId }, counterpartFor(deviceId), requestFrameId);
 			return;
 		}
 		if (message.type === "stage.accepted") {
@@ -673,18 +685,18 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 				type: "error",
 				code: "WORKER_REQUIRED",
 				message: "Only worker browser tabs may return stage results",
-			}, counterpartFor(deviceId));
+			}, counterpartFor(deviceId), requestFrameId);
 			return;
 		}
 		const task = taskStore.get(message.taskId);
 		if (!task) {
-			send(socket, { type: "error", code: "TASK_NOT_FOUND", message: "Task was not found", taskId: message.taskId }, counterpartFor(deviceId));
+			send(socket, { type: "error", code: "TASK_NOT_FOUND", message: "Task was not found", taskId: message.taskId }, counterpartFor(deviceId), requestFrameId);
 			return;
 		}
 		const assignment = task.assignment;
 		if (!assignment || assignment.assignmentId !== message.assignmentId || assignment.attempt !== message.attempt) {
 			if (task.acknowledgedAssignmentIds?.includes(message.assignmentId)) {
-				send(socket, { type: "stage.result.accepted", taskId: task.taskId, assignmentId: message.assignmentId, attempt: message.attempt, revision: task.revision, status: task.state === "completed" ? "completed" : "assigned" }, counterpartFor(deviceId));
+				send(socket, { type: "stage.result.accepted", taskId: task.taskId, assignmentId: message.assignmentId, attempt: message.attempt, revision: task.revision, status: task.state === "completed" ? "completed" : "assigned" }, counterpartFor(deviceId), requestFrameId);
 				return;
 			}
 			send(socket, {
@@ -692,19 +704,19 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 				code: "STALE_ASSIGNMENT",
 				message: "The stage assignment is no longer current",
 				taskId: message.taskId,
-			}, counterpartFor(deviceId));
+			}, counterpartFor(deviceId), requestFrameId);
 			return;
 		}
 		if (assignment.workerDeviceId !== deviceId) {
-			send(socket, { type: "error", code: "ASSIGNMENT_OWNER_MISMATCH", message: "Only the assigned worker may return this stage result", taskId: message.taskId }, counterpartFor(deviceId));
+			send(socket, { type: "error", code: "ASSIGNMENT_OWNER_MISMATCH", message: "Only the assigned worker may return this stage result", taskId: message.taskId }, counterpartFor(deviceId), requestFrameId);
 			return;
 		}
 		if (assignment.stage !== message.stage) {
-			send(socket, { type: "error", code: "ASSIGNMENT_STAGE_MISMATCH", message: "The stage result does not match the current assignment", taskId: message.taskId }, counterpartFor(deviceId));
+			send(socket, { type: "error", code: "ASSIGNMENT_STAGE_MISMATCH", message: "The stage result does not match the current assignment", taskId: message.taskId }, counterpartFor(deviceId), requestFrameId);
 			return;
 		}
 		if (task.state !== "running") {
-			send(socket, { type: "error", code: "ASSIGNMENT_NOT_ACCEPTED", message: "A stage assignment must be accepted before returning a result", taskId: message.taskId }, counterpartFor(deviceId));
+			send(socket, { type: "error", code: "ASSIGNMENT_NOT_ACCEPTED", message: "A stage assignment must be accepted before returning a result", taskId: message.taskId }, counterpartFor(deviceId), requestFrameId);
 			return;
 		}
 		const updated = taskStore.addStage(task.taskId, {
@@ -726,11 +738,11 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 				result: message.value,
 			});
 			broadcastTask(updated.taskId);
-			send(socket, { type: "stage.result.accepted", taskId: completed.taskId, assignmentId: message.assignmentId, attempt: message.attempt, revision: completed.revision, status: "completed" }, counterpartFor(deviceId));
+			send(socket, { type: "stage.result.accepted", taskId: completed.taskId, assignmentId: message.assignmentId, attempt: message.attempt, revision: completed.revision, status: "completed" }, counterpartFor(deviceId), requestFrameId);
 			return;
 		}
 		const assigned = taskStore.get(updated.taskId)!;
-		send(socket, { type: "stage.result.accepted", taskId: assigned.taskId, assignmentId: message.assignmentId, attempt: message.attempt, revision: assigned.revision, status: "assigned" }, counterpartFor(deviceId));
+		send(socket, { type: "stage.result.accepted", taskId: assigned.taskId, assignmentId: message.assignmentId, attempt: message.attempt, revision: assigned.revision, status: "assigned" }, counterpartFor(deviceId), requestFrameId);
 		return;
 	}
 
@@ -741,29 +753,29 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 				type: "error",
 				code: "WORKER_REQUIRED",
 				message: "Only worker browser tabs may fail a stage",
-			}, counterpartFor(deviceId));
+			}, counterpartFor(deviceId), requestFrameId);
 			return;
 		}
 		const task = taskStore.get(message.taskId);
 		if (!task) {
-			send(socket, { type: "error", code: "TASK_NOT_FOUND", message: "Task was not found", taskId: message.taskId }, counterpartFor(deviceId));
+			send(socket, { type: "error", code: "TASK_NOT_FOUND", message: "Task was not found", taskId: message.taskId }, counterpartFor(deviceId), requestFrameId);
 			return;
 		}
 		const assignment = task.assignment;
 		if (!assignment || assignment.assignmentId !== message.assignmentId || assignment.attempt !== message.attempt) {
-			send(socket, { type: "error", code: "STALE_ASSIGNMENT", message: "The stage assignment is no longer current", taskId: message.taskId }, counterpartFor(deviceId));
+			send(socket, { type: "error", code: "STALE_ASSIGNMENT", message: "The stage assignment is no longer current", taskId: message.taskId }, counterpartFor(deviceId), requestFrameId);
 			return;
 		}
 		if (assignment.workerDeviceId !== deviceId) {
-			send(socket, { type: "error", code: "ASSIGNMENT_OWNER_MISMATCH", message: "Only the assigned worker may fail this stage", taskId: message.taskId }, counterpartFor(deviceId));
+			send(socket, { type: "error", code: "ASSIGNMENT_OWNER_MISMATCH", message: "Only the assigned worker may fail this stage", taskId: message.taskId }, counterpartFor(deviceId), requestFrameId);
 			return;
 		}
 		if (assignment.stage !== message.stage) {
-			send(socket, { type: "error", code: "ASSIGNMENT_STAGE_MISMATCH", message: "The stage failure does not match the current assignment", taskId: message.taskId }, counterpartFor(deviceId));
+			send(socket, { type: "error", code: "ASSIGNMENT_STAGE_MISMATCH", message: "The stage failure does not match the current assignment", taskId: message.taskId }, counterpartFor(deviceId), requestFrameId);
 			return;
 		}
 		if (task.state !== "running") {
-			send(socket, { type: "error", code: "ASSIGNMENT_NOT_ACCEPTED", message: "A stage assignment must be accepted before failing", taskId: message.taskId }, counterpartFor(deviceId));
+			send(socket, { type: "error", code: "ASSIGNMENT_NOT_ACCEPTED", message: "A stage assignment must be accepted before failing", taskId: message.taskId }, counterpartFor(deviceId), requestFrameId);
 			return;
 		}
 		taskStore.update(message.taskId, {
@@ -947,14 +959,30 @@ websocketServer.on("connection", (socket) => {
 			return;
 		}
 		try {
-			const parsed = ClientMessageSchema.safeParse(JSON.parse(rawBuffer.toString()));
+			const received: unknown = JSON.parse(rawBuffer.toString());
+			// A peer built before the wrapper existed sends the message on its own. Say what is
+			// now required and which versions are accepted, instead of a bare complaint that
+			// the message did not validate.
+			if (Envelope.isUnwrappedMessage(received)) {
+				send(socket, { type: "error", code: "UNSUPPORTED", message: `This gateway speaks protocol version ${protocolVersion}, in which every message travels inside a wrapper carrying v, id, ts, and body`, details: { supportedProtocolVersions } }, counterpartFor(deviceId));
+				return;
+			}
+			const parsed = ClientEnvelopeSchema.safeParse(received);
 			if (!parsed.success) {
 				send(socket, { type: "error", code: "INVALID_MESSAGE", message: "Message does not match the supported protocol" }, counterpartFor(deviceId));
 				return;
 			}
-			const message = parsed.data;
-			if (message.type !== "observe") gatewayMessageLogger.log("received", counterpartFor(deviceId, message), message.type, message);
-			handle(socket, deviceId, message);
+			const frame = parsed.data;
+			// The version is checked on every frame, which means it is checked on "authenticate",
+			// the first frame a connection sends. A peer therefore learns straight away whether
+			// it can talk to this gateway.
+			if (Envelope.supportsVersion(frame.v) === false) {
+				sendError(socket, frame.id, counterpartFor(deviceId), "UNSUPPORTED", `This gateway does not speak protocol version ${frame.v}`, { retryable: false, details: { supportedProtocolVersions } });
+				return;
+			}
+			const message = frame.body;
+			if (message.type !== "observe") gatewayMessageLogger.log("received", counterpartFor(deviceId, message), message.type, message, frame.ts, frame);
+			handle(socket, deviceId, message, frame.id);
 		} catch {
 			send(socket, { type: "error", code: "INVALID_MESSAGE", message: "Message is not valid JSON" }, counterpartFor(deviceId));
 		}

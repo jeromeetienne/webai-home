@@ -2,6 +2,7 @@
 export { };
 
 import { StageName, type StageName as StageNameType, type StagePayload, type ClientMessage } from "@webai/protocol";
+import { Envelope } from "@webai/protocol/envelope";
 import { StageFormulaHelper } from "./stage_formula_helper";
 import { StageLlmHelper } from "./stage_llm_helper";
 import { centralGatewayWebSocketUrl } from "./gateway_config";
@@ -188,7 +189,7 @@ const relayLogEntry = (socket: WebSocket, direction: "received" | "sent", messag
 		timestamp: new Date().toISOString(),
 		payload: message,
 	};
-	if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(logEntryMessage));
+	if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(Envelope.fromClient(logEntryMessage)));
 };
 
 /** The repeating timer that extends the lease of one running assignment, by assignment identifier. */
@@ -221,7 +222,7 @@ const startLeaseHeartbeat = (socket: WebSocket, assignment: { taskId: string; as
 	const timer = window.setInterval((): void => {
 		if (socket.readyState !== WebSocket.OPEN) return;
 		const heartbeatMessage: ClientMessage = { type: "stage.heartbeat", taskId: assignment.taskId, assignmentId: assignment.assignmentId, attempt: assignment.attempt };
-		socket.send(JSON.stringify(heartbeatMessage));
+		socket.send(JSON.stringify(Envelope.fromClient(heartbeatMessage)));
 	}, intervalMs);
 	leaseHeartbeatTimers.set(assignment.assignmentId, timer);
 };
@@ -324,14 +325,16 @@ const stopLeaseHeartbeat = (assignmentId?: string): void => {
 			disconnectButtonEl.classList.remove("d-none");
 			nameInputEl.disabled = true;
 			const message: ClientMessage = { type: "authenticate", token: "development-token" };
-			socket?.send(JSON.stringify(message));
+			socket?.send(JSON.stringify(Envelope.fromClient(message)));
 			addEvent({ direction: "sent", type: message.type, timestamp: new Date().toISOString() });
 		});
 
 		/** Handles messages received from the central gateway. */
 		socket.addEventListener("message", (event: MessageEvent): void => {
+			/** The wrapper the gateway message travelled in. */
+			const frame = JSON.parse(event.data as string) as { v?: number; id?: string; inReplyTo?: string; body?: GatewayMessage };
 			/** The decoded gateway message. */
-			const message: GatewayMessage = JSON.parse(event.data as string) as GatewayMessage;
+			const message: GatewayMessage = frame.body ?? ({ type: "error" } as GatewayMessage);
 			addEvent({
 				direction: "received",
 				type: message.type,
@@ -344,7 +347,7 @@ const stopLeaseHeartbeat = (assignmentId?: string): void => {
 			// pipeline added after this browser was built.
 			if (message.type === "authenticated" && socket) {
 				const request: ClientMessage = { type: "pipelines.get" };
-				socket.send(JSON.stringify(request));
+				socket.send(JSON.stringify(Envelope.fromClient(request)));
 				addEvent({ direction: "sent", type: request.type, timestamp: new Date().toISOString() });
 				return;
 			}
@@ -371,7 +374,7 @@ const stopLeaseHeartbeat = (assignmentId?: string): void => {
 						statusEl.textContent = "Connected";
 						statusEl.className = "badge text-bg-success";
 						const register: ClientMessage = { type: "register", role: "worker", name: nameInputEl.value, stageNames: enabledStageNames };
-						socket.send(JSON.stringify(register));
+						socket.send(JSON.stringify(Envelope.fromClient(register)));
 						addEvent({ direction: "sent", type: register.type, timestamp: new Date().toISOString() });
 					})
 					.catch((error: unknown) => {
@@ -401,7 +404,7 @@ const stopLeaseHeartbeat = (assignmentId?: string): void => {
 			const { taskId, assignmentId, attempt, stage, value } = message;
 			const acceptedMessage: ClientMessage = { type: "stage.accepted", taskId, assignmentId, attempt };
 			if (socket && isRegisteredWithGateway) relayLogEntry(socket, "sent", acceptedMessage);
-			socket?.send(JSON.stringify(acceptedMessage));
+			socket?.send(JSON.stringify(Envelope.fromClient(acceptedMessage)));
 			if (socket) startLeaseHeartbeat(socket, { taskId, assignmentId, attempt, leaseUntil: message.leaseUntil });
 			// The assignment says which computation to run and which position in its pipeline
 			// the stage occupies. This browser never has to recognise the stage name.
@@ -424,7 +427,7 @@ const stopLeaseHeartbeat = (assignmentId?: string): void => {
 						value
 					};
 					if (socket && isRegisteredWithGateway) relayLogEntry(socket, "sent", resultMessage);
-					socket?.send(JSON.stringify(resultMessage));
+					socket?.send(JSON.stringify(Envelope.fromClient(resultMessage)));
 					addEvent({ direction: "sent", type: resultMessage.type, timestamp: new Date().toISOString(), taskId, stage });
 				})
 				.catch((error: unknown) => {
@@ -441,7 +444,7 @@ const stopLeaseHeartbeat = (assignmentId?: string): void => {
 						error: error instanceof Error ? error.message : String(error),
 					};
 					if (socket && isRegisteredWithGateway) relayLogEntry(socket, "sent", failedMessage);
-					socket?.send(JSON.stringify(failedMessage));
+					socket?.send(JSON.stringify(Envelope.fromClient(failedMessage)));
 					addEvent({ direction: "sent", type: failedMessage.type, timestamp: new Date().toISOString(), taskId, stage, message: failedMessage.error });
 				});
 		});

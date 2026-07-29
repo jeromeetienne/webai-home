@@ -51,6 +51,12 @@ export interface LogEntry {
 	messageType: string;
 	/** The full message body. */
 	payload: unknown;
+	/** The identifier of the frame this message travelled in. */
+	messageId?: string;
+	/** The identifier of the request this message answers, when it answers one. */
+	inReplyTo?: string;
+	/** The protocol version the frame stated. */
+	protocolVersion?: number;
 	/** Exact UTF-8 byte size of the JSON message body when the entry was recorded. */
 	payloadBytes?: number;
 	/** Exact UTF-8 byte size of the message envelope and body when recorded. */
@@ -90,8 +96,11 @@ export class MessageLogger {
 	 * @param counterpart The other side of the message.
 	 * @param messageType The message's `type` field.
 	 * @param payload The full message body.
-	 * @param timestamp The moment the message was received or sent. Defaults to now; a
-	 * worker-relayed entry passes the moment it actually happened in the browser instead.
+	 * @param timestamp The moment the message was received or sent. Defaults to now; the
+	 * caller normally passes the `ts` the frame itself states, and a worker-relayed entry
+	 * passes the moment it actually happened in the browser.
+	 * @param frame The identifying fields of the frame the message travelled in: its own
+	 * identifier, the request it answers when it answers one, and the protocol version.
 	 */
 	log(
 		direction: LogDirection,
@@ -99,6 +108,7 @@ export class MessageLogger {
 		messageType: string,
 		payload: unknown,
 		timestamp: string = new Date().toISOString(),
+		frame: { id?: string | undefined; inReplyTo?: string | undefined; v?: number | undefined } = {},
 	): void {
 		const message = typeof payload === "object" && payload !== null ? payload : { type: messageType, value: payload };
 		const payloadWithoutType = typeof payload === "object" && payload !== null && !Array.isArray(payload)
@@ -107,7 +117,12 @@ export class MessageLogger {
 		const payloadBytes = Buffer.byteLength(JSON.stringify(payloadWithoutType), "utf8");
 		const messageBytes = Buffer.byteLength(JSON.stringify(message), "utf8");
 		const safePayload = payloadBytes > this.maximumPayloadBytes ? { type: messageType, redacted: true, payloadBytes } : MessageLogger.redactPayload(payload);
-		const entry: LogEntry = { timestamp, direction, counterpart, messageType, payload: safePayload, payloadBytes, messageBytes };
+		const entry: LogEntry = {
+			timestamp, direction, counterpart, messageType, payload: safePayload, payloadBytes, messageBytes,
+			...(frame.id === undefined ? {} : { messageId: frame.id }),
+			...(frame.inReplyTo === undefined ? {} : { inReplyTo: frame.inReplyTo }),
+			...(frame.v === undefined ? {} : { protocolVersion: frame.v }),
+		};
 		appendFileSync(this.logFilePath, `${JSON.stringify(entry)}\n`, "utf-8");
 	}
 

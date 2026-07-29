@@ -1,4 +1,5 @@
-import type { ClientMessage, GatewayMessage, TaskInput, TaskSnapshot, TaskUpdate } from "@webai/protocol";
+import type { ClientMessage, GatewayEnvelope, GatewayMessage, TaskInput, TaskSnapshot, TaskUpdate } from "@webai/protocol";
+import { Envelope } from "@webai/protocol/envelope";
 
 export interface TaskSocket {
 	readonly readyState: number;
@@ -64,15 +65,26 @@ export class ConsumerClient {
 
 	close(): void { this.socket.close(); }
 
-	private send(message: ClientMessage): void {
+	/**
+	 * Sends one message inside the wrapper every frame travels in.
+	 *
+	 * @param message - The message to send.
+	 * @returns The identifier of the frame, which the gateway echoes as `inReplyTo` on its
+	 * answer. Keep it to match an answer to this request.
+	 */
+	private send(message: ClientMessage): string {
+		const frame = Envelope.fromClient(message);
 		this.callbacks.onMessage?.("sent", message);
-		this.socket.send(JSON.stringify(message));
+		this.socket.send(JSON.stringify(frame));
+		return frame.id;
 	}
 
 	private handleMessage(raw: string): void {
-		let message: GatewayMessage;
-		try { message = JSON.parse(raw) as GatewayMessage; }
+		let frame: GatewayEnvelope;
+		try { frame = JSON.parse(raw) as GatewayEnvelope; }
 		catch { this.callbacks.onError?.("The central gateway sent invalid data"); return; }
+		const message: GatewayMessage = frame.body;
+		if (message === undefined) { this.callbacks.onError?.("The central gateway sent a frame with no message in it"); return; }
 		this.callbacks.onMessage?.("received", message);
 		if (message.type === "authenticated") {
 			this.send({ type: "register", role: "consumer", name: this.name });

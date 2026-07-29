@@ -74,6 +74,14 @@ export class EventLogPanel {
 			this._buildRolePill(toRole),
 			document.createTextNode(`: ${event.summary}`),
 		);
+		// An answer names the request it answers, taken from the identifiers the log records.
+		// A message with nothing here was pushed by the gateway on its own initiative.
+		if (event.answersMessageType !== undefined) {
+			const answersEl: HTMLSpanElement = document.createElement("span");
+			answersEl.className = "event-log-answers";
+			answersEl.textContent = ` (answers ${event.answersMessageType})`;
+			summaryEl.appendChild(answersEl);
+		}
 		rowEl.appendChild(summaryEl);
 
 		return rowEl;

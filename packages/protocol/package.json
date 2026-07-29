@@ -16,6 +16,10 @@
     "./task_projection": {
       "types": "./dist/task_projection.d.ts",
       "default": "./dist/task_projection.js"
+    },
+    "./envelope": {
+      "types": "./dist/envelope.d.ts",
+      "default": "./dist/envelope.js"
     }
   },
   "scripts": {

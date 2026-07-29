@@ -150,6 +150,7 @@ html, body {
 .event-log-row .row-time { color: var(--text-muted); font-size: 0.72rem; }
 .event-log-summary { line-height: 1.55; }
 .event-log-summary .role-pill { font-size: 0.7rem; vertical-align: 0.08em; }
+.event-log-answers { color: var(--text-muted); }
 
 .playback-bar {
 	border-top: 1px solid var(--border);

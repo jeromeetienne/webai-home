@@ -3,11 +3,12 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { ClientMessageSchema, PipelineSpecificationSchema, PipelineStageSchema, StageName, StagePayloadFactory, TaskInput, TaskState, maximumSnapshotEventCount } from "../src/index.js";
+import { ClientEnvelopeSchema, ClientMessageSchema, PipelineSpecificationSchema, PipelineStageSchema, StageName, StagePayloadFactory, TaskInput, TaskState, maximumSnapshotEventCount, protocolVersion } from "../src/index.js";
 import type { Task, TaskEvent } from "../src/index.js";
 import { MessageLogger } from "../src/message_logger.js";
 import type { LogEntry } from "../src/message_logger.js";
 import { TaskProjection } from "../src/task_projection.js";
+import { Envelope } from "../src/envelope.js";
 
 test("accepts valid task input", () => {
   assert.deepEqual(TaskInput.parse({ taskType: "task_type_formula", input: 12.5 }), { taskType: "task_type_formula", input: 12.5 });
@@ -221,4 +222,42 @@ test("a pipeline stage names the computation a worker must run, and a pipeline m
   assert.equal(PipelineSpecificationSchema.safeParse({
     pipelineId: "invented", version: 1, taskType: "task_type_formula", stages: [stage, stage],
   }).success, false);
+});
+
+test("every frame states its version, its own identifier, and when it was sent", () => {
+  const frame = Envelope.fromClient({ type: "authenticate", token: "development-token" });
+  assert.equal(frame.v, protocolVersion);
+  assert.ok(frame.id.length > 0);
+  assert.ok(Number.isFinite(Date.parse(frame.ts)));
+  assert.equal(ClientEnvelopeSchema.safeParse(frame).success, true);
+
+  // Two frames of the same kind can be told apart, which is what lets a client match two
+  // requests in flight at once to their own answers.
+  assert.notEqual(Envelope.fromClient({ type: "devices.resync" }).id, Envelope.fromClient({ type: "devices.resync" }).id);
+
+  // A frame with no message in it, an unknown field, or a bad timestamp is refused.
+  assert.equal(ClientEnvelopeSchema.safeParse({ v: 1, id: "message-1", ts: new Date().toISOString() }).success, false);
+  assert.equal(ClientEnvelopeSchema.safeParse({ ...frame, unexpected: true }).success, false);
+  assert.equal(ClientEnvelopeSchema.safeParse({ ...frame, ts: "not-a-time" }).success, false);
+});
+
+test("a gateway answer names the request it answers, and a push names nothing", () => {
+  const request = Envelope.fromClient({ type: "devices.resync" });
+  const answer = Envelope.fromGateway({ type: "devices", devices: [], revision: 1 }, request.id);
+  const push = Envelope.fromGateway({ type: "devices", devices: [], revision: 2 });
+
+  assert.equal(answer.inReplyTo, request.id);
+  // The push carries the same message type as the answer. The absence of inReplyTo is the
+  // only thing that tells them apart, which is the point of the field.
+  assert.equal(push.inReplyTo, undefined);
+  assert.notEqual(answer.id, push.id);
+});
+
+test("recognises a message sent without its wrapper, and reports which versions are supported", () => {
+  assert.equal(Envelope.isUnwrappedMessage({ type: "authenticate", token: "development-token" }), true);
+  assert.equal(Envelope.isUnwrappedMessage(Envelope.fromClient({ type: "devices.resync" })), false);
+  assert.equal(Envelope.isUnwrappedMessage("not an object"), false);
+
+  assert.equal(Envelope.supportsVersion(protocolVersion), true);
+  assert.equal(Envelope.supportsVersion(protocolVersion + 1), false);
 });

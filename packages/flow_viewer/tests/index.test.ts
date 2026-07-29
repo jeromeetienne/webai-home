@@ -4,6 +4,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { calculateStatistics } from "../public/src/statistics.js";
 import { TimelineModel } from "../public/src/timeline_model.js";
+import { LogEntryParser } from "../public/src/log_entry_parser.js";
 import type { LogEntry } from "@webai/protocol/message_logger";
 import type { TimelineEvent } from "../public/src/types.js";
 
@@ -13,7 +14,7 @@ const entry = (timestamp: string, direction: "received" | "sent", messageType: s
 
 const event = (index: number, logEntry: LogEntry, taskId: string | undefined, fromActorId: string, toActorId: string): TimelineEvent => ({
 	index, timestampMs: Date.parse(logEntry.timestamp), logEntry, direction: logEntry.direction, fromActorId, toActorId,
-	messageType: logEntry.messageType, summary: logEntry.messageType, detail: undefined, taskId, category: "task",
+	messageType: logEntry.messageType, summary: logEntry.messageType, detail: undefined, taskId, answersMessageType: undefined, category: "task",
 });
 
 test("calculates measured bytes, duplicate data, groups, and stage latency", () => {
@@ -80,4 +81,49 @@ test("hides connection and device-membership traffic with the default filters", 
 	const model = TimelineModel.build([{ id: "run", label: "Run", entries }], { fromMs: 0, toMs: Number.MAX_SAFE_INTEGER }, { showChatter: false, showSignaling: false });
 	assert.deepEqual(model.actors, []);
 	assert.deepEqual(model.events, []);
+});
+
+
+test("matches each answer to its own request by identifier, even with two submissions in flight", () => {
+	const consumer = { role: "consumer", deviceId: "consumer-1" };
+	const entries: LogEntry[] = [
+		{ timestamp: "2026-01-01T00:00:00.000Z", direction: "received", counterpart: consumer, messageType: "task.submit", payload: { type: "task.submit", requestId: "request-a" }, messageId: "message-a" },
+		{ timestamp: "2026-01-01T00:00:00.100Z", direction: "received", counterpart: consumer, messageType: "task.submit", payload: { type: "task.submit", requestId: "request-b" }, messageId: "message-b" },
+		// The answers come back in the opposite order, which the old forward scan got wrong.
+		{ timestamp: "2026-01-01T00:00:00.200Z", direction: "sent", counterpart: consumer, messageType: "task.accepted", payload: { type: "task.accepted", task: { taskId: "task-b" } }, messageId: "message-c", inReplyTo: "message-b" },
+		{ timestamp: "2026-01-01T00:00:00.300Z", direction: "sent", counterpart: consumer, messageType: "task.accepted", payload: { type: "task.accepted", task: { taskId: "task-a" } }, messageId: "message-d", inReplyTo: "message-a" },
+	];
+
+	const model = TimelineModel.build([{ id: "run", label: "Run", entries }], { fromMs: 0, toMs: Number.MAX_SAFE_INTEGER }, { showChatter: true, showSignaling: true });
+	assert.equal(model.events[0].taskId, "task-a");
+	assert.equal(model.events[1].taskId, "task-b");
+	// An answer names the request it answers; a message the gateway pushed on its own does not.
+	assert.equal(model.events[2].answersMessageType, "task.submit");
+	assert.equal(model.events[0].answersMessageType, undefined);
+});
+
+test("still matches a submission to its answer in a log recorded before the identifiers existed", () => {
+	const consumer = { role: "consumer", deviceId: "consumer-1" };
+	const entries: LogEntry[] = [
+		{ timestamp: "2026-01-01T00:00:00.000Z", direction: "received", counterpart: consumer, messageType: "task.submit", payload: { type: "task.submit", requestId: "request-a" } },
+		{ timestamp: "2026-01-01T00:00:00.200Z", direction: "sent", counterpart: consumer, messageType: "task.accepted", payload: { type: "task.accepted", task: { taskId: "task-a" } } },
+	];
+
+	const model = TimelineModel.build([{ id: "run", label: "Run", entries }], { fromMs: 0, toMs: Number.MAX_SAFE_INTEGER }, { showChatter: true, showSignaling: true });
+	assert.equal(model.events[0].taskId, "task-a");
+	assert.equal(model.events[1].answersMessageType, undefined);
+});
+
+test("keeps the wrapper fields when parsing a log line, and tolerates a line without them", () => {
+	const withWrapper = '{"timestamp":"2026-01-01T00:00:00.000Z","direction":"sent","counterpart":{"role":"consumer","deviceId":"device-1"},"messageType":"task.accepted","payload":{},"messageId":"message-1","inReplyTo":"message-0","protocolVersion":1}';
+	const withoutWrapper = '{"timestamp":"2026-01-01T00:00:01.000Z","direction":"sent","counterpart":{"role":"consumer","deviceId":"device-1"},"messageType":"task.accepted","payload":{}}';
+
+	const { entries, lineErrors } = LogEntryParser.parseJsonl(`${withWrapper}\n${withoutWrapper}`);
+	assert.deepEqual(lineErrors, []);
+	assert.equal(entries[0].messageId, "message-1");
+	assert.equal(entries[0].inReplyTo, "message-0");
+	assert.equal(entries[0].protocolVersion, 1);
+	// A log recorded before the wrapper existed still parses; it simply carries none of them.
+	assert.equal(entries[1].messageId, undefined);
+	assert.equal(entries[1].inReplyTo, undefined);
 });

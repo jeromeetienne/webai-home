@@ -43,6 +43,12 @@ export interface TimelineEvent {
 	 */
 	detail: string | undefined;
 	taskId: string | undefined;
+	/**
+	 * The message type of the request this message answers, when the log records the
+	 * identifiers that say so. Undefined for a message the gateway pushed on its own, and for
+	 * every message in a log recorded before those identifiers existed.
+	 */
+	answersMessageType: string | undefined;
 	category: EventCategory;
 }
 

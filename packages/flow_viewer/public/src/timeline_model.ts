@@ -167,7 +167,8 @@ export class TimelineModel {
 		for (const source of sources) {
 			const selfActorId = `gateway:${source.id}`;
 			const wireEntries: LogEntry[] = source.entries.filter((entry: LogEntry): boolean => entry.messageType !== "log.entry");
-			const submitTaskIds: Map<number, string> = TimelineModel._resolveSubmitTaskIds(wireEntries);
+			const answeredRequests: Map<number, number> = TimelineModel._resolveAnsweredRequests(wireEntries);
+			const submitTaskIds: Map<number, string> = TimelineModel._resolveSubmitTaskIds(wireEntries, answeredRequests);
 			const roleByDeviceId: Map<string, string> = TimelineModel._resolveDeviceRoles(wireEntries);
 
 			for (const [entryIndex, entry] of wireEntries.entries()) {
@@ -200,6 +201,7 @@ export class TimelineModel {
 				const fromActorId: string = entry.direction === "received" ? counterpartActorId : selfActorId;
 				const toActorId: string = entry.direction === "received" ? selfActorId : counterpartActorId;
 				const description: EventDescription = TimelineModel._describe(entry.messageType, entry.payload);
+				const answeredIndex: number | undefined = answeredRequests.get(entryIndex);
 
 				events.push({
 					index: events.length,
@@ -212,6 +214,7 @@ export class TimelineModel {
 					summary: description.summary,
 					detail: description.detail,
 					taskId,
+					answersMessageType: answeredIndex === undefined ? undefined : wireEntries[answeredIndex]?.messageType,
 					category,
 				});
 			}
@@ -277,16 +280,58 @@ export class TimelineModel {
 	}
 
 	/**
-	 * `task.submit` carries no task identifier of its own — the gateway mints one and
-	 * returns it in the `task.accepted` reply. This matches each submit with the next
-	 * `task.accepted` sent back to the same device, so the submit can still be colored
-	 * and grouped with the rest of its task's events.
+	 * Matches each recorded answer to the request it answers.
+	 *
+	 * A message recorded with the wrapper carries its own identifier, and an answer carries
+	 * the identifier of the request it answers, so this is a lookup. A log recorded before
+	 * the wrapper existed carries neither, and those entries are simply absent from the
+	 * result; every caller falls back to what it did before.
+	 *
+	 * @param wireEntries - The recorded messages, in the order they were recorded.
+	 * @returns For each answer's position, the position of the request it answers.
 	 */
-	private static _resolveSubmitTaskIds(wireEntries: LogEntry[]): Map<number, string> {
+	private static _resolveAnsweredRequests(wireEntries: LogEntry[]): Map<number, number> {
+		const indexByMessageId: Map<string, number> = new Map();
+		for (const [entryIndex, entry] of wireEntries.entries()) {
+			if (entry.messageId !== undefined) indexByMessageId.set(entry.messageId, entryIndex);
+		}
+
+		const answered: Map<number, number> = new Map();
+		for (const [entryIndex, entry] of wireEntries.entries()) {
+			if (entry.inReplyTo === undefined) continue;
+			const requestIndex: number | undefined = indexByMessageId.get(entry.inReplyTo);
+			if (requestIndex !== undefined) answered.set(entryIndex, requestIndex);
+		}
+		return answered;
+	}
+
+	/**
+	 * `task.submit` carries no task identifier of its own — the gateway mints one and
+	 * returns it in the `task.accepted` answer.
+	 *
+	 * When the log records the wrapper, the answer names the request it answers and this is a
+	 * lookup. A log recorded before the wrapper existed carries no identifiers, so each submit
+	 * is instead matched with the next `task.accepted` sent back to the same device, which is
+	 * what this did before and is wrong whenever two submissions are in flight at once.
+	 *
+	 * @param wireEntries - The recorded messages, in the order they were recorded.
+	 * @param answeredRequests - For each answer's position, the position of its request.
+	 * @returns For each `task.submit` position, the identifier of the task it created.
+	 */
+	private static _resolveSubmitTaskIds(wireEntries: LogEntry[], answeredRequests: Map<number, number>): Map<number, string> {
 		const resolved: Map<number, string> = new Map();
+
+		for (const [answerIndex, requestIndex] of answeredRequests) {
+			const answer: LogEntry = wireEntries[answerIndex]!;
+			if (answer.messageType !== "task.accepted") continue;
+			if (wireEntries[requestIndex]?.messageType !== "task.submit") continue;
+			const taskId: string | undefined = TimelineModel._taskLikeFields(answer.payload).taskId;
+			if (taskId !== undefined) resolved.set(requestIndex, taskId);
+		}
 
 		for (const [submitIndex, submitEntry] of wireEntries.entries()) {
 			if (submitEntry.messageType !== "task.submit" || submitEntry.direction !== "received") continue;
+			if (resolved.has(submitIndex)) continue;
 
 			for (let candidateIndex = submitIndex + 1; candidateIndex < wireEntries.length; candidateIndex++) {
 				const candidate: LogEntry = wireEntries[candidateIndex]!;
