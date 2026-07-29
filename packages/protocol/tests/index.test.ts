@@ -3,9 +3,11 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { ClientMessageSchema, StageName, StagePayloadFactory, TaskInput, TaskState } from "../src/index.js";
+import { ClientMessageSchema, StageName, StagePayloadFactory, TaskInput, TaskState, maximumSnapshotEventCount } from "../src/index.js";
+import type { Task, TaskEvent } from "../src/index.js";
 import { MessageLogger } from "../src/message_logger.js";
 import type { LogEntry } from "../src/message_logger.js";
+import { TaskProjection } from "../src/task_projection.js";
 
 test("accepts valid task input", () => {
   assert.deepEqual(TaskInput.parse({ taskType: "task_type_formula", input: 12.5 }), { taskType: "task_type_formula", input: 12.5 });
@@ -52,6 +54,8 @@ test("validates every inbound client message shape", () => {
   assert.equal(ClientMessageSchema.safeParse({ type: "task.submit", input: { taskType: "task_type_formula", input: 5 } }).success, false);
   assert.equal(ClientMessageSchema.safeParse({ type: "stage.result", taskId: "task-1", stage: "stage_formula_multiply", value: 10 }).success, false);
   assert.equal(ClientMessageSchema.safeParse({ type: "register", role: "consumer", name: "consumer", unexpected: true }).success, false);
+  assert.equal(ClientMessageSchema.safeParse({ type: "task.history", taskId: "task-1" }).success, true);
+  assert.equal(ClientMessageSchema.safeParse({ type: "task.history" }).success, false);
 });
 
 test("redacts task inputs and stage values but keeps the task type", () => {
@@ -74,4 +78,85 @@ test("rejects malformed and oversized identity-bearing task messages", () => {
   assert.equal(ClientMessageSchema.safeParse({ type: "task.submit", requestId: "", input: { taskType: "task_type_formula", input: 5 } }).success, false);
   assert.equal(ClientMessageSchema.safeParse({ type: "stage.result", taskId: "task-1", assignmentId: "assignment-1", attempt: 0, stage: "stage_formula_multiply", value: 10 }).success, false);
   assert.equal(ClientMessageSchema.safeParse({ type: "stage.failed", taskId: "task-1", assignmentId: "assignment-1", attempt: 1, stage: "stage_formula_multiply", error: "x".repeat(10_001) }).success, false);
+});
+
+/**
+ * Builds a task record that has run many language-model shards, so the growth of the
+ * stored record can be told apart from the size of what goes over the connection.
+ *
+ * @param shardCount - How many shard assignments the task has already run.
+ * @returns The stored task record.
+ */
+function buildLlmTask(shardCount: number): Task {
+  const tensorPayload = StagePayloadFactory.llmHandoff({ hidden: { dataBase64: "A".repeat(4_000), dims: [1, 2], type: "float32" } }, [1], 0);
+  const assignmentAttempts = Array.from({ length: shardCount }, (_unused, index) => ({
+    workerDeviceId: "device-worker",
+    assignmentId: `assignment-${index}`,
+    attempt: 1,
+    stage: "stage_llm_shard1" as const,
+    value: tensorPayload,
+    leaseUntil: "2026-01-01T00:00:15.000Z",
+  }));
+  const events: TaskEvent[] = Array.from({ length: shardCount }, (_unused, index) => ({
+    type: "assignment_created" as const,
+    timestamp: "2026-01-01T00:00:00.000Z",
+    assignmentId: `assignment-${index}`,
+    attempt: 1,
+  }));
+  return {
+    taskId: "task-1",
+    requestId: "request-1",
+    consumerDeviceId: "device-consumer",
+    consumerPrincipal: "principal-1",
+    input: { taskType: "task_type_llm", input: "What is the capital of France?" },
+    state: "running",
+    completedStages: assignmentAttempts.map((assignment) => ({ name: assignment.stage, value: tensorPayload })),
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:01.000Z",
+    assignment: assignmentAttempts.at(-1),
+    assignmentAttempts,
+    currentStageAttempts: 1,
+    events,
+    submissionDeadlineAt: "2026-01-01T00:00:30.000Z",
+    revision: shardCount,
+  };
+}
+
+test("the task update sent on every revision does not grow as a task runs more stages", () => {
+  const shortTask = buildLlmTask(3);
+  const longTask = buildLlmTask(300);
+
+  const shortUpdateBytes = JSON.stringify(TaskProjection.update(shortTask)).length;
+  const longUpdateBytes = JSON.stringify(TaskProjection.update(longTask)).length;
+
+  // The stored record grows with the number of stages run; the task update must not.
+  assert.ok(JSON.stringify(longTask).length > JSON.stringify(shortTask).length * 50);
+  // The only difference between the two updates is the extra digits in the revision, the
+  // completed stage count, and the assignment identifier, so it grows with the number of
+  // digits rather than with the number of stages.
+  assert.equal(longUpdateBytes - shortUpdateBytes, 6);
+  assert.ok(longUpdateBytes < 400);
+});
+
+test("no stage value appears in a task update, and none appears twice", () => {
+  const update = TaskProjection.update(buildLlmTask(5));
+  const serialised = JSON.stringify(update);
+
+  assert.equal(serialised.includes("dataBase64"), false);
+  assert.equal(serialised.includes("AAAA"), false);
+  assert.equal("value" in (update.assignment ?? {}), false);
+  assert.equal(update.completedStageCount, 5);
+  assert.equal(update.currentStage, "stage_llm_shard1");
+});
+
+test("the task snapshot drops the attempt history and truncates the change log", () => {
+  const task = buildLlmTask(50);
+  const snapshot = TaskProjection.snapshot(task);
+
+  assert.equal("assignmentAttempts" in snapshot, false);
+  assert.equal("events" in snapshot, false);
+  assert.equal(snapshot.recentEvents.length, maximumSnapshotEventCount);
+  assert.deepEqual(snapshot.recentEvents.at(-1), task.events.at(-1));
+  assert.equal("value" in (snapshot.assignment ?? {}), false);
+  assert.equal(snapshot.input.input, "What is the capital of France?");
 });

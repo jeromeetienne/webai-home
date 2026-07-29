@@ -95,8 +95,10 @@ The gateway replies with `devices` and does not send `registered`.
 | `registered` | Gateway | Consumer or worker | Confirm registration and provide `deviceId`. |
 | `task.submit` | Consumer | Gateway | Submit a validated formula or language-model task input. |
 | `task.accepted` | Gateway | Consumer | Return the newly created task. |
-| `task.get` | Task owner or granted observer | Gateway | Request one task by identifier. |
-| `task.updated` | Gateway | Task owner and granted observers | Broadcast or return the current task state. Never sent to a worker. |
+| `task.get` | Task owner or granted observer | Gateway | Request the full state of one task by identifier. |
+| `task.history` | Task owner or granted observer | Gateway | Request the complete change log of one task. |
+| `task.snapshot` | Gateway | The requesting client | Return the full state of one task, in reply to `task.get`, `task.resync`, or `task.observe`. |
+| `task.updated` | Gateway | Task owner and granted observers | Announce one task revision, as the slim projection rather than the whole task. Never sent to a worker. |
 | `stage.assign` | Gateway | Worker | Ask a worker to execute one stage for one task. |
 | `stage.cancel` | Gateway | Worker | Tell a worker that its assignment was cancelled or superseded, so it can drop any state it holds for the task. |
 | `stage.result` | Worker | Gateway | Return the output of the expected next stage. |
@@ -123,6 +125,21 @@ gateway log directory.
    stores the result, and either assigns the next stage or completes the task.
 7. The gateway broadcasts `task.updated` after each state change. The task
    ends in `completed` with `result`, or in `failed` with `error`.
+
+### What a task revision carries
+
+`task.updated` carries a slim projection of the task, not the task itself: the task identifier, the revision number, the state, the time of the change, the number of completed stages, the stage now running, the identity of the current assignment without its stage input value, and the error or the final result. Its size therefore does not grow as a task runs more stages. This matters most for the language-model pipeline, where generating N tokens runs 3N stage assignments and every assignment carries base64-encoded tensors. Sending the whole task on every revision would have meant re-sending every earlier tensor each time, so the bytes on the connection would have grown with the square of the number of tokens generated.
+
+A client that needs more than a revision announcement asks for it:
+
+- `task.get` and `task.resync` return `task.snapshot`, the full current state of the task, including the task input and the completed stage values.
+- `task.history` returns the complete change log.
+
+**The snapshot is authoritative.** The completed stages and the current assignment in `task.snapshot` are the state of the task. The change log returned by `task.history`, and the `recentEvents` tail carried inside a snapshot, are a diagnostic record of how the task reached that state; they are never the source of truth, and a client must not reconstruct task state from them.
+
+The per-attempt assignment history is not part of the protocol at all. The gateway keeps it in memory to make retry decisions, but it never travels over the connection, because every attempt carries a full stage input value and the list only ever grows.
+
+### What a worker sees
 
 A worker never receives `task.updated`, and a worker holding a stage assignment may not read the whole task through `task.get` or `task.resync`. A worker's entire view of a task is what `stage.assign` carries: the task identifier, the assignment identity, the stage name, the stage input value, and the lease expiry. A worker therefore never sees the original task input, the identity of the consumer that submitted the task, or the results of stages assigned to other workers. When an assignment stops being current — the task was cancelled, the lease expired, the worker relinquished the assignment, or the worker disconnected and the stage was reassigned — the gateway sends that worker the narrow `stage.cancel` message instead.
 
@@ -196,6 +213,7 @@ stable public protocol:
 - message versioning and compatibility rules;
 - authentication and authorization for consumers, workers, and observers;
 - task ownership and which consumers may receive `task.updated`;
+- whether the completed stage values in `task.snapshot` should also be bounded, since they still grow with the number of stages a language-model task runs;
 - acknowledgement, timeout, retry, and reassignment rules;
 - validation schemas for every message and for stage payloads;
 - size limits and a production encoding for tensors;

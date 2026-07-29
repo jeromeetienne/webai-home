@@ -1,5 +1,5 @@
 export { };
-import type { Device, DeviceRole, Task } from "@webai/protocol";
+import type { Device, DeviceRole, TaskSnapshot, TaskUpdate } from "@webai/protocol";
 import { splitDevices, stageStatistics } from "../../../src/dashboard.js";
 
 type DeviceSummary = {
@@ -16,7 +16,8 @@ type GatewayMessage = {
 	devices?: Device[];
 	device?: Device;
 	deviceId?: string;
-	task?: Task;
+	task?: TaskSnapshot;
+	update?: TaskUpdate;
 	code?: string;
 	message?: string;
 };
@@ -31,6 +32,8 @@ const maximumDisplayedEvents = 10;
 
 /** The gateway message types that carry a device list or a single device change. */
 const deviceMessageTypes = ["devices", "device.joined", "device.updated", "device.left"];
+/** Message types the task panel already reports on its own, so the event list does not repeat them. */
+const taskPanelMessageTypes = ["task.accepted", "task.snapshot", "task.updated"];
 
 /**
  * The bearer token this dashboard page presents to the central gateway. It matches the
@@ -73,9 +76,25 @@ const describeMessage = (message: GatewayMessage): string => {
 	return `${message.code ?? "UNKNOWN"}: ${message.message ?? "No description was provided"}`;
 };
 
-const taskSummary = (task: Task): string => {
-	const input = task.input.input;
-	return `${task.input.taskType === "task_type_formula" ? "Formula" : "Language model"} · ${task.state} · input: ${String(input).slice(0, 80)}`;
+/**
+ * What this page knows about the most recent task.
+ *
+ * The central gateway sends the full task state only when a client asks for a task, as
+ * `task.accepted` or `task.snapshot`. Every revision afterwards arrives as the slim
+ * `task.updated` projection, which carries no task input and no stage values. Keeping
+ * the last full state here lets each revision redraw the panel with the input still
+ * shown, instead of the panel emptying out as soon as the task advances.
+ */
+type TaskPanelState = {
+	snapshot?: TaskSnapshot;
+	update?: TaskUpdate;
+};
+
+const taskSummary = (panel: TaskPanelState): string => {
+	const state = panel.update?.state ?? panel.snapshot?.state ?? "unknown";
+	const taskInput = panel.snapshot?.input;
+	if (taskInput === undefined) return `Task · ${state} · input: not known to this connection`;
+	return `${taskInput.taskType === "task_type_formula" ? "Formula" : "Language model"} · ${state} · input: ${String(taskInput.input).slice(0, 80)}`;
 };
 
 const getElement = (selector: string): HTMLElement => {
@@ -124,6 +143,14 @@ const configureFoldablePanels = (): void => {
 	// afterwards only sends what changed, as "device.joined", "device.updated" and
 	// "device.left". Keeping the devices here lets every one of those messages redraw the
 	// panels, instead of the counts standing still until the page is reloaded.
+	const taskPanel: TaskPanelState = {};
+	const renderTask = (): void => {
+		const taskId = taskPanel.update?.taskId ?? taskPanel.snapshot?.taskId ?? "";
+		const state = taskPanel.update?.state ?? taskPanel.snapshot?.state ?? "unknown";
+		const completedStageCount = taskPanel.update?.completedStageCount ?? taskPanel.snapshot?.completedStages.length ?? 0;
+		const error = taskPanel.update?.error ?? taskPanel.snapshot?.error;
+		tasksEl.innerHTML = `<div class="d-flex justify-content-between gap-3 mb-2"><strong>${escapeHtml(taskId)}</strong><span class="badge text-bg-light border">${escapeHtml(state)}</span></div><p class="mb-2">${escapeHtml(taskSummary(taskPanel))}</p><div class="small text-secondary">Completed stages: ${completedStageCount}</div>${error ? `<div class="alert alert-danger mt-3 mb-0 py-2">${escapeHtml(error)}</div>` : ""}`;
+	};
 	const deviceById = new Map<string, Device>();
 	const renderDevices = (): void => {
 		const devices = splitDevices([...deviceById.values()]);
@@ -169,11 +196,19 @@ const configureFoldablePanels = (): void => {
 			renderDevices();
 			addEvent({ type: "Device left", timestamp: new Date().toISOString(), details: `${departed?.name ?? message.deviceId} · ${describeDeviceCount(deviceById)}` });
 		}
-		if ((message.type === "task.updated" || message.type === "task.accepted") && message.task){
-			tasksEl.innerHTML = `<div class="d-flex justify-content-between gap-3 mb-2"><strong>${escapeHtml(message.task.taskId)}</strong><span class="badge text-bg-light border">${escapeHtml(message.task.state)}</span></div><p class="mb-2">${escapeHtml(taskSummary(message.task))}</p><div class="small text-secondary">Completed stages: ${message.task.completedStages.length}</div>${message.task.error ? `<div class="alert alert-danger mt-3 mb-0 py-2">${escapeHtml(message.task.error)}</div>` : ""}`;
-			addEvent({ type: message.type === "task.accepted" ? "Task accepted" : "Task updated", timestamp: new Date().toISOString(), details: taskSummary(message.task) });
+		if ((message.type === "task.accepted" || message.type === "task.snapshot") && message.task) {
+			taskPanel.snapshot = message.task;
+			if (taskPanel.update?.taskId !== message.task.taskId) taskPanel.update = undefined;
+			renderTask();
+			addEvent({ type: message.type === "task.accepted" ? "Task accepted" : "Task state received", timestamp: new Date().toISOString(), details: taskSummary(taskPanel) });
 		}
-		if (deviceMessageTypes.includes(message.type) === false && message.type !== "task.updated" && message.type !== "task.accepted") addEvent({ type: message.type, timestamp: new Date().toISOString(), details: describeMessage(message) });
+		if (message.type === "task.updated" && message.update) {
+			if (taskPanel.snapshot?.taskId !== message.update.taskId) taskPanel.snapshot = undefined;
+			taskPanel.update = message.update;
+			renderTask();
+			addEvent({ type: "Task updated", timestamp: new Date().toISOString(), details: taskSummary(taskPanel) });
+		}
+		if (deviceMessageTypes.includes(message.type) === false && taskPanelMessageTypes.includes(message.type) === false) addEvent({ type: message.type, timestamp: new Date().toISOString(), details: describeMessage(message) });
 	});
 	socketEl.addEventListener("close", (): void => {
 		statusEl.textContent = "Disconnected from the central gateway.";

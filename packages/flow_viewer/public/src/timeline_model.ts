@@ -21,8 +21,27 @@ interface TaskSubmitPayload {
 	input?: { taskType?: string; input?: unknown } | string;
 }
 
+/**
+ * A recorded message that carries a task.
+ *
+ * `task.accepted`, `task.snapshot`, and older recordings of `task.updated` put the task
+ * under `task`. Current recordings of `task.updated` put the slim projection under
+ * `update` instead, so both field names are read here and logs recorded before that
+ * change still render.
+ */
 interface TaskLikePayload {
-	task?: { taskId?: string; state?: string; error?: string; pipelineId?: string; pipelineVersion?: number; revision?: number };
+	task?: TaskLikeFields;
+	update?: TaskLikeFields;
+}
+
+/** The task fields the timeline reads, whichever field of a message carries them. */
+interface TaskLikeFields {
+	taskId?: string;
+	state?: string;
+	error?: string;
+	pipelineId?: string;
+	pipelineVersion?: number;
+	revision?: number;
 }
 
 interface StageAssignPayload {
@@ -276,7 +295,7 @@ export class TimelineModel {
 					candidate.counterpart.deviceId === submitEntry.counterpart.deviceId;
 				if (!isMatchingReply) continue;
 
-				const taskId: string | undefined = (candidate.payload as TaskLikePayload).task?.taskId;
+				const taskId: string | undefined = TimelineModel._taskLikeFields(candidate.payload).taskId;
 				if (taskId !== undefined) resolved.set(submitIndex, taskId);
 				break;
 			}
@@ -285,11 +304,23 @@ export class TimelineModel {
 		return resolved;
 	}
 
+	/**
+	 * Reads the task fields of a recorded message, from whichever field carries them.
+	 *
+	 * @param payload - The recorded message payload.
+	 * @returns The task fields, or an empty object when the payload carries no task.
+	 */
+	private static _taskLikeFields(payload: unknown): TaskLikeFields {
+		const taskPayload = payload as TaskLikePayload;
+		return taskPayload.update ?? taskPayload.task ?? {};
+	}
+
 	private static _extractTaskId(entry: LogEntry): string | undefined {
 		switch (entry.messageType) {
 			case "task.accepted":
+			case "task.snapshot":
 			case "task.updated":
-				return (entry.payload as TaskLikePayload).task?.taskId;
+				return TimelineModel._taskLikeFields(entry.payload).taskId;
 			case "stage.assign":
 				return (entry.payload as StageAssignPayload).taskId;
 			case "stage.result":
@@ -330,20 +361,27 @@ export class TimelineModel {
 				};
 			}
 			case "task.accepted": {
-				const taskPayload = payload as TaskLikePayload;
-				const pipeline = taskPayload.task?.pipelineId === undefined ? "" : ` using ${taskPayload.task.pipelineId}@${taskPayload.task.pipelineVersion ?? "?"}`;
+				const taskFields = TimelineModel._taskLikeFields(payload);
+				const pipeline = taskFields.pipelineId === undefined ? "" : ` using ${taskFields.pipelineId}@${taskFields.pipelineVersion ?? "?"}`;
 				return {
-					summary: `accepts task ${TimelineModel._shortIdentifier(taskPayload.task?.taskId)} (${taskPayload.task?.state ?? "queued"})${pipeline}`,
-					detail: shortDetail(`task ${TimelineModel._shortIdentifier(taskPayload.task?.taskId)}`),
+					summary: `accepts task ${TimelineModel._shortIdentifier(taskFields.taskId)} (${taskFields.state ?? "queued"})${pipeline}`,
+					detail: shortDetail(`task ${TimelineModel._shortIdentifier(taskFields.taskId)}`),
+				};
+			}
+			case "task.snapshot": {
+				const taskFields = TimelineModel._taskLikeFields(payload);
+				return {
+					summary: `sends the full state of task ${TimelineModel._shortIdentifier(taskFields.taskId)} (${taskFields.state ?? "unknown"})`,
+					detail: shortDetail(`task ${TimelineModel._shortIdentifier(taskFields.taskId)}`),
 				};
 			}
 			case "task.updated": {
-				const taskPayload = payload as TaskLikePayload;
-				const state = taskPayload.task?.state ?? "unknown";
-				const errorSuffix = taskPayload.task?.error !== undefined ? `: ${taskPayload.task.error}` : "";
-				const revision = taskPayload.task?.revision === undefined ? "" : ` (revision ${taskPayload.task.revision})`;
+				const taskFields = TimelineModel._taskLikeFields(payload);
+				const state = taskFields.state ?? "unknown";
+				const errorSuffix = taskFields.error !== undefined ? `: ${taskFields.error}` : "";
+				const revision = taskFields.revision === undefined ? "" : ` (revision ${taskFields.revision})`;
 				return {
-					summary: `updates task ${TimelineModel._shortIdentifier(taskPayload.task?.taskId)} to ${state}${revision}${errorSuffix}`,
+					summary: `updates task ${TimelineModel._shortIdentifier(taskFields.taskId)} to ${state}${revision}${errorSuffix}`,
 					detail: shortDetail(`now ${state}`),
 				};
 			}

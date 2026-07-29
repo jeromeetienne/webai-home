@@ -400,7 +400,7 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 				send(socket, { type: "error", code: "REQUEST_ID_CONFLICT", message: "requestId was already used with different task contents", requestId: message.requestId, taskId: existingTask.taskId }, counterpartFor(deviceId));
 				return;
 			}
-			send(socket, { type: "task.accepted", requestId: message.requestId, task: existingTask }, counterpartFor(deviceId));
+			send(socket, { type: "task.accepted", requestId: message.requestId, task: TaskProjection.snapshot(existingTask) }, counterpartFor(deviceId));
 			return;
 		}
 		const principal = devicePrincipalById.get(deviceId)!;
@@ -412,7 +412,7 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 		send(socket, {
 			type: "task.accepted",
 			requestId: message.requestId,
-			task,
+			task: TaskProjection.snapshot(task),
 		}, counterpartFor(deviceId));
 		const stage = TaskStore.nextStage(task);
 		if (stage) assign(task.taskId, message.input.taskType === "task_type_llm" ? StagePayloadFactory.llmPrompt(message.input.input) : StagePayloadFactory.formula(message.input.input), stage);
@@ -423,8 +423,8 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 		const task = taskStore.get(message.taskId);
 		if (task && mayReadTask(deviceId, task.taskId)) {
 			send(socket, {
-				type: "task.updated",
-				task,
+				type: "task.snapshot",
+				task: TaskProjection.snapshot(task),
 			}, counterpartFor(deviceId));
 		} else if (task) {
 			sendError(socket, counterpartFor(deviceId), "AUTHORISATION", "This connection is not allowed to read the task", { taskId: message.taskId });

@@ -27,9 +27,9 @@ export class MainHelper {
 			onMessage: (direction, message) => messageLogger.log(direction, { role: "gateway" }, message.type, message),
 			onRegistered: () => client.submit(taskInput),
 			onTaskAccepted: (task) => console.log(JSON.stringify(task, null, 2)),
-			onTaskUpdated: (task) => {
-				console.log(JSON.stringify(task, null, 2));
-				if (task.state === "completed" || task.state === "failed") client.close();
+			onTaskUpdated: (update) => {
+				console.log(JSON.stringify(update, null, 2));
+				if (update.state === "completed" || update.state === "failed") client.close();
 			},
 			onError: (message) => { console.error(message); client.close(); },
 		}, options.name);

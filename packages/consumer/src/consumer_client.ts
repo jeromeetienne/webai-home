@@ -1,4 +1,4 @@
-import type { ClientMessage, GatewayMessage, Task, TaskInput } from "@webai/protocol";
+import type { ClientMessage, GatewayMessage, TaskInput, TaskSnapshot, TaskUpdate } from "@webai/protocol";
 
 export interface TaskSocket {
 	readonly readyState: number;
@@ -14,8 +14,11 @@ export interface TaskSocket {
 export interface ConsumerClientCallbacks {
 	onMessage?: (direction: "sent" | "received", message: ClientMessage | GatewayMessage) => void;
 	onRegistered?: (deviceId: string) => void;
-	onTaskAccepted?: (task: Task) => void;
-	onTaskUpdated?: (task: Task) => void;
+	onTaskAccepted?: (task: TaskSnapshot) => void;
+	/** Called with the full task state, in reply to a `task.get`, `task.resync`, or `task.observe`. */
+	onTaskSnapshot?: (task: TaskSnapshot) => void;
+	/** Called on every task revision, with the slim projection rather than the whole task. */
+	onTaskUpdated?: (update: TaskUpdate) => void;
 	onError?: (message: string) => void;
 	onConnectionChange?: (connected: boolean) => void;
 }
@@ -77,7 +80,8 @@ export class ConsumerClient {
 			this.registered = true;
 			this.callbacks.onRegistered?.(message.deviceId);
 		} else if (message.type === "task.accepted") this.callbacks.onTaskAccepted?.(message.task);
-		else if (message.type === "task.updated") this.callbacks.onTaskUpdated?.(message.task);
+		else if (message.type === "task.snapshot") this.callbacks.onTaskSnapshot?.(message.task);
+		else if (message.type === "task.updated") this.callbacks.onTaskUpdated?.(message.update);
 		else if (message.type === "error") this.callbacks.onError?.(message.message);
 	}
 }
