@@ -12,6 +12,7 @@ import {
 	ClientMessageSchema,
 	type ClientMessage,
 	type Device,
+	type DeviceActivity,
 	type GatewayMessage,
 	type StageName,
 	type StagePayload,
@@ -20,7 +21,7 @@ import { MessageLogger, type LogCounterpart } from "@webai/protocol/message_logg
 import { TaskProjection } from "@webai/protocol/task_projection";
 
 // local imports
-import { DeviceRegistry } from "./libs/device_registry.js";
+import { DeviceRegistry, type DeviceRegistryChange } from "./libs/device_registry.js";
 import { TaskStore } from "./libs/task_store.js";
 import { PipelineRegistry, builtinPipelineSpecifications } from "./libs/pipeline_registry.js";
 
@@ -33,14 +34,23 @@ const options = new Command()
 	.option("--auth-token <token>", "Required bearer token for development connections", "development-token")
 	.option("--max-tasks-per-principal <number>", "Maximum non-terminal tasks per principal", "20")
 	.option("--pipeline-file <path>", "JSON file containing additional pipeline specifications")
+	.option("--device-activity-coalesce-ms <number>", "How long device activity changes are batched before one combined update is sent", "250")
 	.parse()
-	.opts<{ port: string; leaseMs: string; submissionTimeoutMs: string; maxAttempts: string; stateFile: string; authToken: string; maxTasksPerPrincipal: string; pipelineFile?: string }>();
+	.opts<{ port: string; leaseMs: string; submissionTimeoutMs: string; maxAttempts: string; stateFile: string; authToken: string; maxTasksPerPrincipal: string; pipelineFile?: string; deviceActivityCoalesceMs: string }>();
 const port = Number(options.port);
 const deviceRegistry = new DeviceRegistry();
 const taskStore = new TaskStore(undefined, Number(options.submissionTimeoutMs), Number(options.leaseMs), options.stateFile);
 const maximumAttempts = Number(options.maxAttempts);
 const socketMap = new Map<string, WebSocket>();
 const observerDeviceIds = new Set<string>();
+// Device membership is opt-in. A connection receives "devices", "device.joined",
+// "device.updated", "device.activity", and "device.left" only after asking for them with
+// "devices.subscribe", or by connecting as an observer. Workers and consumers never ask,
+// so a cluster with no dashboard attached exchanges no device membership messages at all.
+const deviceSubscriberIds = new Set<string>();
+const pendingActivityDeviceIds = new Set<string>();
+let deviceActivityTimer: NodeJS.Timeout | undefined;
+const deviceActivityCoalesceMs = Number(options.deviceActivityCoalesceMs);
 const taskObserverDeviceIds = new Map<string, Set<string>>();
 const authenticatedPrincipals = new Map<string, string>();
 const devicePrincipalById = new Map<string, string>();
@@ -108,13 +118,14 @@ function send(socket: WebSocket, message: GatewayMessage, counterpart: LogCounte
 }
 
 /**
- * Sends a gateway message to every connected WebSocket.
+ * Sends a gateway message to the connections that asked for device membership.
  *
- * @param message - The gateway message to broadcast.
+ * @param message - The gateway message to send.
  */
-function broadcast(message: GatewayMessage): void {
-	for (const [deviceId, socket] of socketMap.entries()) {
-		send(socket, message, counterpartFor(deviceId));
+function sendToDeviceSubscribers(message: GatewayMessage): void {
+	for (const deviceId of deviceSubscriberIds) {
+		const socket = socketMap.get(deviceId);
+		if (socket) send(socket, message, counterpartFor(deviceId));
 	}
 }
 
@@ -138,20 +149,76 @@ function connectedDevices(): Device[] {
 }
 
 /**
- * Broadcasts the current worker device list to connected clients.
+ * Sends the full device list to the connections that asked for device membership.
  */
 function updateDevices(): void {
-	broadcast({
+	sendToDeviceSubscribers({
 		type: "devices",
 		devices: connectedDevices(),
 		revision: deviceRegistry.membershipRevision(),
 	});
 }
 
-function publishDevice(change: ReturnType<DeviceRegistry["add"]> | ReturnType<DeviceRegistry["remove"]>): void {
+/**
+ * Reduces a device record to the fields that change as work is assigned to it.
+ *
+ * @param device - The device to reduce.
+ * @returns The device's activity fields.
+ */
+function deviceActivityOf(device: Device): DeviceActivity {
+	return {
+		deviceId: device.deviceId,
+		lastSeenAt: device.lastSeenAt,
+		...(device.workerState === undefined ? {} : { workerState: device.workerState }),
+		...(device.ready === undefined ? {} : { ready: device.ready }),
+		...(device.activeAssignments === undefined ? {} : { activeAssignments: device.activeAssignments }),
+	};
+}
+
+/**
+ * Sends one combined `device.activity` message for every device whose activity changed
+ * since the last flush, then clears the batch.
+ *
+ * Batching matters because a worker's assignment counter moves twice per stage, once when
+ * the stage is assigned and once when the result arrives. Without batching, a short task
+ * on a small cluster produces one message per device per counter movement.
+ */
+function flushDeviceActivity(): void {
+	deviceActivityTimer = undefined;
+	const devices = [...pendingActivityDeviceIds]
+		.map((deviceId) => deviceRegistry.get(deviceId))
+		.filter((device): device is Device => device !== undefined)
+		.map(deviceActivityOf);
+	pendingActivityDeviceIds.clear();
+	if (devices.length === 0 || deviceSubscriberIds.size === 0) return;
+	sendToDeviceSubscribers({ type: "device.activity", devices, revision: deviceRegistry.membershipRevision() });
+}
+
+/**
+ * Announces what storing a device changed.
+ *
+ * A new device and a change to a device's own description are announced immediately. A
+ * change to how busy a device is joins the next batch instead. A change that moved
+ * nothing worth announcing is dropped.
+ *
+ * @param change - What storing the device changed, or the removal of a device.
+ */
+function publishDevice(change: DeviceRegistryChange | ReturnType<DeviceRegistry["remove"]>): void {
 	if (!change) return;
-	if ("device" in change) broadcast({ type: change.kind === "joined" ? "device.joined" : "device.updated", device: change.device, revision: change.revision });
-	else broadcast({ type: "device.left", deviceId: change.deviceId, revision: change.revision });
+	if ("deviceId" in change && "device" in change === false) {
+		pendingActivityDeviceIds.delete(change.deviceId);
+		sendToDeviceSubscribers({ type: "device.left", deviceId: change.deviceId, revision: change.revision });
+		return;
+	}
+	const deviceChange = change as DeviceRegistryChange;
+	if (deviceChange.kind === "unchanged") return;
+	if (deviceChange.kind === "activity_changed") {
+		if (deviceSubscriberIds.size === 0) return;
+		pendingActivityDeviceIds.add(deviceChange.device.deviceId);
+		if (deviceActivityTimer === undefined) deviceActivityTimer = setTimeout(flushDeviceActivity, deviceActivityCoalesceMs);
+		return;
+	}
+	sendToDeviceSubscribers({ type: deviceChange.kind === "joined" ? "device.joined" : "device.updated", device: deviceChange.device, revision: deviceChange.revision });
 }
 
 function releaseWorkerAssignment(workerDeviceId: string): void {
@@ -300,7 +367,19 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 	if (message.type !== "authenticate" && !authenticatedPrincipals.has(deviceId)) { sendError(socket, counterpartFor(deviceId), "AUTHENTICATION_REQUIRED", "Authenticate before using the protocol", { retryable: false }); return; }
 	if (message.type === "observe") {
 		observerDeviceIds.add(deviceId);
+		// An observer connection exists to watch the cluster, so observing implies a
+		// device membership subscription and no separate "devices.subscribe" is needed.
+		deviceSubscriberIds.add(deviceId);
 		send(socket, { type: "devices", devices: connectedDevices(), revision: deviceRegistry.membershipRevision() }, counterpartFor(deviceId));
+		return;
+	}
+	if (message.type === "devices.subscribe") {
+		deviceSubscriberIds.add(deviceId);
+		send(socket, { type: "devices", devices: connectedDevices(), revision: deviceRegistry.membershipRevision() }, counterpartFor(deviceId));
+		return;
+	}
+	if (message.type === "devices.unsubscribe") {
+		deviceSubscriberIds.delete(deviceId);
 		return;
 	}
 	if (message.type === "authenticate") {
@@ -788,12 +867,14 @@ websocketServer.on("connection", (socket) => {
 	socket.on("close", () => {
 		socketMap.delete(deviceId);
 		observerDeviceIds.delete(deviceId);
+		deviceSubscriberIds.delete(deviceId);
 		for (const observers of taskObserverDeviceIds.values()) observers.delete(deviceId);
 		devicePrincipalById.delete(deviceId);
 		authenticatedPrincipals.delete(deviceId);
+		// "device.left" already tells subscribers exactly what changed, so the full device
+		// list is not sent as well.
 		publishDevice(deviceRegistry.remove(deviceId));
 		recoverWorkerAssignments(deviceId);
-		updateDevices();
 	});
 });
 const recoveryTimer = setInterval(() => {
@@ -815,6 +896,7 @@ async function shutdown(): Promise<void> {
 	websocketServer.close();
 	httpServer.close();
 	clearInterval(recoveryTimer);
+	if (deviceActivityTimer !== undefined) clearTimeout(deviceActivityTimer);
 	if (viteDevServer) await viteDevServer.close();
 	process.exit(0);
 }

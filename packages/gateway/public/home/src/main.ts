@@ -1,5 +1,5 @@
 export { };
-import type { Device, DeviceRole, TaskSnapshot, TaskUpdate } from "@webai/protocol";
+import type { Device, DeviceActivity, DeviceRole, TaskSnapshot, TaskUpdate } from "@webai/protocol";
 import { splitDevices, stageStatistics } from "../../../src/dashboard.js";
 
 type DeviceSummary = {
@@ -13,7 +13,8 @@ type DeviceSummary = {
 
 type GatewayMessage = {
 	type: string;
-	devices?: Device[];
+	/** The full device list on a `devices` message, and the changed activity fields on a `device.activity` message. */
+	devices?: Device[] | DeviceActivity[];
 	device?: Device;
 	deviceId?: string;
 	task?: TaskSnapshot;
@@ -31,7 +32,7 @@ type DashboardEvent = {
 const maximumDisplayedEvents = 10;
 
 /** The gateway message types that carry a device list or a single device change. */
-const deviceMessageTypes = ["devices", "device.joined", "device.updated", "device.left"];
+const deviceMessageTypes = ["devices", "device.joined", "device.updated", "device.activity", "device.left"];
 /** Message types the task panel already reports on its own, so the event list does not repeat them. */
 const taskPanelMessageTypes = ["task.accepted", "task.snapshot", "task.updated"];
 
@@ -139,10 +140,6 @@ const configureFoldablePanels = (): void => {
 		if (events.length > maximumDisplayedEvents) events.splice(0, events.length - maximumDisplayedEvents);
 		eventsEl.innerHTML = events.slice().reverse().map((item) => `<article class="event-item"><div class="d-flex justify-content-between gap-3"><strong>${escapeHtml(item.type)}</strong><time class="text-secondary">${escapeHtml(formatTime(item.timestamp))}</time></div><div class="small text-secondary">${escapeHtml(item.details)}</div></article>`).join("");
 	};
-	// The central gateway sends the full device list once, as the reply to "observe", and
-	// afterwards only sends what changed, as "device.joined", "device.updated" and
-	// "device.left". Keeping the devices here lets every one of those messages redraw the
-	// panels, instead of the counts standing still until the page is reloaded.
 	const taskPanel: TaskPanelState = {};
 	const renderTask = (): void => {
 		const taskId = taskPanel.update?.taskId ?? taskPanel.snapshot?.taskId ?? "";
@@ -151,6 +148,13 @@ const configureFoldablePanels = (): void => {
 		const error = taskPanel.update?.error ?? taskPanel.snapshot?.error;
 		tasksEl.innerHTML = `<div class="d-flex justify-content-between gap-3 mb-2"><strong>${escapeHtml(taskId)}</strong><span class="badge text-bg-light border">${escapeHtml(state)}</span></div><p class="mb-2">${escapeHtml(taskSummary(taskPanel))}</p><div class="small text-secondary">Completed stages: ${completedStageCount}</div>${error ? `<div class="alert alert-danger mt-3 mb-0 py-2">${escapeHtml(error)}</div>` : ""}`;
 	};
+	// This page is an observer connection, which the central gateway treats as a device
+	// membership subscription. The gateway sends the full device list once, as the reply
+	// to "observe", and afterwards only sends what changed: "device.joined" and
+	// "device.left" for devices arriving and leaving, "device.updated" when a device's own
+	// description changes, and "device.activity" for how busy a device is. Keeping the
+	// devices here lets every one of those messages redraw the panels, instead of the
+	// counts standing still until the page is reloaded.
 	const deviceById = new Map<string, Device>();
 	const renderDevices = (): void => {
 		const devices = splitDevices([...deviceById.values()]);
@@ -181,7 +185,7 @@ const configureFoldablePanels = (): void => {
 		}
 		if (message.type === "devices" && message.devices) {
 			deviceById.clear();
-			for (const device of message.devices) deviceById.set(device.deviceId, device);
+			for (const device of message.devices as Device[]) deviceById.set(device.deviceId, device);
 			renderDevices();
 			addEvent({ type: "Device list received", timestamp: new Date().toISOString(), details: describeDeviceCount(deviceById) });
 		}
@@ -189,6 +193,20 @@ const configureFoldablePanels = (): void => {
 			deviceById.set(message.device.deviceId, message.device);
 			renderDevices();
 			addEvent({ type: message.type === "device.joined" ? "Device joined" : "Device updated", timestamp: new Date().toISOString(), details: `${message.device.name} · ${describeDeviceCount(deviceById)}` });
+		}
+		// The central gateway sends how busy each device is on its own, batched over a
+		// short window, rather than re-sending whole device records every time a worker
+		// picks up or finishes a stage. Merging the activity fields into the stored device
+		// keeps the counts and the busy or idle state current without losing the device's
+		// name and stage list, which activity messages do not carry.
+		if (message.type === "device.activity" && message.devices) {
+			for (const activity of message.devices as DeviceActivity[]) {
+				const stored = deviceById.get(activity.deviceId);
+				if (stored === undefined) continue;
+				deviceById.set(activity.deviceId, { ...stored, ...activity });
+			}
+			renderDevices();
+			addEvent({ type: "Device activity", timestamp: new Date().toISOString(), details: `${message.devices.length} device${message.devices.length === 1 ? "" : "s"} · ${describeDeviceCount(deviceById)}` });
 		}
 		if (message.type === "device.left" && message.deviceId !== undefined) {
 			const departed = deviceById.get(message.deviceId);

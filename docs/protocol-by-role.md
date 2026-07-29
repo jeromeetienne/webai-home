@@ -104,7 +104,13 @@ The gateway replies with `devices` and does not send `registered`.
 | `stage.result` | Worker | Gateway | Return the output of the expected next stage. |
 | `stage.failed` | Worker | Gateway | Report that a stage could not be completed. |
 | `signal` | Any connected client | Gateway, then target client | Relay peer-connection signalling data. |
-| `devices` | Gateway | Observers and registered clients | Report currently connected workers. |
+| `devices.subscribe` | Any registered client | Gateway | Ask to receive device membership messages. The gateway replies with `devices`. |
+| `devices.unsubscribe` | Any registered client | Gateway | Stop receiving device membership messages. |
+| `devices` | Gateway | Device membership subscribers | Report every currently connected device. |
+| `device.joined` | Gateway | Device membership subscribers | Report one device arriving. |
+| `device.updated` | Gateway | Device membership subscribers | Report a change to one device's own description, such as its name or its stage list. |
+| `device.activity` | Gateway | Device membership subscribers | Report how busy one or more devices now are, batched over a short window. |
+| `device.left` | Gateway | Device membership subscribers | Report one device leaving. |
 | `error` | Gateway | The requesting client | Report invalid input, an unexpected stage, or another protocol error. |
 | `log.entry` | Worker | Gateway | Relay a worker's message log entry so the gateway can write it to disk. |
 
@@ -138,6 +144,19 @@ A client that needs more than a revision announcement asks for it:
 **The snapshot is authoritative.** The completed stages and the current assignment in `task.snapshot` are the state of the task. The change log returned by `task.history`, and the `recentEvents` tail carried inside a snapshot, are a diagnostic record of how the task reached that state; they are never the source of truth, and a client must not reconstruct task state from them.
 
 The per-attempt assignment history is not part of the protocol at all. The gateway keeps it in memory to make retry decisions, but it never travels over the connection, because every attempt carries a full stage input value and the list only ever grows.
+
+### Device membership
+
+Device membership is opt-in. A connection receives `devices`, `device.joined`, `device.updated`, `device.activity`, and `device.left` only after asking for them with `devices.subscribe`, or by connecting as an observer, which implies the subscription. Workers and consumers never ask, so a cluster with no dashboard and no observer attached exchanges no device membership messages at all.
+
+A device record is split by how often its fields change:
+
+- The fields that describe the device itself are `deviceId`, `name`, `deviceRole`, `stageNames`, `connectedAt`, `principal`, and `maxConcurrentAssignments`. A change to any of them is announced immediately, as `device.updated`.
+- The fields that change as work is assigned are `lastSeenAt`, `workerState`, `ready`, and `activeAssignments`. A change to any of them is announced as `device.activity`, which carries only those fields, so a worker's assignment counter moving from 0 to 1 does not re-transmit the device's name and stage list.
+
+`device.activity` messages are batched. Activity changes are collected over a short window, 250 milliseconds by default and set by the gateway's `--device-activity-coalesce-ms` option, and sent as one combined message. Batching matters because a worker's assignment counter moves twice per stage, once when the stage is assigned and once when the result arrives.
+
+A change that moves nothing but `lastSeenAt` is never announced, and never spends a membership revision. A liveness timestamp that nobody displays to the millisecond does not justify a message. This applies to the refresh that happens on every message a device sends.
 
 ### What a worker sees
 

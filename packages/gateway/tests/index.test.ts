@@ -193,3 +193,25 @@ test("resets the retry budget after each successful LLM stage", () => {
   current = store.assign(current.taskId, "worker-1", "stage_llm_shard1", { text: "The", done: false });
   assert.equal(current.assignment?.attempt, 1);
 });
+
+test("tells a device joining apart from a change to its description, its activity, and its liveness", () => {
+  const registry = new DeviceRegistry();
+  const first = registry.add(worker("one", ["stage_formula_multiply"]));
+  assert.equal(first.kind, "joined");
+
+  const stored = registry.get("one")!;
+  const touched = registry.add({ ...stored, lastSeenAt: "2026-01-01T00:00:05.000Z" });
+  const busy = registry.add({ ...registry.get("one")!, activeAssignments: 1, lastSeenAt: "2026-01-01T00:00:06.000Z" });
+  const renamed = registry.add({ ...registry.get("one")!, name: "worker-renamed" });
+  const restaged = registry.add({ ...registry.get("one")!, stageNames: ["stage_formula_add"] });
+
+  assert.equal(touched.kind, "unchanged");
+  assert.equal(busy.kind, "activity_changed");
+  assert.equal(renamed.kind, "stable_changed");
+  assert.equal(restaged.kind, "stable_changed");
+  // A refreshed liveness timestamp is stored but spends no membership revision, so a
+  // device that merely keeps sending messages does not move the revision counter.
+  assert.equal(touched.revision, first.revision);
+  assert.equal(registry.get("one")?.lastSeenAt, "2026-01-01T00:00:06.000Z");
+  assert.equal(registry.membershipRevision(), restaged.revision);
+});

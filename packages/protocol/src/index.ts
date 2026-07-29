@@ -198,6 +198,8 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("task.observer.grant"), taskId: Identifier, consumerDeviceId: Identifier }).strict(),
   z.object({ type: z.literal("task.observer.revoke"), taskId: Identifier, consumerDeviceId: Identifier }).strict(),
   z.object({ type: z.literal("devices.resync") }).strict(),
+  z.object({ type: z.literal("devices.subscribe") }).strict(),
+  z.object({ type: z.literal("devices.unsubscribe") }).strict(),
   z.object({ type: z.literal("register"), role: z.enum(["worker", "consumer"]), name: z.string().min(1).max(200), stageNames: z.array(StageName).max(10).optional(), ready: z.boolean().optional(), maxConcurrentAssignments: z.number().int().min(1).max(100).optional() }).strict(),
   z.object({ type: z.literal("task.submit"), requestId: RequestId, input: TaskInput, pipelineId: Identifier.optional(), pipelineVersion: z.number().int().positive().optional() }).strict(),
   z.object({ type: z.literal("task.get"), taskId: Identifier }).strict(),
@@ -244,6 +246,7 @@ export type GatewayMessage =
   | { type: "signal"; from: string; data: unknown }
   | { type: "devices"; devices: Device[]; revision: number }
   | { type: "device.joined" | "device.updated"; device: Device; revision: number }
+  | { type: "device.activity"; devices: DeviceActivity[]; revision: number }
   | { type: "device.left"; deviceId: string; revision: number }
   | ProtocolError;
 
@@ -264,5 +267,25 @@ export interface Device {
   activeAssignments?: number;
   membershipRevision?: number;
 }
+
+/**
+ * The device fields that change as work is assigned to a device and returned by it, as
+ * opposed to the fields that describe the device itself.
+ *
+ * These fields change far more often than the rest of a device record: a worker's
+ * `activeAssignments` count moves up when a stage is assigned and down when the result
+ * arrives, twice per stage. They are sent on their own, in `device.activity`, so a
+ * counter moving from 0 to 1 does not re-transmit the device's name and stage list.
+ */
+export interface DeviceActivity {
+  deviceId: string;
+  lastSeenAt: string;
+  workerState?: "ready" | "draining" | undefined;
+  ready?: boolean | undefined;
+  activeAssignments?: number | undefined;
+}
+
+/** The device fields carried by `DeviceActivity`, in the order a device record declares them. */
+export const deviceActivityFieldNames = ["lastSeenAt", "workerState", "ready", "activeAssignments"] as const;
 
 export { StagePayloadFactory } from "./stage_payload_factory.js";
