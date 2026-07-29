@@ -40,10 +40,10 @@ export function createTaskInput(type: "formula" | "llm", value: string | undefin
 export class ConsumerClient {
 	private registered = false;
 
-	constructor(private readonly socket: TaskSocket, private readonly callbacks: ConsumerClientCallbacks = {}, private readonly name = "consumer") {
+	constructor(private readonly socket: TaskSocket, private readonly callbacks: ConsumerClientCallbacks = {}, private readonly name = "consumer", private readonly authenticationToken = "development-token") {
 		socket.onopen = (): void => {
 			this.callbacks.onConnectionChange?.(true);
-			this.send({ type: "register", role: "consumer", name: this.name });
+			this.send({ type: "authenticate", token: this.authenticationToken });
 		};
 		socket.onmessage = (event): void => this.handleMessage(typeof event.data === "string" ? event.data : event.data.toString());
 		socket.onerror = (): void => this.callbacks.onError?.("The connection to the central gateway failed");
@@ -71,7 +71,9 @@ export class ConsumerClient {
 		try { message = JSON.parse(raw) as GatewayMessage; }
 		catch { this.callbacks.onError?.("The central gateway sent invalid data"); return; }
 		this.callbacks.onMessage?.("received", message);
-		if (message.type === "registered") {
+		if (message.type === "authenticated") {
+			this.send({ type: "register", role: "consumer", name: this.name });
+		} else if (message.type === "registered") {
 			this.registered = true;
 			this.callbacks.onRegistered?.(message.deviceId);
 		} else if (message.type === "task.accepted") this.callbacks.onTaskAccepted?.(message.task);

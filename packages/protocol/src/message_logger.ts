@@ -57,7 +57,7 @@ export class MessageLogger {
 	 * @param logFilePath Path to the JSON Lines file this logger appends to. Its parent
 	 * directory is created automatically if it does not already exist.
 	 */
-	constructor(logFilePath: string) {
+	constructor(logFilePath: string, private readonly maximumPayloadBytes = 16_384) {
 		this.logFilePath = logFilePath;
 		mkdirSync(dirname(logFilePath), { recursive: true });
 	}
@@ -85,7 +85,17 @@ export class MessageLogger {
 			: payload;
 		const payloadBytes = Buffer.byteLength(JSON.stringify(payloadWithoutType), "utf8");
 		const messageBytes = Buffer.byteLength(JSON.stringify(message), "utf8");
-		const entry: LogEntry = { timestamp, direction, counterpart, messageType, payload, payloadBytes, messageBytes };
+		const safePayload = payloadBytes > this.maximumPayloadBytes ? { type: messageType, redacted: true, payloadBytes } : redactPayload(payload);
+		const entry: LogEntry = { timestamp, direction, counterpart, messageType, payload: safePayload, payloadBytes, messageBytes };
 		appendFileSync(this.logFilePath, `${JSON.stringify(entry)}\n`, "utf-8");
 	}
+}
+
+/** Removes task input and stage values from ordinary diagnostic records. */
+function redactPayload(payload: unknown): unknown {
+	if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return payload;
+	const record = { ...(payload as Record<string, unknown>) };
+	for (const key of ["input", "value", "dataBase64", "tensors"]) if (key in record) record[key] = "[redacted]";
+	if (typeof record.task === "object" && record.task !== null) record.task = redactPayload(record.task);
+	return record;
 }

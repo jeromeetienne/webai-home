@@ -208,19 +208,14 @@ const relayLogEntry = (socket: WebSocket, direction: "received" | "sent", messag
 		statusEl.className = "badge text-bg-warning";
 		connectButtonEl.disabled = true;
 
-		/** Updates the page and registers the worker browser after connection. */
+		/** Authenticates the worker browser after connection. */
 		socket.addEventListener("open", (): void => {
 			statusEl.textContent = "Connected";
 			statusEl.className = "badge text-bg-success";
 			connectButtonEl.classList.add("d-none");
 			disconnectButtonEl.classList.remove("d-none");
 			nameInputEl.disabled = true;
-			const message: ClientMessage = {
-				type: "register",
-				role: "worker",
-				name: nameInputEl.value,
-				stageNames: enabledStageNames,
-			};
+			const message: ClientMessage = { type: "authenticate", token: "development-token" };
 			if (socket) relayLogEntry(socket, "sent", message);
 			socket?.send(JSON.stringify(message));
 			addEvent({ direction: "sent", type: message.type, timestamp: new Date().toISOString() });
@@ -237,6 +232,12 @@ const relayLogEntry = (socket: WebSocket, direction: "received" | "sent", messag
 				...(message.taskId ? { taskId: message.taskId } : {}),
 				...(message.stage ? { stage: message.stage } : {}),
 			});
+			if (message.type === "authenticated" && socket) {
+				const register: ClientMessage = { type: "register", role: "worker", name: nameInputEl.value, stageNames: enabledStageNames };
+				relayLogEntry(socket, "sent", register);
+				socket.send(JSON.stringify(register));
+				return;
+			}
 			if (message.type === "registered") deviceIdEl.textContent = message.deviceId ?? "Not assigned";
 			if (socket) relayLogEntry(socket, "received", message);
 			if (message.type === "stage.cancel" && message.taskId !== undefined) {

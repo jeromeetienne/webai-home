@@ -16,12 +16,13 @@ export class TaskStore {
 	 * @param input - The validated input submitted for the task.
 	 * @returns The newly created task.
 	 */
-	create(input: TaskInput, consumerDeviceId = "consumer-unknown", requestId: string = crypto.randomUUID()): Task {
+	create(input: TaskInput, consumerDeviceId = "consumer-unknown", requestId: string = crypto.randomUUID(), consumerPrincipal?: string): Task {
 		const now = this.now().toISOString();
 		const task: Task = {
 			taskId: `task-${crypto.randomUUID()}`,
 			requestId,
 			consumerDeviceId,
+			...(consumerPrincipal === undefined ? {} : { consumerPrincipal }),
 			input,
 			state: "queued",
 			completedStages: [],

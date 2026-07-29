@@ -28,8 +28,10 @@ const options = new Command()
 	.option("--submission-timeout-ms <number>", "Queued task deadline", "30000")
 	.option("--max-attempts <number>", "Maximum assignment attempts", "3")
 	.option("--state-file <path>", "Durable task state file", "gateway-state.json")
+	.option("--auth-token <token>", "Required bearer token for development connections", "development-token")
+	.option("--max-tasks-per-principal <number>", "Maximum non-terminal tasks per principal", "20")
 	.parse()
-	.opts<{ port: string; leaseMs: string; submissionTimeoutMs: string; maxAttempts: string; stateFile: string }>();
+	.opts<{ port: string; leaseMs: string; submissionTimeoutMs: string; maxAttempts: string; stateFile: string; authToken: string; maxTasksPerPrincipal: string }>();
 const port = Number(options.port);
 const deviceRegistry = new DeviceRegistry();
 const taskStore = new TaskStore(undefined, Number(options.submissionTimeoutMs), Number(options.leaseMs), options.stateFile);
@@ -37,6 +39,9 @@ const maximumAttempts = Number(options.maxAttempts);
 const socketMap = new Map<string, WebSocket>();
 const observerDeviceIds = new Set<string>();
 const taskObserverDeviceIds = new Map<string, Set<string>>();
+const authenticatedPrincipals = new Map<string, string>();
+const devicePrincipalById = new Map<string, string>();
+const maximumTasksPerPrincipal = Number(options.maxTasksPerPrincipal);
 
 // Logs this gateway's own message traffic (one file per run), plus one log file per
 // connected worker, relayed to us since a browser page cannot write files itself.
@@ -256,9 +261,17 @@ function mayReadTask(deviceId: string, taskId: string): boolean {
  * @param message - The client message to process.
  */
 function handle(socket: WebSocket, deviceId: string, message: ClientMessage): void {
+	if (message.type !== "authenticate" && !authenticatedPrincipals.has(deviceId)) { sendError(socket, counterpartFor(deviceId), "AUTHENTICATION_REQUIRED", "Authenticate before using the protocol", { retryable: false }); return; }
 	if (message.type === "observe") {
 		observerDeviceIds.add(deviceId);
 		send(socket, { type: "devices", devices: connectedDevices(), revision: deviceRegistry.membershipRevision() }, counterpartFor(deviceId));
+		return;
+	}
+	if (message.type === "authenticate") {
+		if (message.token !== options.authToken) { sendError(socket, counterpartFor(deviceId), "AUTHENTICATION_REQUIRED", "Credentials were rejected", { retryable: false }); return; }
+		const principal = `principal-${message.token.slice(0, 12)}`;
+		authenticatedPrincipals.set(deviceId, principal);
+		send(socket, { type: "authenticated", principal, expiresAt: new Date(Date.now() + 3_600_000).toISOString() }, counterpartFor(deviceId));
 		return;
 	}
 	if (message.type === "register") {
@@ -280,9 +293,11 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 				: [],
 			connectedAt: new Date().toISOString(),
 			lastSeenAt: new Date().toISOString(),
+			principal: authenticatedPrincipals.get(deviceId)!,
 			...(message.role === "worker" ? { workerState: message.ready === false ? "draining" as const : "ready" as const, ready: message.ready ?? true, maxConcurrentAssignments: message.maxConcurrentAssignments ?? 1, activeAssignments: 0 } : {}),
 		};
 		const change = deviceRegistry.add(device);
+		devicePrincipalById.set(deviceId, authenticatedPrincipals.get(deviceId)!);
 		send(socket, {
 			type: "registered",
 			deviceId,
@@ -311,6 +326,17 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 		if (message.type !== "task.unobserve") send(socket, { type: "task.updated", task }, counterpartFor(deviceId));
 		return;
 	}
+	if (message.type === "task.observer.grant" || message.type === "task.observer.revoke") {
+		const task = taskStore.get(message.taskId);
+		if (!task) { sendError(socket, counterpartFor(deviceId), "TASK_NOT_FOUND", "Task was not found", { taskId: message.taskId }); return; }
+		if (task.consumerDeviceId !== deviceId) { sendError(socket, counterpartFor(deviceId), "AUTHORISATION", "Only the task owner may manage observers", { taskId: task.taskId }); return; }
+		const observer = deviceRegistry.get(message.consumerDeviceId);
+		if (!observer || observer.deviceRole !== "consumer") { sendError(socket, counterpartFor(deviceId), "VALIDATION", "An observer must be a connected consumer", { taskId: task.taskId }); return; }
+		const observers = taskObserverDeviceIds.get(task.taskId) ?? new Set<string>();
+		if (message.type === "task.observer.grant") observers.add(message.consumerDeviceId); else observers.delete(message.consumerDeviceId);
+		taskObserverDeviceIds.set(task.taskId, observers);
+		return;
+	}
 	if (message.type === "devices.resync") { send(socket, { type: "devices", devices: connectedDevices(), revision: deviceRegistry.membershipRevision() }, counterpartFor(deviceId)); return; }
 
 	if (message.type === "task.submit") {
@@ -333,7 +359,10 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 			send(socket, { type: "task.accepted", requestId: message.requestId, task: existingTask }, counterpartFor(deviceId));
 			return;
 		}
-		const task = taskStore.create(message.input, deviceId, message.requestId);
+		const principal = devicePrincipalById.get(deviceId)!;
+		const activeTaskCount = taskStore.list().filter((candidate) => candidate.consumerPrincipal === principal && !["completed", "failed", "cancelled"].includes(candidate.state)).length;
+		if (activeTaskCount >= maximumTasksPerPrincipal) { sendError(socket, counterpartFor(deviceId), "RATE_LIMITED", "The principal has reached its active-task limit", { requestId: message.requestId, retryable: true, details: { limit: maximumTasksPerPrincipal } }); return; }
+		const task = taskStore.create(message.input, deviceId, message.requestId, principal);
 		send(socket, {
 			type: "task.accepted",
 			requestId: message.requestId,
@@ -716,7 +745,10 @@ websocketServer.on("connection", (socket) => {
 	socket.on("close", () => {
 		socketMap.delete(deviceId);
 		observerDeviceIds.delete(deviceId);
-		deviceRegistry.remove(deviceId);
+		for (const observers of taskObserverDeviceIds.values()) observers.delete(deviceId);
+		devicePrincipalById.delete(deviceId);
+		authenticatedPrincipals.delete(deviceId);
+		publishDevice(deviceRegistry.remove(deviceId));
 		recoverWorkerAssignments(deviceId);
 		updateDevices();
 	});

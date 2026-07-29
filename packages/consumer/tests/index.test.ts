@@ -33,8 +33,10 @@ test("registers and submits through the shared client", () => {
 	};
 	const client = new ConsumerClient(socket, {}, "formula-consumer");
 	socket.onopen?.();
-	assert.deepEqual(JSON.parse(sent[0]), { type: "register", role: "consumer", name: "formula-consumer" });
+	assert.deepEqual(JSON.parse(sent[0]), { type: "authenticate", token: "development-token" });
+	socket.onmessage?.({ data: JSON.stringify({ type: "authenticated", principal: "principal-development", expiresAt: "2026-01-01T01:00:00.000Z" }) });
+	assert.deepEqual(JSON.parse(sent[1]), { type: "register", role: "consumer", name: "formula-consumer" });
 	socket.onmessage?.({ data: JSON.stringify({ type: "registered", deviceId: "device-1" }) });
 	client.submit({ taskType: "task_type_formula", input: 5 }, "request-formula-1");
-	assert.deepEqual(JSON.parse(sent[1]), { type: "task.submit", requestId: "request-formula-1", input: { taskType: "task_type_formula", input: 5 } });
+	assert.deepEqual(JSON.parse(sent[2]), { type: "task.submit", requestId: "request-formula-1", input: { taskType: "task_type_formula", input: 5 } });
 });

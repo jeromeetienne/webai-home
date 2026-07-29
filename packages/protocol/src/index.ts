@@ -72,6 +72,7 @@ export interface Task {
   taskId: string;
   requestId: string;
   consumerDeviceId: string;
+  consumerPrincipal?: string;
   input: TaskInput;
   state: TaskState;
   completedStages: StageResult[];
@@ -115,9 +116,12 @@ export interface TaskEvent {
 
 export const ClientMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("observe") }).strict(),
+  z.object({ type: z.literal("authenticate"), token: z.string().min(1).max(4_000) }).strict(),
   z.object({ type: z.literal("task.observe"), taskId: Identifier }).strict(),
   z.object({ type: z.literal("task.unobserve"), taskId: Identifier }).strict(),
   z.object({ type: z.literal("task.resync"), taskId: Identifier }).strict(),
+  z.object({ type: z.literal("task.observer.grant"), taskId: Identifier, consumerDeviceId: Identifier }).strict(),
+  z.object({ type: z.literal("task.observer.revoke"), taskId: Identifier, consumerDeviceId: Identifier }).strict(),
   z.object({ type: z.literal("devices.resync") }).strict(),
   z.object({ type: z.literal("register"), role: z.enum(["worker", "consumer"]), name: z.string().min(1).max(200), stageNames: z.array(StageName).max(10).optional(), ready: z.boolean().optional(), maxConcurrentAssignments: z.number().int().min(1).max(100).optional() }).strict(),
   z.object({ type: z.literal("task.submit"), requestId: RequestId, input: TaskInput }).strict(),
@@ -152,6 +156,7 @@ export interface ProtocolError {
 }
 
 export type GatewayMessage =
+  | { type: "authenticated"; principal: string; expiresAt: string }
   | { type: "registered"; deviceId: string }
   | { type: "task.accepted"; requestId: string; task: Task }
   | { type: "task.updated"; task: Task }
@@ -175,6 +180,7 @@ export interface Device {
   connectedAt: string;
   lastSeenAt: string;
   workerState?: "ready" | "draining" | undefined;
+  principal?: string;
   ready?: boolean;
   maxConcurrentAssignments?: number;
   activeAssignments?: number;
