@@ -24,6 +24,7 @@ export class TaskStore {
 			completedStages: [],
 			assignmentAttempts: [],
 			events: [],
+			revision: 1,
 			submissionDeadlineAt: new Date(this.now().getTime() + this.submissionTimeoutMs).toISOString(),
 			createdAt: now,
 			updatedAt: now,
@@ -101,6 +102,7 @@ export class TaskStore {
 		const next = {
 			...task,
 			...update,
+			revision: task.revision + 1,
 			updatedAt: this.now().toISOString(),
 		};
 		this.tasks.set(taskId, next);

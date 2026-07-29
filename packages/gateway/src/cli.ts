@@ -35,6 +35,7 @@ const taskStore = new TaskStore(undefined, Number(options.submissionTimeoutMs), 
 const maximumAttempts = Number(options.maxAttempts);
 const socketMap = new Map<string, WebSocket>();
 const observerDeviceIds = new Set<string>();
+const taskObserverDeviceIds = new Map<string, Set<string>>();
 
 // Logs this gateway's own message traffic (one file per run), plus one log file per
 // connected worker, relayed to us since a browser page cannot write files itself.
@@ -103,6 +104,11 @@ function broadcast(message: GatewayMessage): void {
 	}
 }
 
+/** Sends a stable, machine-readable error. */
+function sendError(socket: WebSocket, counterpart: LogCounterpart, code: Extract<GatewayMessage, { type: "error" }> ["code"], message: string, options: { taskId?: string; requestId?: string; details?: Record<string, unknown>; retryable?: boolean } = {}): void {
+	send(socket, { type: "error", code, message, retryable: options.retryable ?? false, ...(options.taskId === undefined ? {} : { taskId: options.taskId }), ...(options.requestId === undefined ? {} : { requestId: options.requestId }), ...(options.details === undefined ? {} : { details: options.details }) }, counterpart);
+}
+
 /**
  * Returns the connected devices that can work on task stages.
  *
@@ -124,7 +130,26 @@ function updateDevices(): void {
 	broadcast({
 		type: "devices",
 		devices: connectedDevices(),
+		revision: deviceRegistry.membershipRevision(),
 	});
+}
+
+function publishDevice(change: ReturnType<DeviceRegistry["add"]> | ReturnType<DeviceRegistry["remove"]>): void {
+	if (!change) return;
+	if ("device" in change) broadcast({ type: change.kind === "joined" ? "device.joined" : "device.updated", device: change.device, revision: change.revision });
+	else broadcast({ type: "device.left", deviceId: change.deviceId, revision: change.revision });
+}
+
+function releaseWorkerAssignment(workerDeviceId: string): void {
+	const device = deviceRegistry.get(workerDeviceId);
+	if (!device || device.deviceRole !== "worker") return;
+	publishDevice(deviceRegistry.add({ ...device, activeAssignments: Math.max(0, (device.activeAssignments ?? 0) - 1), lastSeenAt: new Date().toISOString() }));
+}
+
+function occupyWorkerAssignment(workerDeviceId: string): void {
+	const device = deviceRegistry.get(workerDeviceId);
+	if (!device || device.deviceRole !== "worker") return;
+	publishDevice(deviceRegistry.add({ ...device, activeAssignments: (device.activeAssignments ?? 0) + 1, lastSeenAt: new Date().toISOString() }));
 }
 
 /**
@@ -156,7 +181,9 @@ function assign(
 		broadcastTask(taskId);
 		return;
 	}
+	if (existing.assignment) releaseWorkerAssignment(existing.assignment.workerDeviceId);
 	const task = taskStore.assign(taskId, device.deviceId, stage, value, retryReason);
+	occupyWorkerAssignment(device.deviceId);
 	const socket = socketMap.get(device.deviceId);
 	if (socket) {
 		send(socket, {
@@ -207,12 +234,17 @@ function recoverWorkerAssignments(deviceId: string): void {
  */
 function broadcastTask(taskId: string): void {
 	const task = taskStore.get(taskId);
-	if (task) {
-		broadcast({
-			type: "task.updated",
-			task,
-		});
+	if (!task) return;
+	const recipients = new Set<string>([task.consumerDeviceId, ...(taskObserverDeviceIds.get(taskId) ?? []), ...(task.assignment ? [task.assignment.workerDeviceId] : [])]);
+	for (const recipient of recipients) {
+		const recipientSocket = socketMap.get(recipient);
+		if (recipientSocket) send(recipientSocket, { type: "task.updated", task }, counterpartFor(recipient));
 	}
+}
+
+function mayReadTask(deviceId: string, taskId: string): boolean {
+	const task = taskStore.get(taskId);
+	return task?.consumerDeviceId === deviceId || task?.assignment?.workerDeviceId === deviceId || taskObserverDeviceIds.get(taskId)?.has(deviceId) === true;
 }
 
 /**
@@ -225,7 +257,7 @@ function broadcastTask(taskId: string): void {
 function handle(socket: WebSocket, deviceId: string, message: ClientMessage): void {
 	if (message.type === "observe") {
 		observerDeviceIds.add(deviceId);
-		send(socket, { type: "devices", devices: connectedDevices() }, counterpartFor(deviceId));
+		send(socket, { type: "devices", devices: connectedDevices(), revision: deviceRegistry.membershipRevision() }, counterpartFor(deviceId));
 		return;
 	}
 	if (message.type === "register") {
@@ -247,21 +279,38 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 				: [],
 			connectedAt: new Date().toISOString(),
 			lastSeenAt: new Date().toISOString(),
-			...(message.role === "worker" ? { workerState: "ready" as const } : {}),
+			...(message.role === "worker" ? { workerState: message.ready === false ? "draining" as const : "ready" as const, ready: message.ready ?? true, maxConcurrentAssignments: message.maxConcurrentAssignments ?? 1, activeAssignments: 0 } : {}),
 		};
-		deviceRegistry.add(device);
+		const change = deviceRegistry.add(device);
 		send(socket, {
 			type: "registered",
 			deviceId,
 		}, counterpartFor(deviceId, message));
-		updateDevices();
+		publishDevice(change);
 		scheduleQueuedTasks();
 		return;
 	}
 	if (!deviceRegistry.get(deviceId)) {
-		send(socket, { type: "error", code: "NOT_REGISTERED", message: "Register before sending this message" }, counterpartFor(deviceId));
+		sendError(socket, counterpartFor(deviceId), "NOT_REGISTERED", "Register before sending this message");
 		return;
 	}
+	const activeDevice = deviceRegistry.get(deviceId)!;
+	deviceRegistry.add({ ...activeDevice, lastSeenAt: new Date().toISOString() });
+
+	if (message.type === "task.observe" || message.type === "task.unobserve" || message.type === "task.resync") {
+		const task = taskStore.get(message.taskId);
+		if (!task) { sendError(socket, counterpartFor(deviceId), "TASK_NOT_FOUND", "Task was not found", { taskId: message.taskId }); return; }
+		if (message.type === "task.observe") {
+			const requester = deviceRegistry.get(deviceId);
+			if (requester?.deviceRole !== "consumer" || (task.consumerDeviceId !== deviceId && !taskObserverDeviceIds.get(task.taskId)?.has(deviceId))) { sendError(socket, counterpartFor(deviceId), "AUTHORISATION", "Task observation requires an owner grant", { taskId: task.taskId }); return; }
+			const observers = taskObserverDeviceIds.get(task.taskId) ?? new Set<string>();
+			observers.add(deviceId); taskObserverDeviceIds.set(task.taskId, observers);
+		}
+		if (message.type === "task.unobserve") taskObserverDeviceIds.get(task.taskId)?.delete(deviceId);
+		if (message.type !== "task.unobserve") send(socket, { type: "task.updated", task }, counterpartFor(deviceId));
+		return;
+	}
+	if (message.type === "devices.resync") { send(socket, { type: "devices", devices: connectedDevices(), revision: deviceRegistry.membershipRevision() }, counterpartFor(deviceId)); return; }
 
 	if (message.type === "task.submit") {
 		const device = deviceRegistry.get(deviceId);
@@ -299,11 +348,13 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 
 	if (message.type === "task.get") {
 		const task = taskStore.get(message.taskId);
-		if (task) {
+		if (task && mayReadTask(deviceId, task.taskId)) {
 			send(socket, {
 				type: "task.updated",
 				task,
 			}, counterpartFor(deviceId));
+		} else if (task) {
+			sendError(socket, counterpartFor(deviceId), "AUTHORISATION", "This connection is not allowed to read the task", { taskId: message.taskId });
 		} else {
 			send(socket, {
 				type: "error",
@@ -321,8 +372,7 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 			send(socket, { type: "error", code: "WORKER_REQUIRED", message: "Only worker browser tabs may change worker state" }, counterpartFor(deviceId));
 			return;
 		}
-		deviceRegistry.add({ ...device, workerState: message.state, lastSeenAt: new Date().toISOString() });
-		updateDevices();
+		publishDevice(deviceRegistry.add({ ...device, workerState: message.state, ready: message.state === "ready", ...(message.maxConcurrentAssignments === undefined ? {} : { maxConcurrentAssignments: message.maxConcurrentAssignments }), lastSeenAt: new Date().toISOString() }));
 		if (message.state === "ready") scheduleQueuedTasks();
 		return;
 	}
@@ -339,6 +389,7 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 		}
 		const assignment = task.assignment;
 		const cancelled = taskStore.cancel(task.taskId, message.reason);
+		if (assignment) releaseWorkerAssignment(assignment.workerDeviceId);
 		if (assignment) {
 			const workerSocket = socketMap.get(assignment.workerDeviceId);
 			if (workerSocket) send(workerSocket, { type: "stage.cancel", taskId: task.taskId, assignmentId: assignment.assignmentId, attempt: assignment.attempt, reason: message.reason }, counterpartFor(assignment.workerDeviceId));
@@ -409,6 +460,7 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 			name: message.stage,
 			value: message.value,
 		});
+		releaseWorkerAssignment(deviceId);
 		const upcoming = TaskStore.nextStage(updated);
 		if (upcoming) {
 			// An LLM task's shards must all run on the same device: later shards need the
@@ -464,6 +516,7 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 			error: message.error,
 			assignment: undefined,
 		});
+		releaseWorkerAssignment(deviceId);
 		broadcastTask(message.taskId);
 		return;
 	}

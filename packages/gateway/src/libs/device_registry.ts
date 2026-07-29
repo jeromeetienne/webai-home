@@ -3,14 +3,18 @@ import type { Device, StageName } from "@webai/protocol";
 /** Maintains the devices connected to the gateway. */
 export class DeviceRegistry {
 	private readonly devices = new Map<string, Device>();
+	private revision = 0;
 
 	/**
 	 * Adds a device or replaces the device with the same identifier.
 	 *
 	 * @param device - The device to store.
 	 */
-	add(device: Device): void {
-		this.devices.set(device.deviceId, device);
+	add(device: Device): { kind: "joined" | "updated"; device: Device; revision: number } {
+		const kind = this.devices.has(device.deviceId) ? "updated" : "joined";
+		const stored = { ...device, membershipRevision: ++this.revision };
+		this.devices.set(device.deviceId, stored);
+		return { kind, device: stored, revision: this.revision };
 	}
 
 	/**
@@ -18,8 +22,9 @@ export class DeviceRegistry {
 	 *
 	 * @param deviceId - The device identifier to remove.
 	 */
-	remove(deviceId: string): void {
-		this.devices.delete(deviceId);
+	remove(deviceId: string): { deviceId: string; revision: number } | undefined {
+		if (!this.devices.delete(deviceId)) return undefined;
+		return { deviceId, revision: ++this.revision };
 	}
 
 	/**
@@ -40,6 +45,8 @@ export class DeviceRegistry {
 	list(): Device[] {
 		return [...this.devices.values()];
 	}
+
+	membershipRevision(): number { return this.revision; }
 
 	/**
 	 * Finds a device by its display name and role.
@@ -63,7 +70,8 @@ export class DeviceRegistry {
 		return this.list().find(
 			(device) =>
 				device.deviceRole === "worker" &&
-				device.workerState !== "draining" &&
+				device.workerState !== "draining" && device.ready !== false &&
+				(device.activeAssignments ?? 0) < (device.maxConcurrentAssignments ?? 1) &&
 				device.stageNames.includes(stage) &&
 				!excluded.includes(device.deviceId),
 		);
