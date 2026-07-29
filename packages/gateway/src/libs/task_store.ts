@@ -16,7 +16,7 @@ export class TaskStore {
 	 * @param input - The validated input submitted for the task.
 	 * @returns The newly created task.
 	 */
-	create(input: TaskInput, consumerDeviceId = "consumer-unknown", requestId: string = crypto.randomUUID(), consumerPrincipal?: string, pipeline?: Pick<Task, "pipelineId" | "pipelineVersion" | "pipelineStages">): Task {
+	create(input: TaskInput, consumerDeviceId = "consumer-unknown", requestId: string = crypto.randomUUID(), consumerPrincipal?: string, pipeline?: Pick<Task, "pipelineId" | "pipelineVersion" | "pipelineStages" | "pipelineRepeatsUntilDone">): Task {
 		const now = this.now().toISOString();
 		const task: Task = {
 			taskId: `task-${crypto.randomUUID()}`,
@@ -190,9 +190,28 @@ export class TaskStore {
 		if (document.schemaVersion !== 1 || !Array.isArray(document.tasks)) throw new Error(`Unsupported task state schema in ${this.stateFilePath}`);
 		for (const task of document.tasks) {
 			const restored = { ...task, currentStageAttempts: task.currentStageAttempts ?? task.assignment?.attempt ?? 0 };
+			// A task written by a gateway that built its stage sequence internally carries no
+			// pipeline, so it can never be advanced now that the sequence comes from the task's
+			// own pipeline. Failing it makes that visible instead of leaving it stuck for ever.
+			if (TaskStore._isUnadvanceable(restored)) {
+				restored.state = "failed";
+				restored.error = "NO_PIPELINE_ON_RESTORED_TASK";
+				restored.assignment = undefined;
+			}
 			this.tasks.set(restored.taskId, restored);
 			this.taskIdByConsumerRequest.set(this.requestKey(restored.consumerDeviceId, restored.requestId), restored.taskId);
 		}
+	}
+
+	/**
+	 * Reports whether a restored task can still be advanced.
+	 *
+	 * @param task - The task read back from the durable state file.
+	 * @returns `true` when the task is unfinished but carries no pipeline to advance through.
+	 */
+	private static _isUnadvanceable(task: Task): boolean {
+		const isFinished = task.state === "completed" || task.state === "failed" || task.state === "cancelled";
+		return isFinished === false && (task.pipelineStages === undefined || task.pipelineStages.length === 0);
 	}
 
 	/** Writes through a temporary file so a process interruption cannot leave partial JSON. */
@@ -206,28 +225,29 @@ export class TaskStore {
 	/**
 	 * Determines the next processing stage for a task.
 	 *
-	 * The formula sequence runs each of its two stages once. The LLM sequence instead
-	 * cycles through its three shards once per generated token, looping back to
-	 * `stage_llm_shard1` after `stage_llm_shard3` until that shard's result payload
-	 * reports `done: true` (an end-of-sequence token or the token limit was reached).
+	 * The stage sequence comes from the task's own pipeline, which the task carries as
+	 * `pipelineStages`. No stage name is written into this function, so a pipeline added
+	 * through the gateway's `--pipeline-file` option advances the same way a built-in one
+	 * does.
+	 *
+	 * A pipeline that states `repeatsUntilDone` starts again at its first stage once its last
+	 * stage finishes, and ends only when a result reports `done: true`. The language-model
+	 * pipeline works this way: its shards run once per generated token, and generation stops
+	 * at an end-of-sequence token or the token limit.
 	 *
 	 * @param task - The task whose completed stages are inspected.
-	 * @returns The next stage, or `undefined` when all stages are complete.
+	 * @returns The next stage, or `undefined` when the pipeline has finished.
 	 */
 	static nextStage(task: Task): StageName | undefined {
-		if (task.pipelineStages) return task.pipelineStages[task.completedStages.length];
-		if (task.input.taskType === "task_type_formula") {
-			const stageSequence: StageName[] = ["stage_formula_multiply", "stage_formula_add"];
-			return stageSequence[task.completedStages.length];
-		}
+		const stageSequence = task.pipelineStages ?? [];
+		if (stageSequence.length === 0) return undefined;
+		const completedCount = task.completedStages.length;
+		if (task.pipelineRepeatsUntilDone !== true) return stageSequence[completedCount];
 
-		const stageSequence: StageName[] = ["stage_llm_shard1", "stage_llm_shard2", "stage_llm_shard3"];
-		const lastCompleted = task.completedStages.at(-1);
-		const lastValue = lastCompleted?.value;
-		const isGenerationDone = lastCompleted?.name === "stage_llm_shard3"
-			&& typeof lastValue === "object"
-			&& lastValue?.done === true;
-		if (isGenerationDone) return undefined;
-		return stageSequence[task.completedStages.length % stageSequence.length];
+		const isCycleFinished = completedCount > 0 && completedCount % stageSequence.length === 0;
+		const lastValue = task.completedStages.at(-1)?.value;
+		const isDone = isCycleFinished && typeof lastValue === "object" && lastValue?.done === true;
+		if (isDone) return undefined;
+		return stageSequence[completedCount % stageSequence.length];
 	}
 }

@@ -1,18 +1,36 @@
-import type { StageName } from "@webai/protocol";
-
 /** Formula-stage capabilities and computation for a worker browser. */
 export class StageFormulaHelper {
-	/** The stages this worker browser supports, advertised to the central gateway. */
-	static readonly stageNames: [StageName, StageName] = ["stage_formula_multiply", "stage_formula_add"];
+	/**
+	 * The computations this worker browser implements, named the way a pipeline stage names
+	 * its computation.
+	 *
+	 * A stage is dispatched by its computation, not by its stage name, so a pipeline added
+	 * through the gateway's `--pipeline-file` option may introduce a new stage name that
+	 * reuses one of these computations without this browser being changed or rebuilt.
+	 */
+	static readonly computations: string[] = ["formula_multiply", "formula_add"];
+
+	/**
+	 * Reports whether this helper implements a computation.
+	 *
+	 * @param computation The computation named by a pipeline stage.
+	 * @returns `true` when this helper can run it.
+	 */
+	static implementsComputation(computation: string): boolean {
+		return StageFormulaHelper.computations.includes(computation);
+	}
 
 	/**
 	 * Computes the result of a formula stage for a given input value.
 	 *
-	 * @param stageName The formula stage to compute.
+	 * @param computation The computation named by the assigned stage.
 	 * @param value The input value for the stage.
 	 * @returns The computed result for the stage.
+	 * @throws If the computation is not one this browser implements.
 	 */
-	static compute(stageName: StageName, value: number): number {
-		return stageName === "stage_formula_multiply" ? value * 2 : value + 7;
+	static compute(computation: string, value: number): number {
+		if (computation === "formula_multiply") return value * 2;
+		if (computation === "formula_add") return value + 7;
+		throw new Error(`This browser does not implement the computation ${computation}.`);
 	}
 }

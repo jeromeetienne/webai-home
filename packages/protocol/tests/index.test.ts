@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { ClientMessageSchema, PipelineStageSchema, StageName, StagePayloadFactory, TaskInput, TaskState, maximumSnapshotEventCount } from "../src/index.js";
+import { ClientMessageSchema, PipelineSpecificationSchema, PipelineStageSchema, StageName, StagePayloadFactory, TaskInput, TaskState, maximumSnapshotEventCount } from "../src/index.js";
 import type { Task, TaskEvent } from "../src/index.js";
 import { MessageLogger } from "../src/message_logger.js";
 import type { LogEntry } from "../src/message_logger.js";
@@ -24,17 +24,19 @@ test("rejects task input that does not match its task type", () => {
   assert.equal(TaskInput.safeParse({ taskType: "task_type_formula", input: "5" }).success, false);
 });
 
-test("restricts task states and stage names", () => {
+test("restricts task states, and checks the shape of a stage name without listing them", () => {
   assert.equal(TaskState.safeParse("completed").success, true);
   assert.equal(TaskState.safeParse("unknown").success, false);
   assert.equal(StageName.safeParse("stage_formula_multiply").success, true);
-  assert.equal(StageName.safeParse("divide").success, false);
-});
-
-test("accepts the three LLM shard stage names", () => {
   assert.equal(StageName.safeParse("stage_llm_shard1").success, true);
-  assert.equal(StageName.safeParse("stage_llm_shard2").success, true);
-  assert.equal(StageName.safeParse("stage_llm_shard3").success, true);
+  // A stage name this package has never heard of is accepted, because which stage names
+  // exist is decided at run time by the pipelines the gateway has loaded.
+  assert.equal(StageName.safeParse("stage_invented_by_a_pipeline_file").success, true);
+  // The shape is still checked, so a mistyped name is rejected rather than silently used.
+  assert.equal(StageName.safeParse("Stage-Formula-Multiply").success, false);
+  assert.equal(StageName.safeParse("9stage").success, false);
+  assert.equal(StageName.safeParse("").success, false);
+  assert.equal(StageName.safeParse("a".repeat(101)).success, false);
 });
 
 test("StagePayloadFactory builds each stage payload shape", () => {
@@ -111,7 +113,7 @@ test("accepts a lease heartbeat and the stage settings that control leasing", ()
   assert.equal(ClientMessageSchema.safeParse({ type: "stage.heartbeat", taskId: "task-1", assignmentId: "assignment-1" }).success, false);
   assert.equal(ClientMessageSchema.safeParse({ type: "stage.heartbeat", taskId: "task-1", assignmentId: "assignment-1", attempt: 0 }).success, false);
 
-  const stage = { name: "stage_formula_multiply", inputSchemaId: "number@1", outputSchemaId: "number@1", encoding: "inline-json" } as const;
+  const stage = { name: "stage_formula_multiply", computation: "formula_multiply", inputSchemaId: "number@1", outputSchemaId: "number@1", encoding: "inline-json" } as const;
   assert.equal(PipelineStageSchema.safeParse({ ...stage, leaseMs: 60_000, prefersSameWorkerOnRetry: true }).success, true);
   // A stage that states neither setting is valid, and takes the gateway's --lease-ms default.
   assert.equal(PipelineStageSchema.safeParse(stage).success, true);
@@ -204,4 +206,19 @@ test("the task snapshot drops the attempt history and truncates the change log",
   assert.deepEqual(snapshot.recentEvents.at(-1), task.events.at(-1));
   assert.equal("value" in (snapshot.assignment ?? {}), false);
   assert.equal(snapshot.input.input, "What is the capital of France?");
+});
+
+test("a pipeline stage names the computation a worker must run, and a pipeline may repeat", () => {
+  const stage = { name: "stage_anything", computation: "formula_multiply", inputSchemaId: "number@1", outputSchemaId: "number@1", encoding: "inline-json" } as const;
+  // The stage name is free; the computation is what a worker matches on.
+  assert.equal(PipelineStageSchema.safeParse(stage).success, true);
+  assert.equal(PipelineStageSchema.safeParse({ ...stage, computation: undefined }).success, false);
+  assert.equal(PipelineStageSchema.safeParse({ ...stage, computation: "Formula Multiply" }).success, false);
+
+  assert.equal(PipelineSpecificationSchema.safeParse({
+    pipelineId: "invented", version: 1, taskType: "task_type_formula", repeatsUntilDone: true, stages: [stage],
+  }).success, true);
+  assert.equal(PipelineSpecificationSchema.safeParse({
+    pipelineId: "invented", version: 1, taskType: "task_type_formula", stages: [stage, stage],
+  }).success, false);
 });

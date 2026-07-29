@@ -302,12 +302,17 @@ function assign(
 	occupyWorkerAssignment(device.deviceId);
 	const socket = socketMap.get(device.deviceId);
 	if (socket) {
+		// The worker is told which computation to run and which position in its pipeline this
+		// stage occupies, so it never has to recognise the stage name to know what to do.
+		const specification = stagePolicyResolver.stageSpecification(existing, stage);
 		send(socket, {
 			type: "stage.assign",
 			taskId,
 			assignmentId: task.assignment!.assignmentId,
 			attempt: task.assignment!.attempt,
 			stage,
+			computation: specification?.computation ?? stage,
+			stageIndex: Math.max(0, (existing.pipelineStages ?? []).indexOf(stage)),
 			value,
 			leaseUntil: task.assignment!.leaseUntil,
 		}, { role: device.deviceRole, deviceId: device.deviceId });
@@ -431,7 +436,20 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 		send(socket, { type: "authenticated", principal, expiresAt: new Date(Date.now() + 3_600_000).toISOString() }, counterpartFor(deviceId));
 		return;
 	}
+	// Answered before registration on purpose: a worker asks which pipelines the gateway has
+	// loaded so it can decide which stages to advertise, and that decision has to be made
+	// before it registers. A pipeline specification carries no task data.
+	if (message.type === "pipelines.get") { send(socket, { type: "pipelines", pipelines: pipelineRegistry.list().filter((specification) => specification.retired !== true) }, counterpartFor(deviceId)); return; }
 	if (message.type === "register") {
+		// The pipeline registry is the authority on which stage names exist. The shared
+		// protocol package only checks the shape of a stage name, so a worker advertising a
+		// stage no loaded pipeline defines is told so here, rather than registering
+		// successfully and then silently never receiving work.
+		const undefinedStageNames = (message.stageNames ?? []).filter((stageName) => pipelineRegistry.definesStage(stageName) === false);
+		if (message.role === "worker" && undefinedStageNames.length > 0) {
+			sendError(socket, counterpartFor(deviceId), "VALIDATION", "No loaded pipeline defines these stages", { retryable: false, details: { undefinedStageNames, definedStageNames: pipelineRegistry.stageNames() } });
+			return;
+		}
 		const existingDevice = message.role === "worker"
 			? deviceRegistry.findByName(message.name, "worker")
 			: undefined;
@@ -445,8 +463,10 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 			deviceId,
 			name: message.name,
 			deviceRole: message.role,
+			// A worker that names no stages is taken to run every stage the loaded pipelines
+			// define, rather than a list of stage names written into the gateway.
 			stageNames: message.role === "worker"
-				? (message.stageNames ?? ["stage_formula_multiply", "stage_formula_add"])
+				? (message.stageNames ?? pipelineRegistry.stageNames())
 				: [],
 			connectedAt: new Date().toISOString(),
 			lastSeenAt: new Date().toISOString(),
@@ -527,9 +547,17 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 		const principal = devicePrincipalById.get(deviceId)!;
 		const activeTaskCount = taskStore.list().filter((candidate) => candidate.consumerPrincipal === principal && !["completed", "failed", "cancelled"].includes(candidate.state)).length;
 		if (activeTaskCount >= maximumTasksPerPrincipal) { sendError(socket, counterpartFor(deviceId), "RATE_LIMITED", "The principal has reached its active-task limit", { requestId: message.requestId, retryable: true, details: { limit: maximumTasksPerPrincipal } }); return; }
+		// Every task now runs a pipeline, including the formula and language-model ones. The
+		// stage sequence is data the task carries rather than a sequence built into the
+		// gateway, so a task whose pipeline is missing cannot be advanced at all.
 		const pipeline = pipelineRegistry.select(message.input, message.pipelineId, message.pipelineVersion);
-		if (message.input.taskType === "task_type_formula" && !pipeline) { sendError(socket, counterpartFor(deviceId), "NO_COMPATIBLE_WORKER", "No active compatible pipeline specification exists", { requestId: message.requestId, retryable: false }); return; }
-		const task = taskStore.create(message.input, deviceId, message.requestId, principal, pipeline === undefined ? undefined : { pipelineId: pipeline.pipelineId, pipelineVersion: pipeline.version, pipelineStages: pipeline.stages.map((stage) => stage.name) });
+		if (!pipeline) { sendError(socket, counterpartFor(deviceId), "NO_COMPATIBLE_WORKER", "No active compatible pipeline specification exists", { requestId: message.requestId, retryable: false }); return; }
+		const task = taskStore.create(message.input, deviceId, message.requestId, principal, {
+			pipelineId: pipeline.pipelineId,
+			pipelineVersion: pipeline.version,
+			pipelineStages: pipeline.stages.map((stage) => stage.name),
+			...(pipeline.repeatsUntilDone === true ? { pipelineRepeatsUntilDone: true } : {}),
+		});
 		send(socket, {
 			type: "task.accepted",
 			requestId: message.requestId,

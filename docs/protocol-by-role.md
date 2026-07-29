@@ -68,6 +68,8 @@ The client sends one of these initial messages:
 }
 ```
 
+A worker chooses those stage names from the pipelines the gateway reports for `pipelines.get`, keeping every stage whose computation it implements. A worker that sends no `stageNames` at all is taken to run every stage the loaded pipelines define. See "Pipelines, stages, and computations" below.
+
 The gateway replies to either registered role with:
 
 ```json
@@ -95,6 +97,8 @@ The gateway replies with `devices` and does not send `registered`.
 | `registered` | Gateway | Consumer or worker | Confirm registration and provide `deviceId`. |
 | `task.submit` | Consumer | Gateway | Submit a validated formula or language-model task input. |
 | `task.accepted` | Gateway | Consumer | Return the newly created task. |
+| `pipelines.get` | Any authenticated client | Gateway | Request the pipeline specifications the gateway has loaded. Answered before registration, because a worker uses the answer to decide which stages to advertise. |
+| `pipelines` | Gateway | The requesting client | Return the loaded pipeline specifications. |
 | `task.get` | Task owner or granted observer | Gateway | Request the full state of one task by identifier. |
 | `task.history` | Task owner or granted observer | Gateway | Request the complete change log of one task. |
 | `task.snapshot` | Gateway | The requesting client | Return the full state of one task, in reply to `task.get`, `task.resync`, or `task.observe`. |
@@ -160,6 +164,22 @@ A device record is split by how often its fields change:
 
 A change that moves nothing but `lastSeenAt` is never announced, and never spends a membership revision. A liveness timestamp that nobody displays to the millisecond does not justify a message. This applies to the refresh that happens on every message a device sends.
 
+### Pipelines, stages, and computations
+
+A pipeline is a validated record listing the stages a task runs, in order. The gateway loads the built-in pipelines and any further pipelines given by its `--pipeline-file` option, and a task selects one when it is submitted. The stage sequence is therefore data the task carries, not a sequence built into the gateway.
+
+Three separate things are involved, and keeping them apart is what allows a pipeline to be added without releasing the gateway, the worker, and the consumer together:
+
+- The **stage name** identifies one step of one pipeline, such as `stage_formula_multiply`. The shared protocol package checks only the shape of a stage name — lower-case letters, digits, and underscores, starting with a letter, up to 100 characters. It does not list which stage names exist. The pipeline registry in the gateway is the authority on that.
+- The **computation** identifies the code that carries the step out, such as `formula_multiply` or `llm_shard`. Every stage names one, and every `stage.assign` carries it, so a worker never has to recognise a stage name to know what to run. A new pipeline can give a new stage name a computation that workers already ship.
+- The **task type** still decides which pipelines a task may select, and remains a closed list of the two kinds of task input the protocol validates.
+
+A worker asks for `pipelines.get` before it registers, and advertises every stage whose computation it implements. A worker that advertises a stage no loaded pipeline defines is refused at registration with the error code `VALIDATION`, whose details list both the stage names it asked for and the stage names that exist, so a mistyped name is reported rather than silently never receiving work.
+
+`stage.assign` also carries `stageIndex`, the stage's position in its pipeline counted from zero. A computation with ordered parts uses it to know which part it is running: the language-model shards are told which shard to run this way rather than by reading a number out of the stage name.
+
+A pipeline that states `repeatsUntilDone` starts again at its first stage once its last stage finishes, and ends only when a stage result reports `done: true`. The language-model pipeline works this way — its three shards run once per generated token — so its looping is a property the specification states rather than behaviour written into the gateway.
+
 ### The assignment lease
 
 Every `stage.assign` carries a `leaseUntil` time. If that time passes and the assignment is still not finished, the gateway takes the stage away from the worker and assigns it again. The worker's eventual result is then refused with the error code `STALE_ASSIGNMENT`, and the work it did is thrown away.
@@ -177,7 +197,7 @@ A stage that keeps no state is still retried away from the worker that missed it
 
 ### What a worker sees
 
-A worker never receives `task.updated`, and a worker holding a stage assignment may not read the whole task through `task.get` or `task.resync`. A worker's entire view of a task is what `stage.assign` carries: the task identifier, the assignment identity, the stage name, the stage input value, and the lease expiry. A worker therefore never sees the original task input, the identity of the consumer that submitted the task, or the results of stages assigned to other workers. When an assignment stops being current — the task was cancelled, the lease expired, the worker relinquished the assignment, or the worker disconnected and the stage was reassigned — the gateway sends that worker the narrow `stage.cancel` message instead.
+A worker never receives `task.updated`, and a worker holding a stage assignment may not read the whole task through `task.get` or `task.resync`. A worker's entire view of a task is what `stage.assign` carries: the task identifier, the assignment identity, the stage name, the computation to run, the stage's position in its pipeline, the stage input value, and the lease expiry. A worker therefore never sees the original task input, the identity of the consumer that submitted the task, or the results of stages assigned to other workers. When an assignment stops being current — the task was cancelled, the lease expired, the worker relinquished the assignment, or the worker disconnected and the stage was reassigned — the gateway sends that worker the narrow `stage.cancel` message instead.
 
 The current task states are `queued`, `assigned`, `running`, `completed`,
 `failed`, and `cancelled`. The prototype currently sets `queued`, `assigned`,

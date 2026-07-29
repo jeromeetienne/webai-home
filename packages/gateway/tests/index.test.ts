@@ -11,6 +11,7 @@ import { TaskStore } from "../src/libs/task_store.js";
 import { PipelineRegistry, builtinPipelineSpecifications } from "../src/libs/pipeline_registry.js";
 import { StagePolicyResolver } from "../src/libs/stage_policy_resolver.js";
 import { splitDevices, stageStatistics } from "../src/dashboard.js";
+import type { TaskInput } from "@webai/protocol";
 
 const worker = (deviceId: string, stageNames: ("stage_formula_multiply" | "stage_formula_add")[] = ["stage_formula_multiply", "stage_formula_add"]) => ({
   deviceId,
@@ -20,6 +21,22 @@ const worker = (deviceId: string, stageNames: ("stage_formula_multiply" | "stage
   connectedAt: "2026-01-01T00:00:00.000Z",
   lastSeenAt: "2026-01-01T00:00:00.000Z",
 });
+
+/**
+ * Creates a task the way the gateway does: by selecting a pipeline for the task input and
+ * storing the stage sequence on the task. Every task carries a pipeline, so a task built
+ * without one cannot be advanced.
+ */
+const createTask = (store: TaskStore, input: TaskInput, consumerDeviceId?: string, requestId?: string) => {
+  const registry = new PipelineRegistry(builtinPipelineSpecifications);
+  const pipeline = registry.select(input)!;
+  return store.create(input, consumerDeviceId, requestId, undefined, {
+    pipelineId: pipeline.pipelineId,
+    pipelineVersion: pipeline.version,
+    pipelineStages: pipeline.stages.map((stage) => stage.name),
+    ...(pipeline.repeatsUntilDone === true ? { pipelineRepeatsUntilDone: true } : {}),
+  });
+};
 
 const consumer = (deviceId: string) => ({
   deviceId,
@@ -73,7 +90,7 @@ test("selects a pinned compatible pipeline version and rejects invalid definitio
 
 test("creates tasks and advances through both stages", () => {
   const store = new TaskStore();
-  const task = store.create({ taskType: "task_type_formula", input: 5 });
+  const task = createTask(store, { taskType: "task_type_formula", input: 5 });
 
   assert.equal(task.state, "queued");
   assert.equal(TaskStore.nextStage(task), "stage_formula_multiply");
@@ -89,7 +106,7 @@ test("creates tasks and advances through both stages", () => {
 
 test("keeps consumer request identifiers and assignment ownership in task state", () => {
   const store = new TaskStore();
-  const task = store.create({ taskType: "task_type_formula", input: 5 }, "consumer-1", "request-1");
+  const task = createTask(store, { taskType: "task_type_formula", input: 5 }, "consumer-1", "request-1");
 
   assert.equal(store.findByRequest("consumer-1", "request-1")?.taskId, task.taskId);
   assert.equal(store.findByRequest("consumer-2", "request-1"), undefined);
@@ -122,7 +139,7 @@ test("keeps repeated request identifiers idempotent and rejects stale assignment
 test("records deterministic lease attempts, acknowledgement, and cancellation", () => {
   const now = new Date("2026-01-01T00:00:00.000Z");
   const store = new TaskStore(() => now, 1000, 500);
-  const task = store.create({ taskType: "task_type_formula", input: 5 }, "consumer-1", "request-1");
+  const task = createTask(store, { taskType: "task_type_formula", input: 5 }, "consumer-1", "request-1");
   assert.equal(task.state, "queued");
   assert.equal(task.submissionDeadlineAt, "2026-01-01T00:00:01.000Z");
 
@@ -145,7 +162,7 @@ test("restores durable task records and idempotency after a new TaskStore instan
   const stateFile = join(directory, "state.json");
   try {
     const first = new TaskStore(undefined, 30_000, 15_000, stateFile);
-    const task = first.create({ taskType: "task_type_formula", input: 5 }, "consumer-1", "request-1");
+    const task = createTask(first, { taskType: "task_type_formula", input: 5 }, "consumer-1", "request-1");
     first.assign(task.taskId, "worker-1", "stage_formula_multiply", 5);
 
     const restored = new TaskStore(undefined, 30_000, 15_000, stateFile);
@@ -158,7 +175,7 @@ test("restores durable task records and idempotency after a new TaskStore instan
 
 test("loops an LLM task through its three shards once per generated token", () => {
   const store = new TaskStore();
-  const task = store.create({ taskType: "task_type_llm", input: "What is the capital of France?" });
+  const task = createTask(store, { taskType: "task_type_llm", input: "What is the capital of France?" });
 
   assert.equal(TaskStore.nextStage(task), "stage_llm_shard1");
 
@@ -181,7 +198,7 @@ test("loops an LLM task through its three shards once per generated token", () =
 
 test("resets the retry budget after each successful LLM stage", () => {
   const store = new TaskStore();
-  const task = store.create({ taskType: "task_type_llm", input: "hello" });
+  const task = createTask(store, { taskType: "task_type_llm", input: "hello" });
   let current = store.assign(task.taskId, "worker-1", "stage_llm_shard1", { text: "hello" });
   assert.equal(current.assignment?.attempt, 1);
   current = store.addStage(current.taskId, { name: "stage_llm_shard1", value: { tensors: {} } });
@@ -219,7 +236,7 @@ test("tells a device joining apart from a change to its description, its activit
 
 test("a lease renewal extends the lease without raising the task revision", () => {
   const store = new TaskStore(undefined, 30_000, 2_000);
-  const task = store.create({ taskType: "task_type_formula", input: 5 }, "consumer-1", "request-1");
+  const task = createTask(store, { taskType: "task_type_formula", input: 5 }, "consumer-1", "request-1");
   const assigned = store.assign(task.taskId, "worker-1", "stage_formula_multiply", 5);
   const before = store.get(task.taskId)!;
 
@@ -238,7 +255,7 @@ test("a lease renewal extends the lease without raising the task revision", () =
 
 test("a stage assignment can be given a lease shorter or longer than the store default", () => {
   const store = new TaskStore(undefined, 30_000, 2_000);
-  const task = store.create({ taskType: "task_type_formula", input: 5 }, "consumer-1", "request-1");
+  const task = createTask(store, { taskType: "task_type_formula", input: 5 }, "consumer-1", "request-1");
   const assigned = store.assign(task.taskId, "worker-1", "stage_formula_multiply", 5, undefined, 60_000);
   assert.ok(Date.parse(assigned.assignment!.leaseUntil) - Date.now() > 30_000);
 });
@@ -248,8 +265,8 @@ test("stage settings come from the pipeline specification, and language-model sh
   registry.add({
     pipelineId: "formula", version: 2, taskType: "task_type_formula",
     stages: [
-      { name: "stage_formula_multiply", inputSchemaId: "number@1", outputSchemaId: "number@1", encoding: "inline-json", leaseMs: 9_000, prefersSameWorkerOnRetry: true },
-      { name: "stage_formula_add", inputSchemaId: "number@1", outputSchemaId: "number@1", encoding: "inline-json" },
+      { name: "stage_formula_multiply", computation: "formula_multiply", inputSchemaId: "number@1", outputSchemaId: "number@1", encoding: "inline-json", leaseMs: 9_000, prefersSameWorkerOnRetry: true },
+      { name: "stage_formula_add", computation: "formula_add", inputSchemaId: "number@1", outputSchemaId: "number@1", encoding: "inline-json" },
     ],
   });
   const resolver = new StagePolicyResolver(registry, 2_000);
@@ -260,10 +277,84 @@ test("stage settings come from the pipeline specification, and language-model sh
   // A stage that states no lease of its own falls back to the gateway's --lease-ms default.
   assert.deepEqual(resolver.resolve(specified, "stage_formula_add"), { leaseMs: 2_000, prefersSameWorkerOnRetry: false });
 
-  // The built-in language-model pipeline has no specification, because its three shards
-  // cycle once per generated token rather than running once each. Its shards keep their
-  // worker anyway, so a retry does not throw away the key-value cache.
-  const builtin = store.create({ taskType: "task_type_llm", input: "hello" }, "consumer-1", "request-2");
-  assert.deepEqual(resolver.resolve(builtin, "stage_llm_shard1"), { leaseMs: 2_000, prefersSameWorkerOnRetry: true });
-  assert.deepEqual(resolver.resolve(builtin, "stage_formula_multiply"), { leaseMs: 2_000, prefersSameWorkerOnRetry: false });
+  // The language-model pipeline is an ordinary specification like any other. Its shards
+  // state that they keep their worker, so a retry does not throw away the key-value cache.
+  const llm = store.create({ taskType: "task_type_llm", input: "hello" }, "consumer-1", "request-2", undefined, { pipelineId: "llm", pipelineVersion: 1 });
+  assert.deepEqual(resolver.resolve(llm, "stage_llm_shard1"), { leaseMs: 2_000, prefersSameWorkerOnRetry: true });
+  // A stage the task's own pipeline does not list falls back to the defaults.
+  assert.deepEqual(resolver.resolve(llm, "stage_formula_multiply"), { leaseMs: 2_000, prefersSameWorkerOnRetry: false });
+});
+
+test("a pipeline file may introduce a stage name that appears nowhere in the source", () => {
+  const registry = new PipelineRegistry(builtinPipelineSpecifications);
+  registry.add({
+    pipelineId: "invented", version: 7, taskType: "task_type_formula", stages: [
+      { name: "stage_invented_first", computation: "formula_multiply", inputSchemaId: "number@1", outputSchemaId: "number@1", encoding: "inline-json" },
+      { name: "stage_invented_second", computation: "formula_add", inputSchemaId: "number@1", outputSchemaId: "number@1", encoding: "inline-json" },
+    ],
+  });
+
+  assert.equal(registry.definesStage("stage_invented_first"), true);
+  assert.equal(registry.definesStage("stage_never_defined"), false);
+  assert.ok(registry.stageNames().includes("stage_invented_second"));
+
+  // A higher version wins, so the invented pipeline is what a formula task now runs.
+  const store = new TaskStore();
+  const pipeline = registry.select({ taskType: "task_type_formula", input: 5 })!;
+  assert.equal(pipeline.pipelineId, "invented");
+  const task = store.create({ taskType: "task_type_formula", input: 5 }, "consumer-1", "request-1", undefined, {
+    pipelineId: pipeline.pipelineId, pipelineVersion: pipeline.version, pipelineStages: pipeline.stages.map((stage) => stage.name),
+  });
+  assert.equal(TaskStore.nextStage(task), "stage_invented_first");
+  const afterFirst = store.addStage(task.taskId, { name: "stage_invented_first", value: 10 });
+  assert.equal(TaskStore.nextStage(afterFirst), "stage_invented_second");
+  const afterSecond = store.addStage(task.taskId, { name: "stage_invented_second", value: 17 });
+  assert.equal(TaskStore.nextStage(afterSecond), undefined);
+});
+
+test("a repeating pipeline runs its stages again until a result reports it is done", () => {
+  const store = new TaskStore();
+  const registry = new PipelineRegistry(builtinPipelineSpecifications);
+  registry.add({
+    pipelineId: "two_step_loop", version: 1, taskType: "task_type_llm", repeatsUntilDone: true, stages: [
+      { name: "stage_loop_first", computation: "llm_shard", inputSchemaId: "llm@1", outputSchemaId: "llm@1", encoding: "inline-json" },
+      { name: "stage_loop_second", computation: "llm_shard", inputSchemaId: "llm@1", outputSchemaId: "llm@1", encoding: "inline-json" },
+    ],
+  });
+  const pipeline = registry.get("two_step_loop", 1)!;
+  let current = store.create({ taskType: "task_type_llm", input: "hello" }, "consumer-1", "request-1", undefined, {
+    pipelineId: pipeline.pipelineId, pipelineVersion: pipeline.version, pipelineStages: pipeline.stages.map((stage) => stage.name), pipelineRepeatsUntilDone: true,
+  });
+
+  assert.equal(TaskStore.nextStage(current), "stage_loop_first");
+  current = store.addStage(current.taskId, { name: "stage_loop_first", value: { tensors: {} } });
+  assert.equal(TaskStore.nextStage(current), "stage_loop_second");
+  // The cycle ended without reporting it is done, so the pipeline starts again.
+  current = store.addStage(current.taskId, { name: "stage_loop_second", value: { text: "The", done: false } });
+  assert.equal(TaskStore.nextStage(current), "stage_loop_first");
+
+  current = store.addStage(current.taskId, { name: "stage_loop_first", value: { tensors: {} } });
+  current = store.addStage(current.taskId, { name: "stage_loop_second", value: { text: "The capital", done: true } });
+  assert.equal(TaskStore.nextStage(current), undefined);
+});
+
+test("a restored task that carries no pipeline is failed rather than left stuck", () => {
+  const directory = mkdtempSync(join(tmpdir(), "webai-task-store-legacy-"));
+  const stateFile = join(directory, "state.json");
+  try {
+    const first = new TaskStore(undefined, 30_000, 15_000, stateFile);
+    // A task created without a pipeline, the way an earlier gateway wrote them.
+    const stranded = first.create({ taskType: "task_type_formula", input: 5 }, "consumer-1", "request-1");
+    const finished = first.create({ taskType: "task_type_formula", input: 5 }, "consumer-1", "request-2");
+    first.update(finished.taskId, { state: "completed", result: 17 });
+
+    const second = new TaskStore(undefined, 30_000, 15_000, stateFile);
+    assert.equal(second.get(stranded.taskId)?.state, "failed");
+    assert.equal(second.get(stranded.taskId)?.error, "NO_PIPELINE_ON_RESTORED_TASK");
+    // A task that already finished is left exactly as it was.
+    assert.equal(second.get(finished.taskId)?.state, "completed");
+    assert.equal(second.get(finished.taskId)?.result, 17);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });

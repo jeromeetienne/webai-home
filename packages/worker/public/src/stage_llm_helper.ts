@@ -1,6 +1,6 @@
 import * as OnnxRuntimeWeb from "onnxruntime-web";
 import { Tokenizer } from "@huggingface/tokenizers";
-import { StagePayloadFactory, type EncodedTensor, type LlmStagePayload, type StageName } from "@webai/protocol";
+import { StagePayloadFactory, type EncodedTensor, type LlmStagePayload } from "@webai/protocol";
 import { centralGatewayAssetUrl } from "./gateway_config";
 
 /**
@@ -9,12 +9,13 @@ import { centralGatewayAssetUrl } from "./gateway_config";
  * to run behind the real stage-assignment pipeline (see https://github.com/webai-at-home/webai-at-home/issues/9)
  * instead of one in-page button.
  *
- * One task's three shards are always assigned to the same worker device (task_store.ts's
- * `nextStage` loops `stage_llm_shard1` → `stage_llm_shard2` → `stage_llm_shard3` back to
- * `stage_llm_shard1` once per generated token, and cli.ts pins every stage of one LLM task to
- * the device that ran its first stage). That lets each shard keep its own key-value cache in
- * this module's memory, keyed by task identifier, instead of serializing it over the wire —
- * only the small hand-off tensors between shards travel inside stage.result/stage.assign.
+ * One task's shards are always assigned to the same worker device. The language-model
+ * pipeline states `repeatsUntilDone`, so the gateway runs its shard stages again from the
+ * first once per generated token, and each of those stages states `prefersSameWorkerOnRetry`
+ * so even a retried attempt comes back to the device that already holds the state. That lets
+ * each shard keep its own key-value cache in this module's memory, keyed by task identifier,
+ * instead of serializing it over the wire — only the small hand-off tensors between shards
+ * travel inside stage.result/stage.assign.
  */
 
 /** Hugging Face identifier for the Qwen3 model used by this experiment. */
@@ -83,8 +84,28 @@ interface TaskGenerationState {
 
 /** Loads the qwen3-0.6b shards and runs the assigned shard for each stage of a task's generation loop. */
 export class StageLlmHelper {
-	/** The stages this worker browser supports, advertised to the central gateway. */
-	static readonly stageNames: StageName[] = ["stage_llm_shard1", "stage_llm_shard2", "stage_llm_shard3"];
+	/**
+	 * The computation this worker browser implements, named the way a pipeline stage names
+	 * its computation.
+	 *
+	 * A stage is dispatched by its computation and its position in its pipeline, not by its
+	 * stage name, so a pipeline may name its shard stages anything as long as it lists three
+	 * of them in shard order.
+	 */
+	static readonly computation = "llm_shard";
+
+	/** How many shards this browser can run, which is how many the loaded model was split into. */
+	static readonly shardCount = 3;
+
+	/**
+	 * Reports whether this helper implements a computation.
+	 *
+	 * @param computation The computation named by a pipeline stage.
+	 * @returns `true` when this helper can run it.
+	 */
+	static implementsComputation(computation: string): boolean {
+		return computation === StageLlmHelper.computation;
+	}
 
 	/** The three ordered shard sessions: input, middle, and output. */
 	private static shardSessions: Array<ShardSession | undefined> = [];
@@ -98,14 +119,15 @@ export class StageLlmHelper {
 	/**
 	 * Runs the shard for one assigned stage against the payload received from the gateway.
 	 *
-	 * @param stageName The LLM shard stage to compute.
+	 * @param shardIndex Which shard to run, taken from the assigned stage's position in its pipeline.
 	 * @param taskId The task this stage belongs to, used to look up its key-value cache and generated tokens so far.
 	 * @param payload The incoming stage payload (the prompt for shard 1's first round, or the previous shard's hand-off otherwise).
 	 * @returns The outgoing stage payload to send back as the stage result.
+	 * @throws If the pipeline asks for a shard beyond the number this browser's model was split into.
 	 */
-	static async compute(stageName: StageName, taskId: string, payload: LlmStagePayload): Promise<LlmStagePayload> {
-		await StageLlmHelper.loadModel([stageName]);
-		const shardIndex = StageLlmHelper.stageNames.indexOf(stageName);
+	static async compute(shardIndex: number, taskId: string, payload: LlmStagePayload): Promise<LlmStagePayload> {
+		if (shardIndex < 0 || shardIndex >= StageLlmHelper.shardCount) throw new Error(`This browser runs ${StageLlmHelper.shardCount} language-model shards and was asked for shard ${shardIndex + 1}.`);
+		await StageLlmHelper.loadModel([shardIndex]);
 		const session = StageLlmHelper.shardSessions[shardIndex];
 		if (!session) throw new Error(`LLM shard ${shardIndex + 1} was not loaded.`);
 		const isFirstShard = shardIndex === 0;
@@ -125,7 +147,7 @@ export class StageLlmHelper {
 				.map(([name, value]) => [name.replace("present", "past_key_values"), value]),
 		);
 
-		const isLastShard = shardIndex === StageLlmHelper.stageNames.length - 1;
+		const isLastShard = shardIndex === StageLlmHelper.shardCount - 1;
 		if (isLastShard) {
 			const nextToken = StageLlmHelper.getNextToken(StageLlmHelper.findLogits(session, outputs));
 			state.generatedIds.push(nextToken);
@@ -162,10 +184,15 @@ export class StageLlmHelper {
 		StageLlmHelper.stateByTaskId.delete(taskId);
 	}
 
-	/** Preloads the LLM shards enabled for this worker before gateway connection. */
-	static preload(stageNames: readonly StageName[]): Promise<void> {
-		const enabledLlmStages = stageNames.filter((stageName) => StageLlmHelper.stageNames.includes(stageName));
-		return enabledLlmStages.length === 0 ? Promise.resolve() : StageLlmHelper.loadModel(enabledLlmStages);
+	/**
+	 * Preloads the LLM shards enabled for this worker before gateway connection.
+	 *
+	 * @param shardIndexes Which shards this worker will be asked to run, taken from the
+	 * positions of the enabled language-model stages in their pipeline.
+	 */
+	static preload(shardIndexes: readonly number[]): Promise<void> {
+		const runnable = shardIndexes.filter((shardIndex) => shardIndex >= 0 && shardIndex < StageLlmHelper.shardCount);
+		return runnable.length === 0 ? Promise.resolve() : StageLlmHelper.loadModel(runnable);
 	}
 
 	/** Creates and stores fresh generation state for a task's first round. */
@@ -178,10 +205,8 @@ export class StageLlmHelper {
 	/**
 	 * Loads the tokenizer and creates the three ONNX Runtime Web shard sessions once per page.
 	 */
-	private static async loadModel(stageNames: readonly StageName[]): Promise<void> {
-		const shardIndexes = [...new Set(stageNames
-			.map((stageName) => StageLlmHelper.stageNames.indexOf(stageName))
-			.filter((shardIndex) => shardIndex >= 0))];
+	private static async loadModel(requestedShardIndexes: readonly number[]): Promise<void> {
+		const shardIndexes = [...new Set(requestedShardIndexes)];
 		if (shardIndexes.every((shardIndex) => StageLlmHelper.shardSessions[shardIndex]) && StageLlmHelper.tokenizer) return;
 		if (StageLlmHelper.loadPromise) return StageLlmHelper.loadPromise;
 

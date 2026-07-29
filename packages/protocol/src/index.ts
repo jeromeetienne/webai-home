@@ -3,13 +3,19 @@ import { z } from "zod";
 export const TaskState = z.enum(["queued", "assigned", "running", "completed", "failed", "cancelled"]);
 export type TaskState = z.infer<typeof TaskState>;
 
-export const StageName = z.enum([
-  "stage_formula_multiply",
-  "stage_formula_add",
-  "stage_llm_shard1",
-  "stage_llm_shard2",
-  "stage_llm_shard3",
-]);
+/**
+ * The name of one stage of one pipeline.
+ *
+ * This is a bounded, pattern-checked string rather than a list of the stage names that
+ * happen to exist today. Which stage names actually exist is decided at run time by the
+ * pipeline specifications the gateway has loaded, so a new pipeline can be added through the
+ * gateway's `--pipeline-file` option without changing this shared package and without
+ * rebuilding the gateway, the worker, and the consumer together.
+ *
+ * A worker that advertises a stage no loaded pipeline defines is refused at registration, so
+ * a mistyped name is still reported rather than silently never receiving work.
+ */
+export const StageName = z.string().min(1).max(100).regex(/^[a-z][a-z0-9_]*$/, "A stage name must start with a lower-case letter and contain only lower-case letters, digits, and underscores");
 export type StageName = z.infer<typeof StageName>;
 
 export const TaskType = z.enum(["task_type_formula", "task_type_llm"]);
@@ -23,6 +29,17 @@ export type TaskInput = z.infer<typeof TaskInput>;
 
 export const PipelineStageSchema = z.object({
   name: StageName,
+  /**
+   * Which computation a worker must run for this stage, such as `formula_multiply` or
+   * `llm_shard`.
+   *
+   * The stage name identifies a step of one pipeline; the computation identifies the code
+   * that carries the step out. Separating the two is what lets a new pipeline reuse a
+   * computation a worker already ships, under a stage name that appears nowhere in the
+   * source. Every `stage.assign` carries this value, so a worker never has to recognise a
+   * stage name to know what to run.
+   */
+  computation: z.string().min(1).max(100).regex(/^[a-z][a-z0-9_]*$/, "A computation name must start with a lower-case letter and contain only lower-case letters, digits, and underscores"),
   inputSchemaId: z.string().min(1).max(200),
   outputSchemaId: z.string().min(1).max(200),
   encoding: z.enum(["inline-json"]),
@@ -40,11 +57,22 @@ export const PipelineStageSchema = z.object({
    */
   prefersSameWorkerOnRetry: z.boolean().optional(),
 }).strict();
+/** One stage of one pipeline, as stated by its pipeline specification. */
+export type PipelineStage = z.infer<typeof PipelineStageSchema>;
 export const PipelineSpecificationSchema = z.object({
   pipelineId: z.string().min(1).max(200),
   version: z.number().int().positive(),
   taskType: TaskType,
   stages: z.array(PipelineStageSchema).min(1).max(20),
+  /**
+   * Whether the pipeline runs its stages again from the first once the last stage finishes,
+   * instead of ending there.
+   *
+   * The language-model pipeline works this way: its shards run once per generated token, and
+   * generation ends when the last stage returns a result reporting `done: true`. A pipeline
+   * that does not state this runs each of its stages exactly once.
+   */
+  repeatsUntilDone: z.boolean().optional(),
   retired: z.boolean().optional(),
 }).strict().superRefine((specification, context) => {
   const names = specification.stages.map((stage) => stage.name);
@@ -119,10 +147,20 @@ export interface Task {
   submissionDeadlineAt: string;
   /** Monotonic task-state revision. Clients ignore older snapshots and resynchronise after gaps. */
   revision: number;
-  /** Pipeline identity is optional while the built-in formula and LLM pipelines are migrated. */
+  /**
+   * The pipeline this task runs. Every task selects one when it is submitted, so the stage
+   * sequence is data the task carries rather than a sequence built into the gateway. The
+   * fields stay optional so a task stored by an earlier gateway can still be read back.
+   */
   pipelineId?: string;
   pipelineVersion?: number;
   pipelineStages?: StageName[];
+  /**
+   * Whether this task's pipeline runs its stages again from the first once the last stage
+   * finishes, until a stage result reports `done: true`. Copied from the pipeline
+   * specification when the task is created, so advancing a task needs no registry lookup.
+   */
+  pipelineRepeatsUntilDone?: boolean;
   acknowledgedAssignmentIds?: string[];
 }
 
@@ -215,6 +253,7 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("devices.unsubscribe") }).strict(),
   z.object({ type: z.literal("register"), role: z.enum(["worker", "consumer"]), name: z.string().min(1).max(200), stageNames: z.array(StageName).max(10).optional(), ready: z.boolean().optional(), maxConcurrentAssignments: z.number().int().min(1).max(100).optional() }).strict(),
   z.object({ type: z.literal("task.submit"), requestId: RequestId, input: TaskInput, pipelineId: Identifier.optional(), pipelineVersion: z.number().int().positive().optional() }).strict(),
+  z.object({ type: z.literal("pipelines.get") }).strict(),
   z.object({ type: z.literal("task.get"), taskId: Identifier }).strict(),
   z.object({ type: z.literal("task.history"), taskId: Identifier }).strict(),
   z.object({ type: z.literal("stage.result"), taskId: Identifier, assignmentId: AssignmentId, attempt: z.number().int().positive(), stage: StageName, value: StagePayloadSchema }).strict(),
@@ -254,7 +293,14 @@ export type GatewayMessage =
   | { type: "task.snapshot"; task: TaskSnapshot }
   | { type: "task.updated"; update: TaskUpdate }
   | { type: "task.history"; taskId: string; events: TaskEvent[] }
-  | { type: "stage.assign"; taskId: string; assignmentId: string; attempt: number; stage: StageName; value: StagePayload; leaseUntil: string; peerId?: string }
+  // "pipelines" answers "pipelines.get". A worker asks for it before it registers, so it can
+  // advertise every stage whose computation it implements, including stages of a pipeline
+  // that was added after the worker was built.
+  | { type: "pipelines"; pipelines: PipelineSpecification[] }
+  // "stage.assign" carries "computation" so the worker knows what code to run without
+  // recognising the stage name, and "stageIndex" so a computation with ordered parts, such
+  // as a language-model shard, knows which part of its pipeline it is running.
+  | { type: "stage.assign"; taskId: string; assignmentId: string; attempt: number; stage: StageName; computation: string; stageIndex: number; value: StagePayload; leaseUntil: string; peerId?: string }
   | { type: "stage.cancel"; taskId: string; assignmentId: string; attempt: number; reason: string }
   | { type: "stage.lease.extended"; taskId: string; assignmentId: string; attempt: number; leaseUntil: string }
   | { type: "stage.result.accepted"; taskId: string; assignmentId: string; attempt: number; revision: number; status: "assigned" | "completed" | "failed" }
