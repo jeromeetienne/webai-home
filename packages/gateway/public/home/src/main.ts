@@ -14,7 +14,11 @@ type DeviceSummary = {
 type GatewayMessage = {
 	type: string;
 	devices?: Device[];
+	device?: Device;
+	deviceId?: string;
 	task?: Task;
+	code?: string;
+	message?: string;
 };
 
 type DashboardEvent = {
@@ -25,6 +29,15 @@ type DashboardEvent = {
 
 const maximumDisplayedEvents = 10;
 
+/** The gateway message types that carry a device list or a single device change. */
+const deviceMessageTypes = ["devices", "device.joined", "device.updated", "device.left"];
+
+/**
+ * The bearer token this dashboard page presents to the central gateway. It matches the
+ * gateway's own `--auth-token` default, the same way the worker browser page does.
+ */
+const gatewayAuthenticationToken = "development-token";
+
 const escapeHtml = (value: string): string => value
 	.replaceAll("&", "&amp;")
 	.replaceAll("<", "&lt;")
@@ -33,6 +46,32 @@ const escapeHtml = (value: string): string => value
 	.replaceAll("'", "&#039;");
 
 const formatTime = (timestamp: string): string => new Date(timestamp).toLocaleTimeString();
+
+/**
+ * Counts the currently known devices for the recent gateway events list.
+ *
+ * @param deviceById - Every device the page currently knows about, keyed by device identifier.
+ * @returns A sentence such as "2 workers, 1 consumer".
+ */
+const describeDeviceCount = (deviceById: Map<string, Device>): string => {
+	const devices = splitDevices([...deviceById.values()]);
+	const workerCount = devices.worker.length;
+	const consumerCount = devices.consumer.length;
+	return `${workerCount} worker${workerCount === 1 ? "" : "s"}, ${consumerCount} consumer${consumerCount === 1 ? "" : "s"}`;
+};
+
+/**
+ * Describes a gateway message for the recent gateway events list. An error message shows
+ * its own code and text, so the reason is readable on the page instead of being hidden
+ * behind a generic line.
+ *
+ * @param message - The gateway message that was received.
+ * @returns The text to show underneath the message type.
+ */
+const describeMessage = (message: GatewayMessage): string => {
+	if (message.type !== "error") return "Gateway message received";
+	return `${message.code ?? "UNKNOWN"}: ${message.message ?? "No description was provided"}`;
+};
 
 const taskSummary = (task: Task): string => {
 	const input = task.input.input;
@@ -81,34 +120,60 @@ const configureFoldablePanels = (): void => {
 		if (events.length > maximumDisplayedEvents) events.splice(0, events.length - maximumDisplayedEvents);
 		eventsEl.innerHTML = events.slice().reverse().map((item) => `<article class="event-item"><div class="d-flex justify-content-between gap-3"><strong>${escapeHtml(item.type)}</strong><time class="text-secondary">${escapeHtml(formatTime(item.timestamp))}</time></div><div class="small text-secondary">${escapeHtml(item.details)}</div></article>`).join("");
 	};
+	// The central gateway sends the full device list once, as the reply to "observe", and
+	// afterwards only sends what changed, as "device.joined", "device.updated" and
+	// "device.left". Keeping the devices here lets every one of those messages redraw the
+	// panels, instead of the counts standing still until the page is reloaded.
+	const deviceById = new Map<string, Device>();
+	const renderDevices = (): void => {
+		const devices = splitDevices([...deviceById.values()]);
+		const workers = devices.worker;
+		const consumers = devices.consumer;
+		workerCountEl.textContent = String(workers.length);
+		consumerCountEl.textContent = String(consumers.length);
+		workersEl.innerHTML = workers.map((device: DeviceSummary) => connectionMarkup(device, true)).join("") || '<p class="text-secondary mb-0">No worker browsers are connected.</p>';
+		consumersEl.innerHTML = consumers.map((device: DeviceSummary) => connectionMarkup(device, false)).join("") || '<p class="text-secondary mb-0">No consumers are connected.</p>';
+		const statistics = stageStatistics(workers);
+		stageCountEl.textContent = String(statistics.total);
+		stagesEl.innerHTML = statistics.stages.map((stage) => `<div class="stage-stat"><div class="d-flex justify-content-between"><span>${escapeHtml(stage.stageName)}</span><span class="text-secondary">${stage.count} worker${stage.count === 1 ? "" : "s"} · ${stage.percentage.toFixed(1)}%</span></div><div class="progress" role="progressbar" aria-label="${escapeHtml(stage.stageName)} percentage" aria-valuenow="${stage.percentage}" aria-valuemin="0" aria-valuemax="100"><div class="progress-bar" style="width: ${stage.percentage}%"></div></div></div>`).join("") || '<p class="text-secondary mb-0">No worker stages are enabled.</p>';
+	};
 	const socketEl: WebSocket = new WebSocket(`${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}`);
 
 	socketEl.addEventListener("open", (): void => {
-		socketEl.send(JSON.stringify({ type: "observe" }));
+		socketEl.send(JSON.stringify({ type: "authenticate", token: gatewayAuthenticationToken }));
 		statusEl.textContent = "Connected to the central gateway.";
 		statusBadgeEl.textContent = "Connected";
 		statusBadgeEl.className = "badge rounded-pill text-bg-success";
 	});
 	socketEl.addEventListener("message", (event: MessageEvent): void => {
 		const message: GatewayMessage = JSON.parse(event.data as string) as GatewayMessage;
+		if (message.type === "authenticated") {
+			socketEl.send(JSON.stringify({ type: "observe" }));
+			addEvent({ type: "Authenticated", timestamp: new Date().toISOString(), details: "Now observing the central gateway" });
+			return;
+		}
 		if (message.type === "devices" && message.devices) {
-			const devices = splitDevices(message.devices);
-			const workers = devices.worker;
-			const consumers = devices.consumer;
-			workerCountEl.textContent = String(workers.length);
-			consumerCountEl.textContent = String(consumers.length);
-			workersEl.innerHTML = workers.map((device: DeviceSummary) => connectionMarkup(device, true)).join("") || '<p class="text-secondary mb-0">No worker browsers are connected.</p>';
-			consumersEl.innerHTML = consumers.map((device: DeviceSummary) => connectionMarkup(device, false)).join("") || '<p class="text-secondary mb-0">No consumers are connected.</p>';
-			const statistics = stageStatistics(workers);
-			stageCountEl.textContent = String(statistics.total);
-			stagesEl.innerHTML = statistics.stages.map((stage) => `<div class="stage-stat"><div class="d-flex justify-content-between"><span>${escapeHtml(stage.stageName)}</span><span class="text-secondary">${stage.count} worker${stage.count === 1 ? "" : "s"} · ${stage.percentage.toFixed(1)}%</span></div><div class="progress" role="progressbar" aria-label="${escapeHtml(stage.stageName)} percentage" aria-valuenow="${stage.percentage}" aria-valuemin="0" aria-valuemax="100"><div class="progress-bar" style="width: ${stage.percentage}%"></div></div></div>`).join("") || '<p class="text-secondary mb-0">No worker stages are enabled.</p>';
-			addEvent({ type: "Worker list updated", timestamp: new Date().toISOString(), details: `${workers.length} connected worker${workers.length === 1 ? "" : "s"}` });
+			deviceById.clear();
+			for (const device of message.devices) deviceById.set(device.deviceId, device);
+			renderDevices();
+			addEvent({ type: "Device list received", timestamp: new Date().toISOString(), details: describeDeviceCount(deviceById) });
+		}
+		if ((message.type === "device.joined" || message.type === "device.updated") && message.device) {
+			deviceById.set(message.device.deviceId, message.device);
+			renderDevices();
+			addEvent({ type: message.type === "device.joined" ? "Device joined" : "Device updated", timestamp: new Date().toISOString(), details: `${message.device.name} · ${describeDeviceCount(deviceById)}` });
+		}
+		if (message.type === "device.left" && message.deviceId !== undefined) {
+			const departed = deviceById.get(message.deviceId);
+			deviceById.delete(message.deviceId);
+			renderDevices();
+			addEvent({ type: "Device left", timestamp: new Date().toISOString(), details: `${departed?.name ?? message.deviceId} · ${describeDeviceCount(deviceById)}` });
 		}
 		if ((message.type === "task.updated" || message.type === "task.accepted") && message.task){
 			tasksEl.innerHTML = `<div class="d-flex justify-content-between gap-3 mb-2"><strong>${escapeHtml(message.task.taskId)}</strong><span class="badge text-bg-light border">${escapeHtml(message.task.state)}</span></div><p class="mb-2">${escapeHtml(taskSummary(message.task))}</p><div class="small text-secondary">Completed stages: ${message.task.completedStages.length}</div>${message.task.error ? `<div class="alert alert-danger mt-3 mb-0 py-2">${escapeHtml(message.task.error)}</div>` : ""}`;
 			addEvent({ type: message.type === "task.accepted" ? "Task accepted" : "Task updated", timestamp: new Date().toISOString(), details: taskSummary(message.task) });
 		}
-		if (message.type !== "devices" && message.type !== "task.updated" && message.type !== "task.accepted") addEvent({ type: message.type, timestamp: new Date().toISOString(), details: "Gateway message received" });
+		if (deviceMessageTypes.includes(message.type) === false && message.type !== "task.updated" && message.type !== "task.accepted") addEvent({ type: message.type, timestamp: new Date().toISOString(), details: describeMessage(message) });
 	});
 	socketEl.addEventListener("close", (): void => {
 		statusEl.textContent = "Disconnected from the central gateway.";
