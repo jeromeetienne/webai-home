@@ -20,6 +20,10 @@
     "./envelope": {
       "types": "./dist/envelope.d.ts",
       "default": "./dist/envelope.js"
+    },
+    "./session_renewal": {
+      "types": "./dist/session_renewal.d.ts",
+      "default": "./dist/session_renewal.js"
     }
   },
   "scripts": {

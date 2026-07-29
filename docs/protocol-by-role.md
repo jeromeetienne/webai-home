@@ -122,6 +122,19 @@ The gateway checks the version on every frame, which means it checks it on `auth
 
 The gateway's message log records `messageId`, `inReplyTo`, and `protocolVersion` on each entry, and uses the frame's own `ts` as the entry timestamp. The flow viewer reads those fields to draw each answer against the request it answers. A log recorded before the wrapper existed carries none of them and still renders.
 
+## Authentication is a development placeholder
+
+**The single shared token this gateway accepts is not authentication, and nothing downstream should treat the principal as a security boundary.** Every connection presents the same token, which is a command-line option with a default value, so every client that connects is the same principal by construction. The gateway can tell that a caller holds the token; it cannot tell one holder from another, and it cannot tell an authorized holder from anyone who copied the token. Designing real authentication remains an open decision, listed at the end of this document.
+
+What the gateway does guarantee is that it honours the session rules it states:
+
+- **The advertised expiry is enforced.** `authenticated` carries an `expiresAt`, and that moment is now checked on every message rather than only when the connection authenticates. It used to be advertised and never looked at again, so a connection stayed authenticated for as long as it stayed open.
+- **Expiry does not drop the connection.** A message sent after the session runs out is refused with `AUTHENTICATION_REQUIRED`, marked retryable. The client sends `authenticate` again on the same connection and retries the request; it never has to reconnect.
+- **The principal is derived from the whole credential.** It is a digest of the credential, so two different tokens cannot become the same principal, and no readable part of the credential ends up in task records or log files. It used to be the first twelve characters of the token, which meant tokens sharing a prefix collided into one principal and shared its task quota, and which copied most of the credential into every log file.
+- **The per-principal active-task limit follows the live session.** The limit checked in `task.submit` uses the principal of the session that is authenticated at that moment, not one captured earlier when the connection registered.
+
+How long a session lasts is set by `--session-ms`, and defaults to one hour.
+
 ## Message direction by role
 
 | Message | Sender | Receiver | Purpose |
@@ -309,7 +322,7 @@ The following decisions should be made before treating this document as a
 stable public protocol:
 
 - the compatibility rules for a future protocol version, now that every frame states the version it was written for;
-- authentication and authorization for consumers, workers, and observers;
+- authentication and authorization for consumers, workers, and observers, replacing the single shared development token described above, which identifies every client as the same principal;
 - task ownership and which consumers may receive `task.updated`;
 - whether the completed stage values in `task.snapshot` should also be bounded, since they still grow with the number of stages a language-model task runs;
 - acknowledgement, timeout, retry, and reassignment rules;

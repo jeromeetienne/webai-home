@@ -1,6 +1,7 @@
 export { };
 import type { Device, DeviceActivity, DeviceRole, TaskSnapshot, TaskUpdate } from "@webai/protocol";
 import { Envelope } from "@webai/protocol/envelope";
+import { SessionRenewal } from "@webai/protocol/session_renewal";
 import { splitDevices, stageStatistics } from "../../../src/dashboard.js";
 
 type DeviceSummary = {
@@ -22,6 +23,8 @@ type GatewayMessage = {
 	update?: TaskUpdate;
 	code?: string;
 	message?: string;
+	/** When the authenticated session expires, in reply to `authenticate`. */
+	expiresAt?: string;
 };
 
 type DashboardEvent = {
@@ -170,6 +173,25 @@ const configureFoldablePanels = (): void => {
 		stagesEl.innerHTML = statistics.stages.map((stage) => `<div class="stage-stat"><div class="d-flex justify-content-between"><span>${escapeHtml(stage.stageName)}</span><span class="text-secondary">${stage.count} worker${stage.count === 1 ? "" : "s"} · ${stage.percentage.toFixed(1)}%</span></div><div class="progress" role="progressbar" aria-label="${escapeHtml(stage.stageName)} percentage" aria-valuenow="${stage.percentage}" aria-valuemin="0" aria-valuemax="100"><div class="progress-bar" style="width: ${stage.percentage}%"></div></div></div>`).join("") || '<p class="text-secondary mb-0">No worker stages are enabled.</p>';
 	};
 	const socketEl: WebSocket = new WebSocket(`${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}`);
+	/** Whether this dashboard has already asked to observe on the current connection. */
+	let isObserving = false;
+	/** The pending timer that authenticates again before the current session expires. */
+	let sessionRenewalTimer: number | undefined;
+
+	/**
+	 * Authenticates again before the current session runs out, so this dashboard keeps
+	 * working for as long as the page is open.
+	 *
+	 * @param expiresAt When the current session expires, as the gateway stated it.
+	 */
+	const scheduleSessionRenewal = (expiresAt: string | undefined): void => {
+		if (sessionRenewalTimer !== undefined) window.clearTimeout(sessionRenewalTimer);
+		if (expiresAt === undefined) return;
+		sessionRenewalTimer = window.setTimeout((): void => {
+			if (socketEl.readyState !== WebSocket.OPEN) return;
+			socketEl.send(JSON.stringify(Envelope.fromClient({ type: "authenticate", token: gatewayAuthenticationToken })));
+		}, SessionRenewal.renewAfterMs(expiresAt));
+	};
 
 	socketEl.addEventListener("open", (): void => {
 		const authenticateMessage = { type: "authenticate" as const, token: gatewayAuthenticationToken };
@@ -186,8 +208,15 @@ const configureFoldablePanels = (): void => {
 			statusEl.textContent = "Connected to the central gateway.";
 			statusBadgeEl.textContent = "Connected";
 			statusBadgeEl.className = "badge rounded-pill text-bg-success";
-			socketEl.send(JSON.stringify(Envelope.fromClient({ type: "observe" })));
-			addEvent({ type: "Authenticated", timestamp: new Date().toISOString(), details: "Now observing the central gateway" });
+			// This dashboard stays open indefinitely and the gateway enforces the expiry it
+			// just advertised, so the session is renewed before that moment. A renewal is
+			// answered with "authenticated" too, and must not start observing a second time.
+			scheduleSessionRenewal(message.expiresAt);
+			if (isObserving === false) {
+				isObserving = true;
+				socketEl.send(JSON.stringify(Envelope.fromClient({ type: "observe" })));
+				addEvent({ type: "Authenticated", timestamp: new Date().toISOString(), details: "Now observing the central gateway" });
+			}
 			return;
 		}
 		if (message.type === "devices" && message.devices) {

@@ -30,6 +30,7 @@ import { TaskStore } from "./libs/task_store.js";
 import { PipelineRegistry, builtinPipelineSpecifications } from "./libs/pipeline_registry.js";
 import { StagePolicyResolver } from "./libs/stage_policy_resolver.js";
 import { DiagnosticsRateLimiter } from "./libs/diagnostics_rate_limiter.js";
+import { SessionRegistry } from "./libs/session_registry.js";
 
 const options = new Command()
 	.option("-p, --port <number>", "HTTP and WebSocket port", "8787")
@@ -39,10 +40,11 @@ const options = new Command()
 	.option("--state-file <path>", "Durable task state file", "gateway-state.json")
 	.option("--auth-token <token>", "Required bearer token for development connections", "development-token")
 	.option("--max-tasks-per-principal <number>", "Maximum non-terminal tasks per principal", "20")
+	.option("--session-ms <number>", "How long an authenticated session lasts before the client must authenticate again", "3600000")
 	.option("--pipeline-file <path>", "JSON file containing additional pipeline specifications")
 	.option("--device-activity-coalesce-ms <number>", "How long device activity changes are batched before one combined update is sent", "250")
 	.parse()
-	.opts<{ port: string; leaseMs: string; submissionTimeoutMs: string; maxAttempts: string; stateFile: string; authToken: string; maxTasksPerPrincipal: string; pipelineFile?: string; deviceActivityCoalesceMs: string }>();
+	.opts<{ port: string; leaseMs: string; submissionTimeoutMs: string; maxAttempts: string; stateFile: string; authToken: string; maxTasksPerPrincipal: string; sessionMs: string; pipelineFile?: string; deviceActivityCoalesceMs: string }>();
 const port = Number(options.port);
 const deviceRegistry = new DeviceRegistry();
 const taskStore = new TaskStore(undefined, Number(options.submissionTimeoutMs), Number(options.leaseMs), options.stateFile);
@@ -58,8 +60,7 @@ const pendingActivityDeviceIds = new Set<string>();
 let deviceActivityTimer: NodeJS.Timeout | undefined;
 const deviceActivityCoalesceMs = Number(options.deviceActivityCoalesceMs);
 const taskObserverDeviceIds = new Map<string, Set<string>>();
-const authenticatedPrincipals = new Map<string, string>();
-const devicePrincipalById = new Map<string, string>();
+const sessionRegistry = new SessionRegistry(Number(options.sessionMs));
 const maximumTasksPerPrincipal = Number(options.maxTasksPerPrincipal);
 const pipelineRegistry = new PipelineRegistry(builtinPipelineSpecifications);
 if (options.pipelineFile) {
@@ -440,7 +441,14 @@ function mayReadTask(deviceId: string, taskId: string): boolean {
  * @param message - The client message to process.
  */
 function handle(socket: WebSocket, deviceId: string, message: ClientMessage, requestFrameId: string): void {
-	if (message.type !== "authenticate" && !authenticatedPrincipals.has(deviceId)) { sendError(socket, requestFrameId, counterpartFor(deviceId), "AUTHENTICATION_REQUIRED", "Authenticate before using the protocol", { retryable: false }); return; }
+	// The session expiry the gateway advertises is checked here, on every message, rather than
+	// only at the moment a connection authenticates. An expired session is refused until the
+	// client authenticates again on the same connection; the connection is never closed for it.
+	const currentSession = sessionRegistry.active(deviceId);
+	if (message.type !== "authenticate" && currentSession === undefined) {
+		sendError(socket, requestFrameId, counterpartFor(deviceId), "AUTHENTICATION_REQUIRED", "Authenticate before using the protocol", { retryable: true });
+		return;
+	}
 	if (message.type === "observe") {
 		observerDeviceIds.add(deviceId);
 		// An observer connection exists to watch the cluster, so observing implies a
@@ -460,9 +468,10 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage, req
 	}
 	if (message.type === "authenticate") {
 		if (message.token !== options.authToken) { sendError(socket, requestFrameId, counterpartFor(deviceId), "AUTHENTICATION_REQUIRED", "Credentials were rejected", { retryable: false }); return; }
-		const principal = `principal-${message.token.slice(0, 12)}`;
-		authenticatedPrincipals.set(deviceId, principal);
-		send(socket, { type: "authenticated", principal, expiresAt: new Date(Date.now() + 3_600_000).toISOString() }, counterpartFor(deviceId), requestFrameId);
+		// Authenticating again on a connection that already has a session simply replaces it,
+		// which is how a client renews before or after its session runs out.
+		const session = sessionRegistry.open(deviceId, message.token);
+		send(socket, { type: "authenticated", principal: session.principal, expiresAt: new Date(session.expiresAt).toISOString() }, counterpartFor(deviceId), requestFrameId);
 		return;
 	}
 	// Answered before registration on purpose: a worker asks which pipelines the gateway has
@@ -499,11 +508,10 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage, req
 				: [],
 			connectedAt: new Date().toISOString(),
 			lastSeenAt: new Date().toISOString(),
-			principal: authenticatedPrincipals.get(deviceId)!,
+			principal: currentSession!.principal,
 			...(message.role === "worker" ? { workerState: message.ready === false ? "draining" as const : "ready" as const, ready: message.ready ?? true, maxConcurrentAssignments: message.maxConcurrentAssignments ?? 1, activeAssignments: 0 } : {}),
 		};
 		const change = deviceRegistry.add(device);
-		devicePrincipalById.set(deviceId, authenticatedPrincipals.get(deviceId)!);
 		send(socket, {
 			type: "registered",
 			deviceId,
@@ -573,7 +581,9 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage, req
 			send(socket, { type: "task.accepted", requestId: message.requestId, task: TaskProjection.snapshot(existingTask) }, counterpartFor(deviceId), requestFrameId);
 			return;
 		}
-		const principal = devicePrincipalById.get(deviceId)!;
+		// Read from the live session rather than from whatever principal was recorded when this
+		// connection registered, so the limit always applies to whoever is authenticated now.
+		const principal = currentSession!.principal;
 		const activeTaskCount = taskStore.list().filter((candidate) => candidate.consumerPrincipal === principal && !["completed", "failed", "cancelled"].includes(candidate.state)).length;
 		if (activeTaskCount >= maximumTasksPerPrincipal) { sendError(socket, requestFrameId, counterpartFor(deviceId), "RATE_LIMITED", "The principal has reached its active-task limit", { requestId: message.requestId, retryable: true, details: { limit: maximumTasksPerPrincipal } }); return; }
 		// Every task now runs a pipeline, including the formula and language-model ones. The
@@ -996,7 +1006,7 @@ async function handleDiagnosticsReport(request: IncomingMessage, response: Serve
 	// holds an authenticated connection, so a leaked token cannot be used to write log files
 	// for devices that were never here.
 	const batch = parsed.data;
-	if (authenticatedPrincipals.has(batch.deviceId) === false) {
+	if (sessionRegistry.active(batch.deviceId) === undefined) {
 		endDiagnosticsResponse(response, 403, { error: "That device does not hold an authenticated connection" });
 		return;
 	}
@@ -1166,8 +1176,7 @@ websocketServer.on("connection", (socket) => {
 		observerDeviceIds.delete(deviceId);
 		deviceSubscriberIds.delete(deviceId);
 		for (const observers of taskObserverDeviceIds.values()) observers.delete(deviceId);
-		devicePrincipalById.delete(deviceId);
-		authenticatedPrincipals.delete(deviceId);
+		sessionRegistry.close(deviceId);
 		diagnosticsRateLimiter.forget(deviceId);
 		// "device.left" already tells subscribers exactly what changed, so the full device
 		// list is not sent as well.

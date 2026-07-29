@@ -7,6 +7,7 @@ import { StageFormulaHelper } from "./stage_formula_helper";
 import { StageLlmHelper } from "./stage_llm_helper";
 import { centralGatewayAuthToken, centralGatewayWebSocketUrl } from "./gateway_config";
 import { DiagnosticsReporter } from "./diagnostics_reporter";
+import { SessionRenewal } from "@webai/protocol/session_renewal";
 
 /**
  * Reads the stages the page URL restricts this worker browser to.
@@ -92,6 +93,8 @@ type GatewayMessage = {
 	stageIndex?: number;
 	/** The pipeline specifications the gateway has loaded, in reply to `pipelines.get`. */
 	pipelines?: { stages: { name: string; computation: string }[] }[];
+	/** When the authenticated session expires, in reply to `authenticate`. */
+	expiresAt?: string;
 };
 
 type WorkerEvent = {
@@ -259,6 +262,29 @@ const stopLeaseHeartbeat = (assignmentId?: string): void => {
 	const stagesEl: HTMLElement = getElement("#stages");
 	/** The active WebSocket connection, when the worker browser is connected. */
 	let socket: WebSocket | undefined;
+	/** Whether this browser has completed registration on the current connection. */
+	let isRegistered = false;
+	/** The pending timer that authenticates again before the current session expires. */
+	let sessionRenewalTimer: number | undefined;
+
+	/**
+	 * Authenticates again before the current session runs out.
+	 *
+	 * This page holds its connection open for as long as the browser tab is open, which is
+	 * longer than one session lasts, and the gateway refuses messages once a session has
+	 * expired. Renewing keeps the connection usable without reconnecting.
+	 *
+	 * @param openSocket The connection whose session should be renewed.
+	 * @param expiresAt When the current session expires, as the gateway stated it.
+	 */
+	const scheduleSessionRenewal = (openSocket: WebSocket, expiresAt: string | undefined): void => {
+		if (sessionRenewalTimer !== undefined) window.clearTimeout(sessionRenewalTimer);
+		if (expiresAt === undefined) return;
+		sessionRenewalTimer = window.setTimeout((): void => {
+			if (openSocket.readyState !== WebSocket.OPEN) return;
+			sendToGateway(openSocket, { type: "authenticate", token: centralGatewayAuthToken });
+		}, SessionRenewal.renewAfterMs(expiresAt));
+	};
 	/** Whether the gateway has accepted this worker browser's registration. */
 	/** The stages the page URL restricts this worker browser to, if it names any. */
 	const requestedStageNames = requestedStageNamesFromUrl(location.search);
@@ -308,6 +334,7 @@ const stopLeaseHeartbeat = (assignmentId?: string): void => {
 
 		// Open a WebSocket connection to the central gateway.
 		socket = new WebSocket(centralGatewayWebSocketUrl());
+		isRegistered = false;
 
 		// update ui
 		statusEl.textContent = "Connecting";
@@ -343,6 +370,14 @@ const stopLeaseHeartbeat = (assignmentId?: string): void => {
 			// can offer every stage whose computation it implements, including stages of a
 			// pipeline added after this browser was built.
 			if (message.type === "authenticated" && socket) {
+				// This page keeps its connection open indefinitely, and the gateway enforces the
+				// expiry it just advertised, so the session has to be renewed before that moment
+				// or the next message this page sends is refused.
+				scheduleSessionRenewal(socket, message.expiresAt);
+				// A renewal is answered with "authenticated" too. Asking for the pipelines again
+				// each time would restart the whole registration sequence, so it is only asked
+				// for on the first one.
+				if (isRegistered) return;
 				const request: ClientMessage = { type: "pipelines.get" };
 				sendToGateway(socket, request);
 				addEvent({ direction: "sent", type: request.type, timestamp: new Date().toISOString() });
@@ -384,6 +419,7 @@ const stopLeaseHeartbeat = (assignmentId?: string): void => {
 				return;
 			}
 			if (message.type === "registered") {
+				isRegistered = true;
 				deviceIdEl.textContent = message.deviceId ?? "Not assigned";
 				// Reporting can only start now: the gateway names the device the report is for,
 				// and it issues that name here.
@@ -448,6 +484,9 @@ const stopLeaseHeartbeat = (assignmentId?: string): void => {
 		/** Restores the disconnected state when the WebSocket closes. */
 		socket.addEventListener("close", (): void => {
 			stopLeaseHeartbeat();
+			isRegistered = false;
+			if (sessionRenewalTimer !== undefined) window.clearTimeout(sessionRenewalTimer);
+			sessionRenewalTimer = undefined;
 			// Posts whatever is still buffered, so the last messages before a disconnection are
 			// still recorded rather than lost with the page's state.
 			DiagnosticsReporter.stop();

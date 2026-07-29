@@ -9,6 +9,7 @@ import { MessageLogger } from "../src/message_logger.js";
 import type { LogEntry } from "../src/message_logger.js";
 import { TaskProjection } from "../src/task_projection.js";
 import { Envelope } from "../src/envelope.js";
+import { SessionRenewal } from "../src/session_renewal.js";
 
 test("accepts valid task input", () => {
   assert.deepEqual(TaskInput.parse({ taskType: "task_type_formula", input: 12.5 }), { taskType: "task_type_formula", input: 12.5 });
@@ -287,4 +288,19 @@ test("diagnostics travel off the scheduling connection, under a schema rather th
 
   assert.equal(DiagnosticsBatchSchema.safeParse({ deviceId: validBatch.deviceId, entries: [] }).success, false);
   assert.equal(DiagnosticsBatchSchema.safeParse({ entries: validBatch.entries }).success, false);
+});
+
+test("a long-lived client renews halfway through its session", () => {
+  const now = Date.parse("2026-07-29T12:00:00.000Z");
+
+  // Halfway through, so a renewal that is lost or late still leaves as much time again for
+  // another attempt before the session actually runs out.
+  assert.equal(SessionRenewal.renewAfterMs("2026-07-29T13:00:00.000Z", now), 1_800_000);
+  assert.equal(SessionRenewal.renewAfterMs("2026-07-29T12:00:10.000Z", now), 5_000);
+
+  // A session already expired, or about to be, never produces a zero or negative wait that
+  // would spin the client.
+  assert.equal(SessionRenewal.renewAfterMs("2026-07-29T11:00:00.000Z", now), 1_000);
+  assert.equal(SessionRenewal.renewAfterMs("2026-07-29T12:00:00.000Z", now), 1_000);
+  assert.equal(SessionRenewal.renewAfterMs("not a date", now), 1_000);
 });

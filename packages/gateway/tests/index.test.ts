@@ -11,6 +11,7 @@ import { TaskStore } from "../src/libs/task_store.js";
 import { PipelineRegistry, builtinPipelineSpecifications } from "../src/libs/pipeline_registry.js";
 import { StagePolicyResolver } from "../src/libs/stage_policy_resolver.js";
 import { DiagnosticsRateLimiter } from "../src/libs/diagnostics_rate_limiter.js";
+import { SessionRegistry } from "../src/libs/session_registry.js";
 import { splitDevices, stageStatistics } from "../src/dashboard.js";
 import type { TaskInput } from "@webai/protocol";
 
@@ -384,4 +385,45 @@ test("diagnostic reporting is capped per device over a rolling window", () => {
   // A disconnected device's allowance is released with it.
   limiter.forget("device-a");
   assert.equal(limiter.accept("device-a", 10, start + 1_060).isAccepted, true);
+});
+
+test("two different credentials never become the same principal", () => {
+  // The principal used to be the first twelve characters of the token, so any two tokens
+  // sharing a prefix collided into one principal and shared its task quota.
+  const collidingPrefixes = ["development-token", "development-token-two", "development-tokenXYZ", "development-"];
+  const principals = collidingPrefixes.map((token) => SessionRegistry.principalFor(token));
+  assert.equal(new Set(principals).size, collidingPrefixes.length);
+
+  // The same credential always resolves to the same principal, so a task submitted before a
+  // renewal and one submitted after count against the same quota.
+  assert.equal(SessionRegistry.principalFor("development-token"), SessionRegistry.principalFor("development-token"));
+
+  // No part of the credential is readable in the principal, which is recorded on every task
+  // and written to every log file.
+  for (const [index, token] of collidingPrefixes.entries()) assert.equal(principals[index]?.includes(token), false);
+});
+
+test("an advertised session expiry is actually enforced, and survives re-authenticating", () => {
+  const registry = new SessionRegistry(1_000);
+  const start = 5_000_000;
+
+  const session = registry.open("device-a", "development-token", start);
+  assert.equal(session.expiresAt, start + 1_000);
+  assert.equal(registry.active("device-a", start + 999)?.principal, session.principal);
+
+  // Once the advertised moment passes the session is gone, rather than lasting as long as
+  // the connection stays open.
+  assert.equal(registry.active("device-a", start + 1_000), undefined);
+  assert.equal(registry.active("device-a", start + 5_000), undefined);
+
+  // Authenticating again on the same connection opens a fresh session.
+  const renewed = registry.open("device-a", "development-token", start + 5_000);
+  assert.equal(renewed.expiresAt, start + 6_000);
+  assert.equal(registry.active("device-a", start + 5_500)?.principal, renewed.principal);
+
+  // One connection's expiry never affects another's.
+  registry.open("device-b", "development-token", start + 5_000);
+  registry.close("device-a");
+  assert.equal(registry.active("device-a", start + 5_500), undefined);
+  assert.notEqual(registry.active("device-b", start + 5_500), undefined);
 });
