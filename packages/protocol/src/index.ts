@@ -42,7 +42,7 @@ export type PipelineSpecification = z.infer<typeof PipelineSpecificationSchema>;
 /**
  * A named tensor carried inside a stage payload, encoded as text so it can travel
  * inside a JSON message. This is the probe encoding for the step-0 de-risking test
- * in https://github.com/jeromeetienne/webai-at-home/issues/9 — not a final format.
+ * in https://github.com/webai-at-home/webai-at-home/issues/9 — not a final format.
  */
 export interface EncodedTensor {
   dims: number[];

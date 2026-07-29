@@ -90,5 +90,5 @@ connections. Measurements from that proof of concept will show whether the
 pipeline remains useful under real device churn, memory limits, and network
 latency.
 
-See [issue #1](https://github.com/jeromeetienne/webai-at-home/issues/1) for the
+See [issue #1](https://github.com/webai-at-home/webai-at-home/issues/1) for the
 full project concept and its open questions.

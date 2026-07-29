@@ -6,7 +6,7 @@ import { centralGatewayAssetUrl } from "./gateway_config";
 /**
  * Adapts the proven shard-loading and tensor-handling logic from
  * packages/_onnx_experiments/public/onnxruntime_qwen3-0.6b-with-shards/src/model_helper.ts
- * to run behind the real stage-assignment pipeline (see https://github.com/jeromeetienne/webai-at-home/issues/9)
+ * to run behind the real stage-assignment pipeline (see https://github.com/webai-at-home/webai-at-home/issues/9)
  * instead of one in-page button.
  *
  * One task's three shards are always assigned to the same worker device (task_store.ts's
