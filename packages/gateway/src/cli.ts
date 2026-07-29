@@ -9,7 +9,7 @@ import { Command } from "commander";
 import { WebSocketServer, type WebSocket } from "ws";
 import {
 	StagePayloadFactory,
-	TaskInput,
+	ClientMessageSchema,
 	type ClientMessage,
 	type Device,
 	type GatewayMessage,
@@ -24,11 +24,15 @@ import { TaskStore } from "./libs/task_store.js";
 
 const options = new Command()
 	.option("-p, --port <number>", "HTTP and WebSocket port", "8787")
+	.option("--lease-ms <number>", "Assignment lease duration", "15000")
+	.option("--submission-timeout-ms <number>", "Queued task deadline", "30000")
+	.option("--max-attempts <number>", "Maximum assignment attempts", "3")
 	.parse()
-	.opts<{ port: string }>();
+	.opts<{ port: string; leaseMs: string; submissionTimeoutMs: string; maxAttempts: string }>();
 const port = Number(options.port);
 const deviceRegistry = new DeviceRegistry();
-const taskStore = new TaskStore();
+const taskStore = new TaskStore(undefined, Number(options.submissionTimeoutMs), Number(options.leaseMs));
+const maximumAttempts = Number(options.maxAttempts);
 const socketMap = new Map<string, WebSocket>();
 const observerDeviceIds = new Set<string>();
 
@@ -38,6 +42,7 @@ const logsDirectory = join(dirname(fileURLToPath(import.meta.url)), "../logs");
 const runTimestamp = new Date().toISOString().replace(/[:.]/g, "-");
 const gatewayMessageLogger = new MessageLogger(join(logsDirectory, `gateway-${runTimestamp}.jsonl`));
 const workerMessageLoggers = new Map<string, MessageLogger>();
+const maximumInboundMessageBytes = 8_500_000;
 
 /**
  * Returns the log file for a connected worker's relayed message log, creating it on
@@ -134,28 +139,65 @@ function assign(
 	taskId: string,
 	value: StagePayload,
 	stage: StageName,
-	excluded: string[] = [],
+	excluded: string[] = [], retryReason?: "lease_expired" | "worker_disconnected" | "worker_relinquished",
 ): void {
-	const device = deviceRegistry.findWorker(stage, excluded) ?? deviceRegistry.findWorker(stage);
-	if (!device) {
-		taskStore.update(taskId, {
-			state: "failed",
-			error: `No worker is available for ${stage}`,
-		});
+	const existing = taskStore.get(taskId);
+	if (!existing || existing.state === "cancelled" || existing.state === "completed" || existing.state === "failed") return;
+	if (existing.assignmentAttempts.length >= maximumAttempts) {
+		taskStore.update(taskId, { state: "failed", error: "MAX_ATTEMPTS_EXHAUSTED", assignment: undefined });
 		broadcastTask(taskId);
 		return;
 	}
-	taskStore.update(taskId, { state: "assigned" });
+	const device = retryReason === undefined
+		? deviceRegistry.findWorker(stage, excluded) ?? deviceRegistry.findWorker(stage)
+		: deviceRegistry.findWorker(stage, excluded);
+	if (!device) {
+		taskStore.update(taskId, { state: "queued", assignment: undefined });
+		broadcastTask(taskId);
+		return;
+	}
+	const task = taskStore.assign(taskId, device.deviceId, stage, value, retryReason);
 	const socket = socketMap.get(device.deviceId);
 	if (socket) {
 		send(socket, {
 			type: "stage.assign",
 			taskId,
+			assignmentId: task.assignment!.assignmentId,
+			attempt: task.assignment!.attempt,
 			stage,
 			value,
+			leaseUntil: task.assignment!.leaseUntil,
 		}, { role: device.deviceRole, deviceId: device.deviceId });
 	}
 	broadcastTask(taskId);
+}
+
+function scheduleQueuedTasks(): void {
+	for (const task of taskStore.list()) {
+		if (task.state !== "queued") continue;
+		if (Date.parse(task.submissionDeadlineAt) <= Date.now()) {
+			taskStore.update(task.taskId, { state: "failed", error: "SUBMISSION_DEADLINE_EXPIRED" });
+			broadcastTask(task.taskId);
+			continue;
+		}
+		const stage = TaskStore.nextStage(task);
+		if (stage) assign(task.taskId, task.completedStages.at(-1)?.value ?? (task.input.taskType === "task_type_llm" ? StagePayloadFactory.llmPrompt(task.input.input) : StagePayloadFactory.formula(task.input.input)), stage);
+	}
+}
+
+function recoverAssignments(): void {
+	for (const task of taskStore.list()) {
+		const assignment = task.assignment;
+		if (!assignment || Date.parse(assignment.leaseUntil) > Date.now()) continue;
+		assign(task.taskId, assignment.value, assignment.stage, [assignment.workerDeviceId], "lease_expired");
+	}
+}
+
+function recoverWorkerAssignments(deviceId: string): void {
+	for (const task of taskStore.list()) {
+		const assignment = task.assignment;
+		if (assignment?.workerDeviceId === deviceId) assign(task.taskId, assignment.value, assignment.stage, [deviceId], "worker_disconnected");
+	}
 }
 
 /**
@@ -205,6 +247,7 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 				: [],
 			connectedAt: new Date().toISOString(),
 			lastSeenAt: new Date().toISOString(),
+			...(message.role === "worker" ? { workerState: "ready" as const } : {}),
 		};
 		deviceRegistry.add(device);
 		send(socket, {
@@ -212,27 +255,44 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 			deviceId,
 		}, counterpartFor(deviceId, message));
 		updateDevices();
+		scheduleQueuedTasks();
+		return;
+	}
+	if (!deviceRegistry.get(deviceId)) {
+		send(socket, { type: "error", code: "NOT_REGISTERED", message: "Register before sending this message" }, counterpartFor(deviceId));
 		return;
 	}
 
 	if (message.type === "task.submit") {
-		const parsed = TaskInput.safeParse(message.input);
-		if (!parsed.success) {
+		const device = deviceRegistry.get(deviceId);
+		if (device?.deviceRole !== "consumer") {
 			send(socket, {
 				type: "error",
-				message: "Input must match the shape expected for its task type",
+				code: "CONSUMER_REQUIRED",
+				message: "Only consumer browser tabs may submit tasks",
+				requestId: message.requestId,
 			}, counterpartFor(deviceId));
 			return;
 		}
-		const task = taskStore.create(parsed.data);
+		const existingTask = taskStore.findByRequest(deviceId, message.requestId);
+		if (existingTask) {
+			if (JSON.stringify(existingTask.input) !== JSON.stringify(message.input)) {
+				send(socket, { type: "error", code: "REQUEST_ID_CONFLICT", message: "requestId was already used with different task contents", requestId: message.requestId, taskId: existingTask.taskId }, counterpartFor(deviceId));
+				return;
+			}
+			send(socket, { type: "task.accepted", requestId: message.requestId, task: existingTask }, counterpartFor(deviceId));
+			return;
+		}
+		const task = taskStore.create(message.input, deviceId, message.requestId);
 		send(socket, {
 			type: "task.accepted",
+			requestId: message.requestId,
 			task,
 		}, counterpartFor(deviceId));
-		if (parsed.data.taskType === "task_type_llm") {
-			assign(task.taskId, StagePayloadFactory.llmPrompt(parsed.data.input), "stage_llm_shard1");
+		if (message.input.taskType === "task_type_llm") {
+			assign(task.taskId, StagePayloadFactory.llmPrompt(message.input.input), "stage_llm_shard1");
 		} else {
-			assign(task.taskId, StagePayloadFactory.formula(parsed.data.input), "stage_formula_multiply");
+			assign(task.taskId, StagePayloadFactory.formula(message.input.input), "stage_formula_multiply");
 		}
 		return;
 	}
@@ -247,8 +307,63 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 		} else {
 			send(socket, {
 				type: "error",
+				code: "TASK_NOT_FOUND",
 				message: "Task was not found",
+				taskId: message.taskId,
 			}, counterpartFor(deviceId));
+		}
+		return;
+	}
+
+	if (message.type === "worker.state") {
+		const device = deviceRegistry.get(deviceId);
+		if (!device || device.deviceRole !== "worker") {
+			send(socket, { type: "error", code: "WORKER_REQUIRED", message: "Only worker browser tabs may change worker state" }, counterpartFor(deviceId));
+			return;
+		}
+		deviceRegistry.add({ ...device, workerState: message.state, lastSeenAt: new Date().toISOString() });
+		updateDevices();
+		if (message.state === "ready") scheduleQueuedTasks();
+		return;
+	}
+
+	if (message.type === "task.cancel") {
+		const task = taskStore.get(message.taskId);
+		if (!task) {
+			send(socket, { type: "error", code: "TASK_NOT_FOUND", message: "Task was not found", taskId: message.taskId }, counterpartFor(deviceId));
+			return;
+		}
+		if (task.consumerDeviceId !== deviceId) {
+			send(socket, { type: "error", code: "TASK_OWNER_MISMATCH", message: "Only the task owner may cancel this task", taskId: message.taskId }, counterpartFor(deviceId));
+			return;
+		}
+		const assignment = task.assignment;
+		const cancelled = taskStore.cancel(task.taskId, message.reason);
+		if (assignment) {
+			const workerSocket = socketMap.get(assignment.workerDeviceId);
+			if (workerSocket) send(workerSocket, { type: "stage.cancel", taskId: task.taskId, assignmentId: assignment.assignmentId, attempt: assignment.attempt, reason: message.reason }, counterpartFor(assignment.workerDeviceId));
+		}
+		broadcastTask(cancelled.taskId);
+		return;
+	}
+
+	if (message.type === "stage.accepted" || message.type === "stage.relinquish") {
+		const device = deviceRegistry.get(deviceId);
+		const task = taskStore.get(message.taskId);
+		const assignment = task?.assignment;
+		if (!device || device.deviceRole !== "worker") {
+			send(socket, { type: "error", code: "WORKER_REQUIRED", message: "Only worker browser tabs may update assignments" }, counterpartFor(deviceId));
+			return;
+		}
+		if (!assignment || assignment.assignmentId !== message.assignmentId || assignment.attempt !== message.attempt || assignment.workerDeviceId !== deviceId) {
+			send(socket, { type: "error", code: "STALE_ASSIGNMENT", message: "The stage assignment is no longer current", taskId: message.taskId }, counterpartFor(deviceId));
+			return;
+		}
+		if (message.type === "stage.accepted") {
+			taskStore.acceptAssignment(task.taskId);
+			broadcastTask(task.taskId);
+		} else {
+			assign(task.taskId, assignment.value, assignment.stage, [deviceId], "worker_relinquished");
 		}
 		return;
 	}
@@ -258,16 +373,36 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 		if (!device || device.deviceRole !== "worker") {
 			send(socket, {
 				type: "error",
+				code: "WORKER_REQUIRED",
 				message: "Only worker browser tabs may return stage results",
 			}, counterpartFor(deviceId));
 			return;
 		}
 		const task = taskStore.get(message.taskId);
-		if (!task || TaskStore.nextStage(task) !== message.stage) {
+		if (!task) {
+			send(socket, { type: "error", code: "TASK_NOT_FOUND", message: "Task was not found", taskId: message.taskId }, counterpartFor(deviceId));
+			return;
+		}
+		const assignment = task.assignment;
+		if (!assignment || assignment.assignmentId !== message.assignmentId || assignment.attempt !== message.attempt) {
 			send(socket, {
 				type: "error",
-				message: "Unexpected stage result",
+				code: "STALE_ASSIGNMENT",
+				message: "The stage assignment is no longer current",
+				taskId: message.taskId,
 			}, counterpartFor(deviceId));
+			return;
+		}
+		if (assignment.workerDeviceId !== deviceId) {
+			send(socket, { type: "error", code: "ASSIGNMENT_OWNER_MISMATCH", message: "Only the assigned worker may return this stage result", taskId: message.taskId }, counterpartFor(deviceId));
+			return;
+		}
+		if (assignment.stage !== message.stage) {
+			send(socket, { type: "error", code: "ASSIGNMENT_STAGE_MISMATCH", message: "The stage result does not match the current assignment", taskId: message.taskId }, counterpartFor(deviceId));
+			return;
+		}
+		if (task.state !== "running") {
+			send(socket, { type: "error", code: "ASSIGNMENT_NOT_ACCEPTED", message: "A stage assignment must be accepted before returning a result", taskId: message.taskId }, counterpartFor(deviceId));
 			return;
 		}
 		const updated = taskStore.addStage(task.taskId, {
@@ -297,13 +432,37 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 		if (!device || device.deviceRole !== "worker") {
 			send(socket, {
 				type: "error",
+				code: "WORKER_REQUIRED",
 				message: "Only worker browser tabs may fail a stage",
 			}, counterpartFor(deviceId));
+			return;
+		}
+		const task = taskStore.get(message.taskId);
+		if (!task) {
+			send(socket, { type: "error", code: "TASK_NOT_FOUND", message: "Task was not found", taskId: message.taskId }, counterpartFor(deviceId));
+			return;
+		}
+		const assignment = task.assignment;
+		if (!assignment || assignment.assignmentId !== message.assignmentId || assignment.attempt !== message.attempt) {
+			send(socket, { type: "error", code: "STALE_ASSIGNMENT", message: "The stage assignment is no longer current", taskId: message.taskId }, counterpartFor(deviceId));
+			return;
+		}
+		if (assignment.workerDeviceId !== deviceId) {
+			send(socket, { type: "error", code: "ASSIGNMENT_OWNER_MISMATCH", message: "Only the assigned worker may fail this stage", taskId: message.taskId }, counterpartFor(deviceId));
+			return;
+		}
+		if (assignment.stage !== message.stage) {
+			send(socket, { type: "error", code: "ASSIGNMENT_STAGE_MISMATCH", message: "The stage failure does not match the current assignment", taskId: message.taskId }, counterpartFor(deviceId));
+			return;
+		}
+		if (task.state !== "running") {
+			send(socket, { type: "error", code: "ASSIGNMENT_NOT_ACCEPTED", message: "A stage assignment must be accepted before failing", taskId: message.taskId }, counterpartFor(deviceId));
 			return;
 		}
 		taskStore.update(message.taskId, {
 			state: "failed",
 			error: message.error,
+			assignment: undefined,
 		});
 		broadcastTask(message.taskId);
 		return;
@@ -470,24 +629,40 @@ websocketServer.on("connection", (socket) => {
 	const deviceId = `device-${crypto.randomUUID()}`;
 	socketMap.set(deviceId, socket);
 	socket.on("message", (raw) => {
+		const rawBuffer = Array.isArray(raw)
+			? Buffer.concat(raw)
+			: raw instanceof ArrayBuffer
+				? Buffer.from(new Uint8Array(raw))
+				: raw;
+		if (rawBuffer.length > maximumInboundMessageBytes) {
+			send(socket, { type: "error", code: "MESSAGE_TOO_LARGE", message: "Message exceeds the maximum allowed size" }, counterpartFor(deviceId));
+			return;
+		}
 		try {
-			const message = JSON.parse(raw.toString()) as ClientMessage;
+			const parsed = ClientMessageSchema.safeParse(JSON.parse(rawBuffer.toString()));
+			if (!parsed.success) {
+				send(socket, { type: "error", code: "INVALID_MESSAGE", message: "Message does not match the supported protocol" }, counterpartFor(deviceId));
+				return;
+			}
+			const message = parsed.data;
 			if (message.type !== "observe") gatewayMessageLogger.log("received", counterpartFor(deviceId, message), message.type, message);
 			handle(socket, deviceId, message);
 		} catch {
-			send(socket, {
-				type: "error",
-				message: "Invalid message",
-			}, counterpartFor(deviceId));
+			send(socket, { type: "error", code: "INVALID_MESSAGE", message: "Message is not valid JSON" }, counterpartFor(deviceId));
 		}
 	});
 	socket.on("close", () => {
 		socketMap.delete(deviceId);
 		observerDeviceIds.delete(deviceId);
 		deviceRegistry.remove(deviceId);
+		recoverWorkerAssignments(deviceId);
 		updateDevices();
 	});
 });
+const recoveryTimer = setInterval(() => {
+	recoverAssignments();
+	scheduleQueuedTasks();
+}, Math.max(100, Math.min(Number(options.leaseMs), Number(options.submissionTimeoutMs))));
 httpServer.listen(port, () => {
 	console.log(`Central gateway listening on http://localhost:${port}`);
 });
@@ -502,6 +677,7 @@ async function shutdown(): Promise<void> {
 	for (const socket of socketMap.values()) socket.close();
 	websocketServer.close();
 	httpServer.close();
+	clearInterval(recoveryTimer);
 	if (viteDevServer) await viteDevServer.close();
 	process.exit(0);
 }

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { StageName, StagePayloadFactory, TaskInput, TaskState } from "../src/index.js";
+import { ClientMessageSchema, StageName, StagePayloadFactory, TaskInput, TaskState } from "../src/index.js";
 
 test("accepts valid task input", () => {
   assert.deepEqual(TaskInput.parse({ taskType: "task_type_formula", input: 12.5 }), { taskType: "task_type_formula", input: 12.5 });
@@ -39,4 +39,12 @@ test("StagePayloadFactory builds each stage payload shape", () => {
 
   assert.deepEqual(StagePayloadFactory.llmContinue("The", 464, 20), { text: "The", inputIds: [464], position: 20, done: false });
   assert.deepEqual(StagePayloadFactory.llmDone("The capital of France is Paris."), { text: "The capital of France is Paris.", done: true });
+});
+
+test("validates every inbound client message shape", () => {
+  assert.equal(ClientMessageSchema.safeParse({ type: "task.submit", requestId: "request-1", input: { taskType: "task_type_formula", input: 5 } }).success, true);
+  assert.equal(ClientMessageSchema.safeParse({ type: "stage.result", taskId: "task-1", assignmentId: "assignment-1", attempt: 1, stage: "stage_formula_multiply", value: 10 }).success, true);
+  assert.equal(ClientMessageSchema.safeParse({ type: "task.submit", input: { taskType: "task_type_formula", input: 5 } }).success, false);
+  assert.equal(ClientMessageSchema.safeParse({ type: "stage.result", taskId: "task-1", stage: "stage_formula_multiply", value: 10 }).success, false);
+  assert.equal(ClientMessageSchema.safeParse({ type: "register", role: "consumer", name: "consumer", unexpected: true }).success, false);
 });

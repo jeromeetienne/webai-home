@@ -17,6 +17,7 @@ interface DevicesPayload {
 }
 
 interface TaskSubmitPayload {
+	requestId?: string;
 	input?: { taskType?: string; input?: unknown };
 }
 
@@ -26,18 +27,30 @@ interface TaskLikePayload {
 
 interface StageAssignPayload {
 	taskId?: string;
+	assignmentId?: string;
+	attempt?: number;
 	stage?: string;
 }
 
 interface StageResultPayload {
 	taskId?: string;
+	assignmentId?: string;
+	attempt?: number;
 	stage?: string;
 }
 
 interface StageFailedPayload {
 	taskId?: string;
+	assignmentId?: string;
+	attempt?: number;
 	stage?: string;
 	error?: string;
+}
+
+interface AssignmentPayload {
+	taskId?: string;
+	assignmentId?: string;
+	attempt?: number;
 }
 
 interface ErrorPayload {
@@ -243,7 +256,7 @@ export class TimelineModel {
 				return "sends the current device list";
 			case "task.submit": {
 				const submitPayload = payload as TaskSubmitPayload;
-				return `submits a ${submitPayload.input?.taskType ?? "task"}: ${JSON.stringify(submitPayload.input?.input)}`;
+				return `submits a ${submitPayload.input?.taskType ?? "task"}: ${JSON.stringify(submitPayload.input?.input)}${submitPayload.requestId === undefined ? "" : ` (request ${submitPayload.requestId})`}`;
 			}
 			case "task.accepted": {
 				const taskPayload = payload as TaskLikePayload;
@@ -257,15 +270,29 @@ export class TimelineModel {
 			}
 			case "stage.assign": {
 				const stagePayload = payload as StageAssignPayload;
-				return `assigns ${stagePayload.stage ?? "a stage"} for task ${shortTaskId(stagePayload.taskId)}`;
+				return `assigns ${stagePayload.stage ?? "a stage"} for task ${shortTaskId(stagePayload.taskId)}${stagePayload.assignmentId === undefined ? "" : ` (assignment ${stagePayload.assignmentId}, attempt ${stagePayload.attempt ?? "?"})`}`;
 			}
 			case "stage.result": {
 				const stagePayload = payload as StageResultPayload;
-				return `reports ${stagePayload.stage ?? "a stage"} finished for task ${shortTaskId(stagePayload.taskId)}`;
+				return `reports ${stagePayload.stage ?? "a stage"} finished for task ${shortTaskId(stagePayload.taskId)}${stagePayload.assignmentId === undefined ? "" : ` (assignment ${stagePayload.assignmentId}, attempt ${stagePayload.attempt ?? "?"})`}`;
 			}
+			case "stage.accepted": {
+				const assignment = payload as AssignmentPayload;
+				return `accepts assignment ${assignment.assignmentId ?? "?"} (attempt ${assignment.attempt ?? "?"}) for task ${shortTaskId(assignment.taskId)}`;
+			}
+			case "stage.relinquish": {
+				const assignment = payload as AssignmentPayload;
+				return `relinquishes assignment ${assignment.assignmentId ?? "?"} for task ${shortTaskId(assignment.taskId)}`;
+			}
+			case "stage.cancel": {
+				const assignment = payload as AssignmentPayload;
+				return `cancels assignment ${assignment.assignmentId ?? "?"} for task ${shortTaskId(assignment.taskId)}`;
+			}
+			case "task.cancel":
+				return `cancels task ${shortTaskId((payload as AssignmentPayload).taskId)}`;
 			case "stage.failed": {
 				const stagePayload = payload as StageFailedPayload;
-				return `reports ${stagePayload.stage ?? "a stage"} failed for task ${shortTaskId(stagePayload.taskId)}: ${stagePayload.error ?? "no reason given"}`;
+				return `reports ${stagePayload.stage ?? "a stage"} failed for task ${shortTaskId(stagePayload.taskId)}${stagePayload.assignmentId === undefined ? "" : ` (assignment ${stagePayload.assignmentId}, attempt ${stagePayload.attempt ?? "?"})`}: ${stagePayload.error ?? "no reason given"}`;
 			}
 			case "signal":
 				return "relays peer connection signaling data";

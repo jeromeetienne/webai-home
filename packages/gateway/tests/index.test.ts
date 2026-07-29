@@ -75,6 +75,48 @@ test("creates tasks and advances through both stages", () => {
   assert.equal(store.get(task.taskId)?.result, 17);
 });
 
+test("keeps consumer request identifiers and assignment ownership in task state", () => {
+  const store = new TaskStore();
+  const task = store.create({ taskType: "task_type_formula", input: 5 }, "consumer-1", "request-1");
+
+  assert.equal(store.findByRequest("consumer-1", "request-1")?.taskId, task.taskId);
+  assert.equal(store.findByRequest("consumer-2", "request-1"), undefined);
+
+  const assigned = store.assign(task.taskId, "worker-1", "stage_formula_multiply", 5);
+  assert.deepEqual(assigned.assignment, {
+    workerDeviceId: "worker-1",
+    assignmentId: assigned.assignment?.assignmentId,
+    attempt: 1,
+    stage: "stage_formula_multiply",
+    value: 5,
+	leaseUntil: assigned.assignment?.leaseUntil,
+  });
+
+  const completed = store.addStage(task.taskId, { name: "stage_formula_multiply", value: 10 });
+  assert.equal(completed.assignment, undefined);
+});
+
+test("records deterministic lease attempts, acknowledgement, and cancellation", () => {
+  const now = new Date("2026-01-01T00:00:00.000Z");
+  const store = new TaskStore(() => now, 1000, 500);
+  const task = store.create({ taskType: "task_type_formula", input: 5 }, "consumer-1", "request-1");
+  assert.equal(task.state, "queued");
+  assert.equal(task.submissionDeadlineAt, "2026-01-01T00:00:01.000Z");
+
+  const assigned = store.assign(task.taskId, "worker-1", "stage_formula_multiply", 5);
+  assert.equal(assigned.state, "assigned");
+  assert.equal(assigned.assignment?.leaseUntil, "2026-01-01T00:00:00.500Z");
+  const running = store.acceptAssignment(task.taskId);
+  assert.equal(running.state, "running");
+  assert.equal(running.assignment?.acceptedAt, "2026-01-01T00:00:00.000Z");
+  const retried = store.assign(task.taskId, "worker-2", "stage_formula_multiply", 5, "lease_expired");
+  assert.equal(retried.assignment?.attempt, 2);
+  assert.equal(retried.events.at(-1)?.reason, "lease_expired");
+  const cancelled = store.cancel(task.taskId, "consumer_requested");
+  assert.equal(cancelled.state, "cancelled");
+  assert.equal(cancelled.assignment, undefined);
+});
+
 test("loops an LLM task through its three shards once per generated token", () => {
   const store = new TaskStore();
   const task = store.create({ taskType: "task_type_llm", input: "What is the capital of France?" });

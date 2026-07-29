@@ -53,9 +53,10 @@ export class ConsumerClient {
 		};
 	}
 
-	submit(input: TaskInput): void {
+	submit(input: TaskInput, requestId: string = crypto.randomUUID()): string {
 		if (!this.registered) throw new Error("The consumer is not connected");
-		this.send({ type: "task.submit", input });
+		this.send({ type: "task.submit", requestId, input });
+		return requestId;
 	}
 
 	close(): void { this.socket.close(); }

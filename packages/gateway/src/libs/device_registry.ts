@@ -63,6 +63,7 @@ export class DeviceRegistry {
 		return this.list().find(
 			(device) =>
 				device.deviceRole === "worker" &&
+				device.workerState !== "draining" &&
 				device.stageNames.includes(stage) &&
 				!excluded.includes(device.deviceId),
 		);

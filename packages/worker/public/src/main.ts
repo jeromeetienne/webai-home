@@ -32,6 +32,10 @@ type GatewayMessage = {
 	deviceId?: string;
 	/** The task identifier for a stage message. */
 	taskId?: string;
+	/** The durable identifier for the current stage assignment. */
+	assignmentId?: string;
+	/** The number of the current assignment attempt. */
+	attempt?: number;
 	/** The stage for a stage message. */
 	stage?: StageName;
 	/** The value for a stage message: a plain number for formula stages, or an LLM payload. */
@@ -235,9 +239,16 @@ const relayLogEntry = (socket: WebSocket, direction: "received" | "sent", messag
 			});
 			if (message.type === "registered") deviceIdEl.textContent = message.deviceId ?? "Not assigned";
 			if (socket) relayLogEntry(socket, "received", message);
-			if (message.type !== "stage.assign" || message.stage === undefined || message.value === undefined || message.taskId === undefined) return;
+			if (message.type === "stage.cancel" && message.taskId !== undefined) {
+				StageLlmHelper.clearTask(message.taskId);
+				return;
+			}
+			if (message.type !== "stage.assign" || message.stage === undefined || message.value === undefined || message.taskId === undefined || message.assignmentId === undefined || message.attempt === undefined) return;
 			/** The task identifier and stage captured for the async result below. */
-			const { taskId, stage, value } = message;
+			const { taskId, assignmentId, attempt, stage, value } = message;
+			const acceptedMessage: ClientMessage = { type: "stage.accepted", taskId, assignmentId, attempt };
+			if (socket) relayLogEntry(socket, "sent", acceptedMessage);
+			socket?.send(JSON.stringify(acceptedMessage));
 			/** Whether the assigned stage is one of this browser's LLM shards, as opposed to a formula stage. */
 			const isLlmStage = StageLlmHelper.stageNames.includes(stage);
 			/** Computes the result for the assigned stage and sends it back once ready. */
@@ -249,6 +260,8 @@ const relayLogEntry = (socket: WebSocket, direction: "received" | "sent", messag
 					const resultMessage: ClientMessage = {
 						type: "stage.result",
 						taskId,
+						assignmentId,
+						attempt,
 						stage,
 						value
 					};
@@ -263,6 +276,8 @@ const relayLogEntry = (socket: WebSocket, direction: "received" | "sent", messag
 					const failedMessage: ClientMessage = {
 						type: "stage.failed",
 						taskId,
+						assignmentId,
+						attempt,
 						stage,
 						error: error instanceof Error ? error.message : String(error),
 					};
