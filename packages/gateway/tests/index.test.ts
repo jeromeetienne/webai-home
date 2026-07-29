@@ -1,5 +1,8 @@
 // node imports
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import test from "node:test";
 
 // local imports
@@ -115,6 +118,22 @@ test("records deterministic lease attempts, acknowledgement, and cancellation", 
   const cancelled = store.cancel(task.taskId, "consumer_requested");
   assert.equal(cancelled.state, "cancelled");
   assert.equal(cancelled.assignment, undefined);
+});
+
+test("restores durable task records and idempotency after a new TaskStore instance", () => {
+  const directory = mkdtempSync(join(tmpdir(), "webai-task-store-"));
+  const stateFile = join(directory, "state.json");
+  try {
+    const first = new TaskStore(undefined, 30_000, 15_000, stateFile);
+    const task = first.create({ taskType: "task_type_formula", input: 5 }, "consumer-1", "request-1");
+    first.assign(task.taskId, "worker-1", "stage_formula_multiply", 5);
+
+    const restored = new TaskStore(undefined, 30_000, 15_000, stateFile);
+    assert.equal(restored.findByRequest("consumer-1", "request-1")?.taskId, task.taskId);
+    assert.equal(restored.get(task.taskId)?.assignment?.stage, "stage_formula_multiply");
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test("loops an LLM task through its three shards once per generated token", () => {

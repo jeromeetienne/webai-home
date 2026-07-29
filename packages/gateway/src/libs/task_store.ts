@@ -1,11 +1,14 @@
 // npm imports
 import type { AssignmentRetryReason, StageAssignment, StageName, StagePayload, StageResult, Task, TaskInput } from "@webai/protocol";
+import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 
 /** Stores task state for the lifetime of the gateway process. */
 export class TaskStore {
 	private readonly tasks = new Map<string, Task>();
 	private readonly taskIdByConsumerRequest = new Map<string, string>();
-	constructor(private readonly now: () => Date = () => new Date(), private readonly submissionTimeoutMs = 30_000, private readonly leaseMs = 15_000) {}
+	constructor(private readonly now: () => Date = () => new Date(), private readonly submissionTimeoutMs = 30_000, private readonly leaseMs = 15_000, private readonly stateFilePath?: string) {
+		this.restore();
+	}
 
 	/**
 	 * Creates and stores a queued task.
@@ -31,6 +34,7 @@ export class TaskStore {
 		};
 		this.tasks.set(task.taskId, task);
 		this.taskIdByConsumerRequest.set(this.requestKey(consumerDeviceId, requestId), task.taskId);
+		this.persist();
 		return task;
 	}
 
@@ -106,6 +110,7 @@ export class TaskStore {
 			updatedAt: this.now().toISOString(),
 		};
 		this.tasks.set(taskId, next);
+		this.persist();
 		return next;
 	}
 
@@ -117,7 +122,7 @@ export class TaskStore {
 	 * @returns The updated task.
 	 * @throws Error when the task identifier is not stored.
 	 */
-	addStage(taskId: string, stage: StageResult): Task {
+	addStage(taskId: string, stage: StageResult, assignmentId?: string): Task {
 		const task = this.tasks.get(taskId);
 		if (!task) {
 			throw new Error(`Task ${taskId} was not found`);
@@ -125,6 +130,7 @@ export class TaskStore {
 		return this.update(taskId, {
 			completedStages: [...task.completedStages, stage],
 			assignment: undefined,
+			...(assignmentId === undefined ? {} : { acknowledgedAssignmentIds: [...(task.acknowledgedAssignmentIds ?? []), assignmentId] }),
 		});
 	}
 
@@ -136,6 +142,25 @@ export class TaskStore {
 		const task = this.get(taskId);
 		if (!task) throw new Error(`Task ${taskId} was not found`);
 		return task;
+	}
+
+	/** Restores the versioned, local durable state before the gateway accepts traffic. */
+	private restore(): void {
+		if (!this.stateFilePath || !existsSync(this.stateFilePath)) return;
+		const document = JSON.parse(readFileSync(this.stateFilePath, "utf8")) as { schemaVersion: number; tasks: Task[] };
+		if (document.schemaVersion !== 1 || !Array.isArray(document.tasks)) throw new Error(`Unsupported task state schema in ${this.stateFilePath}`);
+		for (const task of document.tasks) {
+			this.tasks.set(task.taskId, task);
+			this.taskIdByConsumerRequest.set(this.requestKey(task.consumerDeviceId, task.requestId), task.taskId);
+		}
+	}
+
+	/** Writes through a temporary file so a process interruption cannot leave partial JSON. */
+	private persist(): void {
+		if (!this.stateFilePath) return;
+		const temporaryPath = `${this.stateFilePath}.tmp`;
+		writeFileSync(temporaryPath, JSON.stringify({ schemaVersion: 1, tasks: this.list() }), "utf8");
+		renameSync(temporaryPath, this.stateFilePath);
 	}
 
 	/**

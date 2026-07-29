@@ -88,6 +88,7 @@ export interface Task {
   /** Pipeline identity is optional while the built-in formula and LLM pipelines are migrated. */
   pipelineId?: string;
   pipelineVersion?: number;
+  acknowledgedAssignmentIds?: string[];
 }
 
 /** The worker-specific identity of the stage that may currently update a task. */
@@ -156,6 +157,7 @@ export type GatewayMessage =
   | { type: "task.updated"; task: Task }
   | { type: "stage.assign"; taskId: string; assignmentId: string; attempt: number; stage: StageName; value: StagePayload; leaseUntil: string; peerId?: string }
   | { type: "stage.cancel"; taskId: string; assignmentId: string; attempt: number; reason: string }
+  | { type: "stage.result.accepted"; taskId: string; assignmentId: string; attempt: number; revision: number; status: "assigned" | "completed" | "failed" }
   | { type: "signal"; from: string; data: unknown }
   | { type: "devices"; devices: Device[]; revision: number }
   | { type: "device.joined" | "device.updated"; device: Device; revision: number }

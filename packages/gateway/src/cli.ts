@@ -27,11 +27,12 @@ const options = new Command()
 	.option("--lease-ms <number>", "Assignment lease duration", "15000")
 	.option("--submission-timeout-ms <number>", "Queued task deadline", "30000")
 	.option("--max-attempts <number>", "Maximum assignment attempts", "3")
+	.option("--state-file <path>", "Durable task state file", "gateway-state.json")
 	.parse()
-	.opts<{ port: string; leaseMs: string; submissionTimeoutMs: string; maxAttempts: string }>();
+	.opts<{ port: string; leaseMs: string; submissionTimeoutMs: string; maxAttempts: string; stateFile: string }>();
 const port = Number(options.port);
 const deviceRegistry = new DeviceRegistry();
-const taskStore = new TaskStore(undefined, Number(options.submissionTimeoutMs), Number(options.leaseMs));
+const taskStore = new TaskStore(undefined, Number(options.submissionTimeoutMs), Number(options.leaseMs), options.stateFile);
 const maximumAttempts = Number(options.maxAttempts);
 const socketMap = new Map<string, WebSocket>();
 const observerDeviceIds = new Set<string>();
@@ -436,6 +437,10 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 		}
 		const assignment = task.assignment;
 		if (!assignment || assignment.assignmentId !== message.assignmentId || assignment.attempt !== message.attempt) {
+			if (task.acknowledgedAssignmentIds?.includes(message.assignmentId)) {
+				send(socket, { type: "stage.result.accepted", taskId: task.taskId, assignmentId: message.assignmentId, attempt: message.attempt, revision: task.revision, status: task.state === "completed" ? "completed" : "assigned" }, counterpartFor(deviceId));
+				return;
+			}
 			send(socket, {
 				type: "error",
 				code: "STALE_ASSIGNMENT",
@@ -459,7 +464,7 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 		const updated = taskStore.addStage(task.taskId, {
 			name: message.stage,
 			value: message.value,
-		});
+		}, message.assignmentId);
 		releaseWorkerAssignment(deviceId);
 		const upcoming = TaskStore.nextStage(updated);
 		if (upcoming) {
@@ -470,12 +475,16 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage): vo
 			const excluded = updated.input.taskType === "task_type_llm" ? [] : [deviceId];
 			assign(updated.taskId, message.value, upcoming, excluded);
 		} else {
-			taskStore.update(updated.taskId, {
+			const completed = taskStore.update(updated.taskId, {
 				state: "completed",
 				result: message.value,
 			});
 			broadcastTask(updated.taskId);
+			send(socket, { type: "stage.result.accepted", taskId: completed.taskId, assignmentId: message.assignmentId, attempt: message.attempt, revision: completed.revision, status: "completed" }, counterpartFor(deviceId));
+			return;
 		}
+		const assigned = taskStore.get(updated.taskId)!;
+		send(socket, { type: "stage.result.accepted", taskId: assigned.taskId, assignmentId: message.assignmentId, attempt: message.attempt, revision: assigned.revision, status: "assigned" }, counterpartFor(deviceId));
 		return;
 	}
 
