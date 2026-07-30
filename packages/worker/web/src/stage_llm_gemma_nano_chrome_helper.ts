@@ -53,36 +53,65 @@ export type BuiltInModelReadiness =
 	| { status: 'user_gesture_required'; message: string }
 	| { status: 'unavailable'; message: string };
 
-/** One answer this browser is producing, kept in memory for as long as its task runs here. */
+/** One answer this browser is producing, kept in memory while its stage run reads it. */
 type TaskGenerationState = {
-	/** The session the answer is being generated in. */
-	session: BuiltInModelSession;
-	/** The reader that delivers the answer one piece at a time. */
-	reader: ReadableStreamDefaultReader<string>;
+	/**
+	 * The session the answer is being generated in, absent until the browser has created it.
+	 *
+	 * A state exists before its session does, because creating the session is the slowest part
+	 * of a run and the assignment can be taken away while it is happening. See `isReleased`.
+	 */
+	session: BuiltInModelSession | undefined;
+	/** The reader that delivers the answer one piece at a time, absent until the session exists. */
+	reader: ReadableStreamDefaultReader<string> | undefined;
 	/** The pieces of the answer received so far, joined. */
 	text: string;
-	/** How many pieces have been read, which bounds how many times the stage may repeat. */
+	/** How many pieces have been read, which bounds how long one stage run may read for. */
 	pieceCount: number;
+	/**
+	 * Whether {@link StageLlmGemmaNanoChromeHelper.clearAssignment} has released this
+	 * generation while the stage run still had it in hand.
+	 *
+	 * It is read at the two points a run can learn that its work is no longer wanted. After a
+	 * read, because releasing cancels the reader and a cancelled reader ends the read that was
+	 * waiting on it as if the model had finished the answer, so this is what tells the two
+	 * apart and reports an abandoned answer as a failure rather than as a complete one. And
+	 * after the session is created, because a release that arrives before the session exists
+	 * has no reader to cancel and no session to destroy, and would otherwise leave the browser
+	 * generating a whole answer for a task nobody is waiting for.
+	 */
+	isReleased: boolean;
 };
 
 /**
  * The largest number of pieces one answer may be read in.
  *
- * Each piece costs one stage assignment, so a model that never finished an answer would
- * otherwise keep one task running for as long as the page is open. This is the same kind of
- * bound as the generated-token limit of the sharded Qwen3 task.
+ * A model that never finished an answer would otherwise keep one stage run reading for as
+ * long as the page is open. This is the same kind of bound as the generated-token limit of
+ * the sharded Qwen3 task.
  */
 const MAXIMUM_ANSWER_PIECES = 400;
 
 /**
- * Runs the language model built into the browser, one piece of the answer per stage run.
+ * Runs the language model built into the browser, producing a whole answer in one stage run.
  *
  * Nothing is downloaded by the project for this task. The browser holds the model, so the
  * only thing this helper keeps is the open generation: the session and the reader that
- * delivers the answer. Both live in this module's memory, keyed by task identifier, in the
- * same way that the sharded Qwen3 helper keeps a key-value cache. That is what the stage's
- * `prefersSameWorkerOnRetry` setting protects, and why the pipeline repeats its single stage
- * instead of asking a fresh device for the rest of an answer it cannot see.
+ * delivers the answer.
+ *
+ * The browser produces an answer in pieces, and one stage run reads every piece of one answer
+ * before it returns. Reading one piece per stage run instead would cost one message to the
+ * central gateway and one message back for each piece, and each of those messages would carry
+ * the whole answer so far, so the traffic for one answer would grow with the square of its
+ * length. The gateway learns nothing from those rounds that it does not learn from the single
+ * result, because a consumer is not told the text of a task until the task has completed.
+ * This is the work of https://github.com/webai-at-home/webai-at-home/issues/77, whose later
+ * steps bring the piece-at-a-time reading back for a request that asks for its answer to be
+ * streamed.
+ *
+ * One stage run can therefore last as long as a whole answer takes. That is safe because the
+ * worker browser page sends `stage.heartbeat` for the whole time a stage is running, which
+ * moves the assignment lease along ahead of it.
  *
  * The interface used here is the browser's own prompt interface, reached through the global
  * `LanguageModel` object. It is not part of the browser type definitions this project
@@ -105,8 +134,20 @@ export class StageLlmGemmaNanoChromeHelper {
 		return computation === StageLlmGemmaNanoChromeHelper.computation;
 	}
 
-	/** The generations this browser is currently producing, by task identifier. */
-	private static stateByTaskId = new Map<string, TaskGenerationState>();
+	/**
+	 * The generations this browser is currently producing, by assignment identifier.
+	 *
+	 * A generation is held here only while its own stage run has it in hand. It is kept in a map
+	 * rather than in a local variable of that run so that `clearAssignment` can reach it, which
+	 * is how a cancelled task stops the browser generating an answer nobody will read.
+	 *
+	 * The key is the assignment and not the task, because one browser tab can hold two runs of
+	 * the same task at once: a lease that expires while a run is under way has the gateway
+	 * assign the stage again, and this stage asks for that retry to come back to the same tab.
+	 * The gateway issues a fresh assignment identifier for every attempt, so keying by it gives
+	 * each run its own entry, and neither run can release the other's session.
+	 */
+	private static stateByAssignmentId = new Map<string, TaskGenerationState>();
 
 	/**
 	 * Reports whether this browser can run the stage, without asking it to download anything.
@@ -150,76 +191,93 @@ export class StageLlmGemmaNanoChromeHelper {
 	}
 
 	/**
-	 * Reads the next piece of one task's answer, starting the answer on the first run.
+	 * Produces one assignment's whole answer, reading every piece the browser gives before
+	 * returning.
 	 *
-	 * @param taskId The task this stage belongs to, used to find the generation held for it.
-	 * @param payload The prompt on the first run of a task, or the answer so far on a later run.
-	 * @returns The answer so far, marked as finished once the model has stopped producing it.
-	 * @throws If the browser has no built-in language model, if a continuation arrives for a
-	 * task this browser holds no generation for, or if the model reports an error.
+	 * @param assignmentId The assignment this run is carrying out, which names the generation
+	 * held for it while the run has it in hand.
+	 * @param payload The prompt submitted with the task.
+	 * @returns The complete answer, marked as finished.
+	 * @throws If the browser has no built-in language model, if the payload continues an answer
+	 * rather than carrying a prompt, if the answer is abandoned before or while it is being
+	 * read, or if the model reports an error.
 	 */
-	static async compute(taskId: string, payload: LlmStagePayload): Promise<LlmStagePayload> {
-		const state = payload.isContinuation === true
-			? StageLlmGemmaNanoChromeHelper.stateByTaskId.get(taskId)
-			: await StageLlmGemmaNanoChromeHelper.startTask(taskId, payload.text ?? '');
-		if (state === undefined) throw new Error('This browser is not holding the answer this stage continues, so the rest of it cannot be read here.');
-
-		const piece = await state.reader.read();
-		if (piece.done === true) {
-			StageLlmGemmaNanoChromeHelper.clearTask(taskId);
+	static async compute(assignmentId: string, payload: LlmStagePayload): Promise<LlmStagePayload> {
+		// No stage run produces a continuation any more, so none can arrive. One that did would
+		// carry an answer this browser is not holding, and reading it as a prompt would answer
+		// the model's own words instead of the reader's question.
+		if (payload.isContinuation === true) throw new Error('This stage produces a whole answer in one run, so there is no answer left open here for a later run to continue.');
+		// The state is registered before the session it will hold is asked for, so that an
+		// assignment taken away during that wait has something to mark released.
+		const state: TaskGenerationState = { session: undefined, reader: undefined, text: '', pieceCount: 0, isReleased: false };
+		StageLlmGemmaNanoChromeHelper.stateByAssignmentId.set(assignmentId, state);
+		try {
+			const reader = await StageLlmGemmaNanoChromeHelper.startGeneration(state, payload.text ?? '');
+			while (state.pieceCount < MAXIMUM_ANSWER_PIECES) {
+				const piece = await reader.read();
+				if (state.isReleased === true) throw new Error('The answer this stage was producing was abandoned before the model had finished it.');
+				if (piece.done === true) break;
+				state.text += piece.value;
+				state.pieceCount += 1;
+			}
 			return StagePayloadFactory.llmDone(state.text);
+		} finally {
+			StageLlmGemmaNanoChromeHelper.clearAssignment(assignmentId);
 		}
-		state.text += piece.value;
-		state.pieceCount += 1;
-		if (state.pieceCount >= MAXIMUM_ANSWER_PIECES) {
-			StageLlmGemmaNanoChromeHelper.clearTask(taskId);
-			return StagePayloadFactory.llmDone(state.text);
-		}
-		return StagePayloadFactory.llmPartialText(state.text);
 	}
 
 	/**
-	 * Releases the generation this browser holds for a task.
+	 * Releases the generation this browser holds for one assignment.
 	 *
-	 * Called once an answer is finished, and also when a stage fails or its assignment is
-	 * taken away, so an abandoned task does not leave a model session open.
+	 * Called once an answer has been read, and also when a stage fails or its assignment is
+	 * taken away, so an abandoned run does not leave a model session open and does not leave
+	 * the browser generating an answer nobody will read.
 	 *
-	 * @param taskId The task whose generation should be released.
+	 * @param assignmentId The assignment whose generation should be released.
 	 */
-	static clearTask(taskId: string): void {
-		const state = StageLlmGemmaNanoChromeHelper.stateByTaskId.get(taskId);
+	static clearAssignment(assignmentId: string): void {
+		const state = StageLlmGemmaNanoChromeHelper.stateByAssignmentId.get(assignmentId);
 		if (state === undefined) return;
-		StageLlmGemmaNanoChromeHelper.stateByTaskId.delete(taskId);
-		void state.reader.cancel().catch(() => undefined);
-		state.session.destroy();
+		StageLlmGemmaNanoChromeHelper.stateByAssignmentId.delete(assignmentId);
+		// Set before either of the two below, because both are how a run that is waiting learns
+		// it has been released, and because neither exists yet when the release arrives while
+		// the session is still being created. In that case this flag is the only signal, and
+		// `startGeneration` is where it is read.
+		state.isReleased = true;
+		if (state.reader !== undefined) void state.reader.cancel().catch(() => undefined);
+		if (state.session !== undefined) state.session.destroy();
 	}
 
 	/**
-	 * Starts one answer and keeps its session and reader for the rest of the task.
+	 * Starts one answer, and hands its session and reader to the state the run holds.
 	 *
 	 * Asking for the answer does not wait for it. The model returns a stream at once and
-	 * produces the answer into it, so the first piece is read by the caller in the same way
-	 * as every later piece.
+	 * produces the answer into it, so the caller reads every piece from that stream.
 	 *
-	 * @param taskId The task the answer belongs to.
+	 * @param state The generation state this run registered, already released or not.
 	 * @param prompt The prompt submitted with the task.
-	 * @returns The generation state now held for the task.
-	 * @throws If the prompt is empty or this browser has no built-in language model.
+	 * @returns The reader that delivers the answer.
+	 * @throws If the prompt is empty, if this browser has no built-in language model, or if the
+	 * assignment was taken away while the browser was creating the session.
 	 */
-	private static async startTask(taskId: string, prompt: string): Promise<TaskGenerationState> {
+	private static async startGeneration(state: TaskGenerationState, prompt: string): Promise<ReadableStreamDefaultReader<string>> {
 		if (prompt.trim() === '') throw new Error('A prompt is needed to start an answer.');
-		StageLlmGemmaNanoChromeHelper.clearTask(taskId);
 		const factory = StageLlmGemmaNanoChromeHelper.factory();
 		if (factory === undefined) throw new Error('This browser has no built-in language model.');
 		const session = await factory.create();
-		const state: TaskGenerationState = {
-			session,
-			reader: session.promptStreaming(prompt).getReader(),
-			text: '',
-			pieceCount: 0,
-		};
-		StageLlmGemmaNanoChromeHelper.stateByTaskId.set(taskId, state);
-		return state;
+		// Creating the session is the slowest part of a run — on a device that has only just
+		// downloaded the model it took about 15 seconds in testing — and the assignment can be
+		// taken away while it is happening. A release that arrives then finds no session to
+		// destroy and no reader to cancel, so it leaves this flag and nothing else; reading it
+		// here is what stops the browser generating a whole answer for a task that was already
+		// given up on before its session existed.
+		if (state.isReleased === true) {
+			session.destroy();
+			throw new Error('The answer this stage was to produce was abandoned before the model session was ready.');
+		}
+		state.session = session;
+		state.reader = session.promptStreaming(prompt).getReader();
+		return state.reader;
 	}
 
 	/** The browser object that creates sessions with the built-in language model, when it exists. */

@@ -342,7 +342,12 @@ export class WorkerPage {
 		if (message.type === 'stage.cancel' && message.taskId !== undefined) {
 			LeaseHeartbeat.stop(message.assignmentId);
 			StageLlmQwen3_0_6bHelper.clearTask(message.taskId);
-			StageLlmGemmaNanoChromeHelper.clearTask(message.taskId);
+			// The shard helper holds its key-value cache per task, and the built-in model helper
+			// holds its generation per assignment, so each is told to let go in its own terms.
+			// One tab can hold two runs of the same task at once, when a lease expires and the
+			// gateway assigns the stage again to the same tab, and only the superseded one is
+			// being cancelled here.
+			if (message.assignmentId !== undefined) StageLlmGemmaNanoChromeHelper.clearAssignment(message.assignmentId);
 			return;
 		}
 		// The gateway answers each lease heartbeat with a later expiry. Nothing has to be
@@ -408,7 +413,7 @@ export class WorkerPage {
 		 */
 		const runComputation = (): Promise<StagePayload> => {
 			if (StageLlmQwen3_0_6bHelper.implementsComputation(computation)) return StageLlmQwen3_0_6bHelper.compute(message.stageIndex ?? 0, taskId, value as Exclude<StagePayload, number>);
-			if (StageLlmGemmaNanoChromeHelper.implementsComputation(computation)) return StageLlmGemmaNanoChromeHelper.compute(taskId, value as Exclude<StagePayload, number>);
+			if (StageLlmGemmaNanoChromeHelper.implementsComputation(computation)) return StageLlmGemmaNanoChromeHelper.compute(assignmentId, value as Exclude<StagePayload, number>);
 			return Promise.resolve(StageDevFormulaHelper.compute(computation, value as number));
 		};
 		runComputation()
@@ -431,7 +436,7 @@ export class WorkerPage {
 				// for it: a shard's key-value cache, or an answer the browser's own language
 				// model is still producing. Both are left alone when no such state exists.
 				StageLlmQwen3_0_6bHelper.clearTask(taskId);
-				StageLlmGemmaNanoChromeHelper.clearTask(taskId);
+				StageLlmGemmaNanoChromeHelper.clearAssignment(assignmentId);
 				const failedMessage: ClientMessage = {
 					type: 'stage.failed',
 					taskId,

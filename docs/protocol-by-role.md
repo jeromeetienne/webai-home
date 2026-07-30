@@ -300,20 +300,39 @@ contract.
 ### Chrome built-in language-model flow
 
 The task that uses the language model built into the browser has one stage, and
-that stage runs once per piece of the answer:
+one run of that stage produces the whole answer:
 
 ```text
-stage_llm_gemma_nano_chrome_full -> stage_llm_gemma_nano_chrome_full -> ...
+stage_llm_gemma_nano_chrome_full
 ```
 
-The first assignment carries the prompt in `LlmStagePayload.text`. Each result
-carries the answer so far, again in `text`. A result that continues the answer
-also sets `isContinuation: true` and `done: false`, and the assignment that
-follows carries both fields back to the worker; that is what tells a
-continuation apart from a first assignment, since both carry text. The last
-result carries the complete answer and sets `done: true`. Every assignment for
-one task goes to the same worker, because the open answer lives only in that
-browser tab's memory.
+The assignment carries the prompt in `LlmStagePayload.text`. The browser
+delivers its answer in pieces, and the worker reads every piece before it
+answers, so one result carries the complete answer in `text` with `done: true`.
+The pipeline sets `repeatsUntilDone`, and it is that `done: true` which ends the
+task on the first run.
+
+Reading one piece per stage run instead would cost one `stage.result` message
+and one `stage.assign` message per piece, each carrying the whole answer so far,
+so the traffic for one answer would grow with the square of its length. The
+`isContinuation` field of `LlmStagePayload` exists for that piece-at-a-time
+reading; no worker sets it today, and a worker that is given a payload carrying
+it fails the stage rather than reading a partial answer as a new prompt. It
+returns once a request can ask for its answer to be streamed, which is
+[issue 77](https://github.com/webai-at-home/webai-at-home/issues/77).
+
+The stage run lasts as long as the whole answer takes. The worker sends
+`stage.heartbeat` throughout, which moves the assignment lease along ahead of
+it, and a `stage.cancel` stops the browser generating — including one that
+arrives while the browser is still creating the model session, which is the
+slowest part of a run.
+
+A worker holds each generation against the `assignmentId` it belongs to, and
+not against the `taskId`, because one tab can hold two runs of the same task at
+once: a lease that expires while a run is under way has the gateway assign the
+stage again, and this stage asks for that retry to come back to the same tab.
+Every attempt carries its own `assignmentId`, so a `stage.cancel` naming the
+superseded one releases only that run.
 
 ## Validation and errors
 
