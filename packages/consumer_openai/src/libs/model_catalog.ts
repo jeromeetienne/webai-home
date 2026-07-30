@@ -1,4 +1,4 @@
-import { TaskInputFactory, taskTypeNames, type TaskTypeName } from '@webai/consumer-cli/libs/task_input_factory';
+import { TaskInputFactory, taskTypeNames, type TaskTypeName } from '@webai/consumer-cli';
 import type { ModelDescription, ModelListResponse } from './openai_types.js';
 
 ///////////////////////////////////////////////////////////////////////////////

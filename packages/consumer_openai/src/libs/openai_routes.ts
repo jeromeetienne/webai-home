@@ -3,7 +3,7 @@ import Crypto from 'node:crypto';
 
 // npm imports
 import Express from 'express';
-import { TaskInputFactory } from '@webai/consumer-cli/libs/task_input_factory';
+import { TaskInputFactory } from '@webai/consumer-cli';
 import type { TaskInput } from '@webai/protocol';
 import type { z } from 'zod';
 

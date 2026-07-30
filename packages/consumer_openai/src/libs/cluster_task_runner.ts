@@ -3,7 +3,7 @@ import Crypto from 'node:crypto';
 
 // npm imports
 import WebSocket from 'ws';
-import { ConsumerClient, type TaskSocket } from '@webai/consumer-cli/libs/consumer_client';
+import { ConsumerClient, type TaskSocket } from '@webai/consumer-cli';
 import type { MessageLogger } from '@webai/protocol/message_logger';
 import type { ProtocolError, StagePayload, TaskInput, TaskSnapshot, TaskState, TaskUpdate } from '@webai/protocol';
 

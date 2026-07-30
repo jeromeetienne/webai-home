@@ -1,11 +1,13 @@
 import Assert from 'node:assert/strict';
 import Test from 'node:test';
+import Express from 'express';
 import { protocolVersion } from '@webai/protocol';
-import type { TaskSocket } from '@webai/consumer-cli/libs/consumer_client';
+import type { TaskSocket } from '@webai/consumer-cli';
 import { ClusterTaskRunner, type ClusterTaskRunnerOptions } from '../src/libs/cluster_task_runner.js';
 import { ModelCatalog } from '../src/libs/model_catalog.js';
 import { OpenaiError } from '../src/libs/openai_error.js';
-import { ChatCompletionRequestSchema } from '../src/libs/openai_types.js';
+import { OpenaiRoutes } from '../src/libs/openai_routes.js';
+import { ChatCompletionRequestSchema, type ChatCompletionResponse } from '../src/libs/openai_types.js';
 import { PromptFlattener } from '../src/libs/prompt_flattener.js';
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -146,6 +148,25 @@ type StandInCluster = {
 
 /** Lets every already-scheduled promise settle before the test looks at the result. */
 const settlePromises = async (): Promise<void> => await new Promise<void>((resolve) => setImmediate(resolve));
+
+/**
+ * Waits until a condition becomes true, checking again after each macrotask.
+ *
+ * A request sent over a real HTTP connection, unlike the stand-in `TaskSocket` used
+ * elsewhere in this file, reaches this process through the network stack rather than
+ * synchronously, so a single `settlePromises` does not reliably wait long enough for it to
+ * have been read and turned into a `task.submit` frame.
+ *
+ * @param condition Checked repeatedly until it returns `true`.
+ * @throws Error when the condition has not become true after 1 second.
+ */
+const waitUntil = async (condition: () => boolean): Promise<void> => {
+	const deadline = Date.now() + 1_000;
+	while (condition() === false) {
+		if (Date.now() > deadline) throw new Error('Condition did not become true in time');
+		await new Promise<void>((resolve) => setTimeout(resolve, 5));
+	}
+};
 
 /**
  * Builds a runner whose connection is a stand-in the test drives itself, and takes it as far
@@ -331,4 +352,79 @@ Test('holds no more tasks in flight than it was told to', async () => {
 	Assert.equal(failure.code, 'too_many_tasks_in_flight');
 	cluster.runner.close();
 	await first.then(() => undefined, () => undefined);
+});
+
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+//	Streaming And Tool Support, Through The Full Request Flow
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+/**
+ * Starts the actual Express routes on an ephemeral port, in front of a stand-in gateway
+ * connection, so a test can send it a real HTTP request the way an OpenAI client would.
+ *
+ * @param overrides Cluster task runner options to use instead of the defaults.
+ * @returns The stand-in cluster to drive the gateway side, and `url` to send requests to.
+ */
+const listeningServer = async (overrides: Partial<ClusterTaskRunnerOptions> = {}): Promise<{ cluster: Awaited<ReturnType<typeof registeredStandInCluster>>; url: string; close: () => void }> => {
+	const cluster = await registeredStandInCluster(overrides);
+	const routes = new OpenaiRoutes(cluster.runner, undefined, Math.floor(Date.now() / 1000));
+	const app = Express();
+	app.use(routes.router());
+	const httpServer = app.listen(0);
+	await new Promise<void>((resolve) => httpServer.once('listening', resolve));
+	const address = httpServer.address();
+	if (address === null || typeof address === 'string') throw new Error('Expected the stand-in server to listen on a TCP port');
+	return { cluster, url: `http://127.0.0.1:${address.port}`, close: () => httpServer.close() };
+};
+
+Test('refuses a streamed request over the full request-response flow, rather than running a task for it', async () => {
+	const server = await listeningServer();
+	try {
+		const response = await fetch(`${server.url}/v1/chat/completions`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ model: 'dev_formula', messages: [{ role: 'user', content: '5' }], stream: true }),
+		});
+		Assert.equal(response.status, 400);
+		const body = await response.json() as { error: { type: string; param: string | null; code: string | null } };
+		Assert.equal(body.error.code, 'streaming_not_supported');
+		Assert.equal(body.error.param, 'stream');
+		// Refused before a task is ever submitted, so the gateway sees no `task.submit` for it.
+		Assert.equal(server.cluster.runner.tasksInFlight, 0);
+	} finally {
+		server.close();
+	}
+});
+
+Test('answers a request carrying tool definitions normally, with those settings ignored', async () => {
+	const server = await listeningServer();
+	try {
+		const responsePromise = fetch(`${server.url}/v1/chat/completions`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({
+				model: 'dev_formula',
+				messages: [{ role: 'user', content: '5' }],
+				tools: [{ type: 'function', function: { name: 'get_weather', parameters: {} } }],
+				tool_choice: 'auto',
+			}),
+		});
+		await waitUntil(() => server.cluster.lastSentBody()['type'] === 'task.submit');
+		const requestId = server.cluster.lastSentBody()['requestId'];
+		Assert.equal(typeof requestId, 'string');
+		server.cluster.receive({ type: 'task.accepted', requestId, task: { taskId: 'task-tools-1', requestId, state: 'queued' } });
+		server.cluster.receive({ type: 'task.updated', update: { taskId: 'task-tools-1', revision: 2, state: 'completed', completedStageCount: 2, currentStageAttempts: 0, result: 17 } });
+
+		const response = await responsePromise;
+		Assert.equal(response.status, 200);
+		const body = await response.json() as ChatCompletionResponse;
+		// The request's tool definitions and tool choice carried no weight in this answer: the
+		// task ran and completed exactly as it would have without them.
+		Assert.equal(body.choices[0]?.message.content, '17');
+		Assert.equal(body.choices[0]?.finish_reason, 'stop');
+	} finally {
+		server.close();
+	}
 });

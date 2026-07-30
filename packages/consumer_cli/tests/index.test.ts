@@ -3,6 +3,7 @@ import Test from 'node:test';
 import { ConsumerClient, type TaskSocket } from '../src/libs/consumer_client.js';
 import { TaskInputFactory, taskTypeNames } from '../src/libs/task_input_factory.js';
 import { protocolVersion, type ProtocolError } from '@webai/protocol';
+import * as ConsumerCli from '@webai/consumer-cli';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -99,4 +100,34 @@ Test('reports an error the gateway sent with its code and its request identifier
 	// the callback handles one shape rather than two.
 	socket.onmessage?.({ data: 'not json at all' });
 	Assert.deepEqual(errors[1], { type: 'error', code: 'INVALID_MESSAGE', message: 'The central gateway sent invalid data' });
+});
+
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+//	Public Exports
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+// This resolves `@webai/consumer-cli` through its package.json `exports` field, into the
+// built `dist/index.js`, exactly as a package outside this one would import it, so it is a
+// separate loaded module from the `../src/...` imports above rather than the same class —
+// hence checking what it does, rather than reference-comparing it to the `src` version.
+// Running this test therefore needs `npm run build --workspace @webai/consumer-cli` to have
+// run first, the same requirement `@webai/consumer_openai` already has on this package.
+Test('exposes the reusable consumer symbols through the package entry point after a build', () => {
+	Assert.deepEqual(ConsumerCli.taskTypeNames, taskTypeNames);
+	Assert.deepEqual(ConsumerCli.TaskInputFactory.createTaskInput('dev_formula', '5'), { taskType: 'task_type_dev_formula', input: 5 });
+
+	const socket: TaskSocket = {
+		readyState: 1,
+		OPEN: 1,
+		send: () => undefined,
+		close: () => undefined,
+		onopen: null,
+		onmessage: null,
+		onerror: null,
+		onclose: null,
+	};
+	Assert.ok(new ConsumerCli.ConsumerClient(socket, {}, 'built-consumer') instanceof ConsumerCli.ConsumerClient);
+	Assert.equal('Cli' in ConsumerCli, false);
 });
