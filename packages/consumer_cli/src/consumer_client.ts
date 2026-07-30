@@ -38,8 +38,7 @@ export function parseLlmInput(value: string | undefined): string {
 
 /**
  * The task types a consumer may submit, each named as its task type without the leading
- * `task_type_`. This is the list the `-t/--type` command line option accepts and the list the
- * consumer web page offers.
+ * `task_type_`. This is the list the `-t/--type` command line option accepts.
  */
 export const taskTypeNames = ["dev_formula", "llm_qwen3_0_6b_sharded", "llm_gemma_nano_chrome_full"] as const;
 
@@ -49,7 +48,7 @@ export type TaskTypeName = typeof taskTypeNames[number];
 /**
  * Reports whether a value names a task type a consumer may submit.
  *
- * @param value - The value given on the command line or chosen on the web page.
+ * @param value - The value given on the command line.
  * @returns `true` when it is one of `taskTypeNames`.
  */
 export function isTaskTypeName(value: string): value is TaskTypeName {

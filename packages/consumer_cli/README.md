@@ -1,8 +1,8 @@
 # `@webai/consumer-cli`
 
-Command-line and web clients for submitting tasks to the central gateway.
+Command-line client for submitting tasks to the central gateway.
 
-Both interfaces connect over WebSocket, register as consumer clients, submit one input value, and show task updates until the task completes or fails.
+It connects over WebSocket, registers as a consumer client, submits one input value, and shows task updates until the task completes or fails.
 
 ## Run
 
@@ -30,21 +30,6 @@ Use `-t/--type` to choose the task type:
 
 ```sh
 npm run dev --workspace @webai/consumer-cli -- "hello there" --type llm_qwen3_0_6b_sharded
-```
-
-## Web page
-
-Start the Vite development server:
-
-```sh
-npm run web --workspace @webai/consumer-cli
-```
-
-Open the displayed address, usually `http://localhost:5173`. Enter the central gateway WebSocket URL, select a task type, and submit an input. The web page can also be built and previewed:
-
-```sh
-npm run build --workspace @webai/consumer-cli
-npm run preview --workspace @webai/consumer-cli
 ```
 
 ## Build

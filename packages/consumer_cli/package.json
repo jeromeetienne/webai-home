@@ -7,11 +7,9 @@
     "sample:dev_formula": "node --import tsx src/cli.ts --type dev_formula --name dev-formula-consumer 5 | jq",
     "sample:llm_qwen3_0_6b_sharded": "node --import tsx src/cli.ts --type llm_qwen3_0_6b_sharded --name llm-qwen3-0-6b-sharded-consumer 'What is the capital of France?' | jq",
     "sample:llm_gemma_nano_chrome_full": "node --import tsx src/cli.ts --type llm_gemma_nano_chrome_full --name llm-gemma-nano-chrome-full-consumer 'What is the capital of France?' | jq",
-    "build": "vite build && tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json",
     "dev": "tsx src/cli.ts",
-    "web": "vite",
-    "preview": "vite preview",
     "test": "node --import tsx --test tests/index.test.ts"
   },
   "dependencies": {
@@ -21,7 +19,6 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
-    "@types/ws": "^8.5.13",
-    "vite": "^6.4.3"
+    "@types/ws": "^8.5.13"
   }
 }
