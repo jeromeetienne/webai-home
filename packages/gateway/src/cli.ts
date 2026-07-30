@@ -1,10 +1,11 @@
 // node imports
 import Fs from 'node:fs';
-import Http from 'node:http';
+import type Http from 'node:http';
 import Path from 'node:path';
 import Url from 'node:url';
 
 // npm imports
+import Express from 'express';
 import { WebSocketServer } from 'ws';
 import { MessageLogger } from '@webai/protocol/message_logger';
 
@@ -111,7 +112,12 @@ export class Cli {
 			});
 		const httpRoutes = new HttpRoutes(hub, announcer, sessionRegistry, diagnosticsRateLimiter, settings.authToken, pageDevServer);
 
-		const httpServer = Http.createServer((request, response) => httpRoutes.handleRequest(request, response));
+		const app = Express();
+		app.disable('x-powered-by');
+		app.use((request, response) => httpRoutes.handleRequest(request, response));
+		const httpServer = app.listen(settings.port, () => {
+			console.log(`Gateway listening on http://localhost:${settings.port}`);
+		});
 		const websocketServer = new WebSocketServer({ server: httpServer });
 		websocketServer.on('connection', (socket) => websocketRouter.acceptConnection(socket));
 
@@ -137,10 +143,6 @@ export class Cli {
 
 		process.on('SIGINT', () => void Cli.shutdown());
 		process.on('SIGTERM', () => void Cli.shutdown());
-
-		httpServer.listen(settings.port, () => {
-			console.log(`Central gateway listening on http://localhost:${settings.port}`);
-		});
 	}
 
 	/**

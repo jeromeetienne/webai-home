@@ -1,9 +1,10 @@
 import Fs from 'node:fs';
 import Path from 'node:path';
 import Url from 'node:url';
-import Http from 'node:http';
+import type Http from 'node:http';
 import ChildProcess from 'node:child_process';
 import * as Commander from 'commander';
+import Express from 'express';
 import { LogEntryParser } from '../web/src/log_entry_parser.js';
 import type { InitialUiState, LogSource, SessionPayload } from '../web/src/types.js';
 
@@ -160,7 +161,9 @@ export class Cli {
 			appType: 'spa',
 		});
 
-		const httpServer = Http.createServer((request, response) => {
+		const app = Express();
+		app.disable('x-powered-by');
+		app.use((request, response) => {
 			const pathname = new URL(request.url ?? '/', 'http://localhost').pathname;
 			if (pathname === '/api/session.json') {
 				response.setHeader('content-type', 'application/json');
@@ -173,7 +176,9 @@ export class Cli {
 			});
 		});
 
-		await new Promise<void>((resolve) => httpServer.listen(requestedPort, resolve));
+		const httpServer: Http.Server = await new Promise<Http.Server>((resolve) => {
+			const server = app.listen(requestedPort, () => resolve(server));
+		});
 		const address = httpServer.address();
 		const port: number = typeof address === 'object' && address !== null ? address.port : requestedPort;
 
