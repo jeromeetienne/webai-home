@@ -67,6 +67,8 @@ partitioning across very different devices.
   home and worker pages.
 - `packages/protocol` — shared message and task definitions with validation.
 - `packages/consumer_cli` — command-line client for submitting test tasks.
+- `packages/consumer_openai` — OpenAI-compatible server, so a program that already talks
+  to OpenAI can use the cluster by changing its base address.
 - `packages/flow_viewer` — flow_viewer for inspecting recorded message traffic.
 - `packages/onnx_experiments` — browser experiments for ONNX Runtime Web.
 - `packages/tiny_iris_classifier` — small end-to-end browser inference example.

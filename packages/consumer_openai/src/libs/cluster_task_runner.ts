@@ -1,0 +1,443 @@
+// node imports
+import Crypto from 'node:crypto';
+
+// npm imports
+import WebSocket from 'ws';
+import { ConsumerClient, type TaskSocket } from '@webai/consumer-cli/libs/consumer_client';
+import type { MessageLogger } from '@webai/protocol/message_logger';
+import type { ProtocolError, StagePayload, TaskInput, TaskSnapshot, TaskState, TaskUpdate } from '@webai/protocol';
+
+// local imports
+import { OpenaiError } from './openai_error.js';
+
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+//	ClusterTaskRunner — runs one cluster task per request over one gateway connection
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+//	Types
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+/** How this runner reaches the central gateway and how long it is willing to wait. */
+export type ClusterTaskRunnerOptions = {
+	/** The WebSocket address of the central gateway. */
+	gatewayUrl: string;
+	/** The bearer token the central gateway requires. */
+	authToken: string;
+	/** The consumer name this runner registers under. */
+	name: string;
+	/** How long one task may run before it is cancelled and the request is given up on. */
+	requestTimeoutMs: number;
+	/** How long a request waits for a registered connection before it is refused. */
+	connectionWaitMs: number;
+	/** How many tasks this runner will have in flight at once. */
+	maximumTasksInFlight: number;
+	/** Where to record the message traffic of this runner's connection, when it is recorded. */
+	messageLogger?: MessageLogger | undefined;
+};
+
+/** One request waiting for the cluster task it submitted. */
+type PendingTask = {
+	/** The identifier the submission was sent under, which `task.accepted` echoes back. */
+	requestId: string;
+	/** The task identifier, once the central gateway has accepted the submission. */
+	taskId: string | undefined;
+	/** What was submitted, which says how the task's result is read. */
+	taskInput: TaskInput;
+	/** The model the request asked for, named in a failure so the caller recognises it. */
+	modelId: string;
+	resolve: (answer: string) => void;
+	reject: (failure: OpenaiError) => void;
+	/** The timer that gives up on this task once this server has waited long enough. */
+	timeoutTimer: ReturnType<typeof setTimeout> | undefined;
+	/** Whether this request has already been answered, so it is not answered twice. */
+	isSettled: boolean;
+};
+
+/** One request waiting for the connection to the central gateway to be registered. */
+type RegistrationWaiter = {
+	resolve: () => void;
+	reject: (failure: OpenaiError) => void;
+	timer: ReturnType<typeof setTimeout> | undefined;
+};
+
+/** How long this runner waits before opening the connection again the first time. */
+const initialReconnectDelayMs = 1_000;
+/** The longest this runner waits between attempts to open the connection again. */
+const maximumReconnectDelayMs = 30_000;
+
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+//	Cluster Task Runner
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+/**
+ * Holds one consumer connection to the central gateway and turns each submitted task into one
+ * promise that either carries the generated text or a failure to answer the request with.
+ *
+ * One connection serves every request, rather than one connection per request, because the
+ * gateway counts a connection as a device and a consumer only needs one. Requests are told
+ * apart by the identifier each submission is sent under: `task.accepted` echoes that
+ * identifier back with the task identifier, and every later task revision carries the task
+ * identifier, so the two maps below join a revision back to the request waiting for it. The
+ * submitting consumer receives every revision of its own task without asking, so no task is
+ * observed explicitly.
+ *
+ * When the connection closes, every request still waiting is given up on rather than being
+ * carried over to the next connection. A task already under way cannot be picked up again,
+ * because the gateway gives the new connection a new device identifier and the task belongs to
+ * the device that has gone.
+ */
+export class ClusterTaskRunner {
+	private client: ConsumerClient | undefined;
+	private isRegistered = false;
+	private isClosed = false;
+	private reconnectDelayMs = initialReconnectDelayMs;
+	private reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+	private readonly pendingByRequestId = new Map<string, PendingTask>();
+	private readonly pendingByTaskId = new Map<string, PendingTask>();
+	private readonly registrationWaiters = new Set<RegistrationWaiter>();
+
+	/**
+	 * @param options How to reach the central gateway and how long to wait.
+	 * @param openSocket How to open one connection. The default opens a `ws` connection, read
+	 * through the smaller shape the consumer client actually uses. A test passes its own.
+	 */
+	constructor(
+		private readonly options: ClusterTaskRunnerOptions,
+		private readonly openSocket: (gatewayUrl: string) => TaskSocket = (gatewayUrl) => new WebSocket(gatewayUrl) as unknown as TaskSocket,
+	) {
+		this.connect();
+	}
+
+	/** Whether this runner currently holds a registered connection to the central gateway. */
+	get isGatewayConnected(): boolean {
+		return this.isRegistered;
+	}
+
+	/** How many requests are waiting for a cluster task to finish. */
+	get tasksInFlight(): number {
+		return this.pendingByRequestId.size;
+	}
+
+	/**
+	 * Submits one task and waits for the text it generates.
+	 *
+	 * @param taskInput The task type and the value to submit.
+	 * @param modelId The model the request asked for, named in a failure so the caller
+	 * recognises which model could not be served.
+	 * @param abortSignal Reports that whoever sent the request has gone, so the task is
+	 * cancelled instead of being run for nobody.
+	 * @returns The generated text.
+	 * @throws OpenaiError when the task fails, is refused, or does not finish in time.
+	 */
+	async run(taskInput: TaskInput, modelId: string, abortSignal?: AbortSignal): Promise<string> {
+		if (this.pendingByRequestId.size >= this.options.maximumTasksInFlight) throw OpenaiError.tooManyTasksInFlight(this.options.maximumTasksInFlight);
+		const client = await this.registeredClient();
+		const requestId = Crypto.randomUUID();
+		return await new Promise<string>((resolve, reject) => {
+			const pending: PendingTask = { requestId, taskId: undefined, taskInput, modelId, resolve, reject, timeoutTimer: undefined, isSettled: false };
+			pending.timeoutTimer = setTimeout(() => {
+				this.giveUp(pending, OpenaiError.requestTimedOut(this.options.requestTimeoutMs), 'this server waited as long as it was willing to');
+			}, this.options.requestTimeoutMs);
+			pending.timeoutTimer.unref();
+			this.pendingByRequestId.set(requestId, pending);
+			abortSignal?.addEventListener('abort', () => {
+				this.giveUp(pending, OpenaiError.taskFailed('whoever sent the request went away'), 'whoever sent the request went away');
+			}, { once: true });
+			try {
+				client.submit(taskInput, requestId);
+			} catch {
+				this.settleWithFailure(pending, OpenaiError.gatewayUnavailable('The connection to the central gateway closed before this request could be submitted.'));
+			}
+		});
+	}
+
+	/** Gives up on every request still waiting and closes the connection for good. */
+	close(): void {
+		this.isClosed = true;
+		if (this.reconnectTimer !== undefined) clearTimeout(this.reconnectTimer);
+		this.reconnectTimer = undefined;
+		const failure = OpenaiError.gatewayUnavailable('This server is shutting down.');
+		this.failEveryPendingTask(failure);
+		this.rejectRegistrationWaiters(failure);
+		this.client?.close();
+		this.client = undefined;
+		this.isRegistered = false;
+	}
+
+	///////////////////////////////////////////////////////////////////////////////
+	///////////////////////////////////////////////////////////////////////////////
+	//	The Gateway Connection
+	///////////////////////////////////////////////////////////////////////////////
+	///////////////////////////////////////////////////////////////////////////////
+
+	/** Opens one connection to the central gateway and speaks the consumer side of it. */
+	private connect(): void {
+		if (this.isClosed) return;
+		let socket: TaskSocket;
+		try {
+			socket = this.openSocket(this.options.gatewayUrl);
+		} catch (error: unknown) {
+			console.error(`The connection to the central gateway at ${this.options.gatewayUrl} could not be opened: ${String(error)}`);
+			this.scheduleReconnect();
+			return;
+		}
+		this.client = new ConsumerClient(socket, {
+			onMessage: (direction, message) => this.options.messageLogger?.log(direction, { role: 'gateway' }, message.type, message),
+			onRegistered: () => this.onRegistered(),
+			onTaskAccepted: (task) => this.onTaskAccepted(task),
+			onTaskUpdated: (update) => this.onTaskUpdated(update),
+			onError: (error) => this.onGatewayError(error),
+			onConnectionChange: (isConnected) => {
+				if (isConnected === false) this.onConnectionLost();
+			},
+		}, this.options.name, this.options.authToken);
+	}
+
+	/** Notes that the connection is usable, and lets every waiting request proceed. */
+	private onRegistered(): void {
+		this.isRegistered = true;
+		this.reconnectDelayMs = initialReconnectDelayMs;
+		for (const waiter of [...this.registrationWaiters]) {
+			this.registrationWaiters.delete(waiter);
+			if (waiter.timer !== undefined) clearTimeout(waiter.timer);
+			waiter.resolve();
+		}
+	}
+
+	/** Gives up on every request still waiting, then opens the connection again. */
+	private onConnectionLost(): void {
+		this.isRegistered = false;
+		this.failEveryPendingTask(OpenaiError.gatewayUnavailable('The connection to the central gateway was lost while this request was waiting for its task. A task already under way cannot be picked up again by the next connection, because the central gateway gives that connection a new device identifier and the task belongs to the device that has gone.'));
+		this.scheduleReconnect();
+	}
+
+	/** Waits before opening the connection again, waiting longer after each failed attempt. */
+	private scheduleReconnect(): void {
+		if (this.isClosed) return;
+		if (this.reconnectTimer !== undefined) return;
+		const delayMs = this.reconnectDelayMs;
+		this.reconnectDelayMs = Math.min(this.reconnectDelayMs * 2, maximumReconnectDelayMs);
+		this.reconnectTimer = setTimeout(() => {
+			this.reconnectTimer = undefined;
+			this.connect();
+		}, delayMs);
+		this.reconnectTimer.unref();
+	}
+
+	/**
+	 * Waits for a registered connection, for as long as `connectionWaitMs` allows.
+	 *
+	 * A request that arrives during a short reconnection waits and then proceeds, and a request
+	 * that arrives while the central gateway is not running is refused within that bound rather
+	 * than being held until its own timeout runs out.
+	 *
+	 * @returns The registered consumer client to submit through.
+	 * @throws OpenaiError when no registered connection appears in time.
+	 */
+	private async registeredClient(): Promise<ConsumerClient> {
+		const client = this.client;
+		if (this.isRegistered === true && client !== undefined) return client;
+		if (this.isClosed === true) throw OpenaiError.gatewayUnavailable('This server is shutting down.');
+		await new Promise<void>((resolve, reject) => {
+			const waiter: RegistrationWaiter = { resolve, reject, timer: undefined };
+			waiter.timer = setTimeout(() => {
+				this.registrationWaiters.delete(waiter);
+				reject(OpenaiError.gatewayUnavailable(`This server is not connected to the central gateway at ${this.options.gatewayUrl}. Start the gateway, or start this server with a --gateway-url that points at it.`));
+			}, this.options.connectionWaitMs);
+			waiter.timer.unref();
+			this.registrationWaiters.add(waiter);
+		});
+		const registeredClient = this.client;
+		if (registeredClient === undefined) throw OpenaiError.gatewayUnavailable('The connection to the central gateway closed as this request was submitted.');
+		return registeredClient;
+	}
+
+	/**
+	 * Refuses every request waiting for a registered connection.
+	 *
+	 * @param failure The failure to refuse them with.
+	 */
+	private rejectRegistrationWaiters(failure: OpenaiError): void {
+		for (const waiter of [...this.registrationWaiters]) {
+			this.registrationWaiters.delete(waiter);
+			if (waiter.timer !== undefined) clearTimeout(waiter.timer);
+			waiter.reject(failure);
+		}
+	}
+
+	///////////////////////////////////////////////////////////////////////////////
+	///////////////////////////////////////////////////////////////////////////////
+	//	Task Progress
+	///////////////////////////////////////////////////////////////////////////////
+	///////////////////////////////////////////////////////////////////////////////
+
+	/**
+	 * Joins an accepted task to the request that submitted it, so later revisions of that task
+	 * can be matched to the same request.
+	 *
+	 * @param task The accepted task, which carries back the identifier the submission was sent
+	 * under.
+	 */
+	private onTaskAccepted(task: TaskSnapshot): void {
+		const pending = this.pendingByRequestId.get(task.requestId);
+		if (pending === undefined) return;
+		pending.taskId = task.taskId;
+		this.pendingByTaskId.set(task.taskId, pending);
+		this.settleFromTaskState(pending, task.state, task.result, task.error);
+	}
+
+	/**
+	 * Answers a request once its task has reached a state that ends it.
+	 *
+	 * @param update The task revision the central gateway sent.
+	 */
+	private onTaskUpdated(update: TaskUpdate): void {
+		const pending = this.pendingByTaskId.get(update.taskId);
+		if (pending === undefined) return;
+		this.settleFromTaskState(pending, update.state, update.result, update.error);
+	}
+
+	/**
+	 * Answers a request from the state its task has reached, and leaves the request waiting
+	 * while the task is still queued, assigned, or running.
+	 *
+	 * @param pending The request waiting for this task.
+	 * @param state The state the task has reached.
+	 * @param result The task result, present once the task has completed.
+	 * @param error The reason the task failed, present once it has failed.
+	 */
+	private settleFromTaskState(pending: PendingTask, state: TaskState, result: StagePayload | undefined, error: string | undefined): void {
+		if (state === 'completed') {
+			const answer = ClusterTaskRunner.answerTextOf(pending.taskInput, result);
+			if (answer === undefined) {
+				this.settleWithFailure(pending, OpenaiError.answerUnreadable(pending.taskInput.taskType));
+				return;
+			}
+			this.settleWithAnswer(pending, answer);
+			return;
+		}
+		if (state === 'failed') {
+			// The gateway records this one reason as a fixed name rather than a sentence: it is
+			// what a task carries when no worker browser tab offered its first stage before the
+			// gateway's submission deadline, which is the everyday case of nobody being connected.
+			const reason = error ?? 'the central gateway gave no reason';
+			if (reason === 'SUBMISSION_DEADLINE_EXPIRED') {
+				this.settleWithFailure(pending, OpenaiError.noVolunteerAvailable(pending.modelId));
+				return;
+			}
+			this.settleWithFailure(pending, OpenaiError.taskFailed(reason));
+			return;
+		}
+		if (state === 'cancelled') this.settleWithFailure(pending, OpenaiError.taskFailed('the task was cancelled'));
+	}
+
+	/**
+	 * Answers the request an error names, or reports the error when it names none.
+	 *
+	 * @param error The error the central gateway sent, or one the consumer client noticed itself.
+	 */
+	private onGatewayError(error: ProtocolError): void {
+		const pendingByRequest = error.requestId === undefined ? undefined : this.pendingByRequestId.get(error.requestId);
+		const pending = pendingByRequest ?? (error.taskId === undefined ? undefined : this.pendingByTaskId.get(error.taskId));
+		if (pending === undefined) {
+			console.error(`The central gateway reported ${error.code}: ${error.message}`);
+			return;
+		}
+		if (error.code === 'RATE_LIMITED') {
+			this.settleWithFailure(pending, OpenaiError.gatewayRateLimited(error.message));
+			return;
+		}
+		this.settleWithFailure(pending, OpenaiError.taskFailed(`${error.code}: ${error.message}`));
+	}
+
+	/**
+	 * Reads the generated text out of a task result.
+	 *
+	 * @param taskInput What was submitted, which says which shape the result has.
+	 * @param result The task result.
+	 * @returns The text to answer with, or `undefined` when the result carries none.
+	 */
+	private static answerTextOf(taskInput: TaskInput, result: StagePayload | undefined): string | undefined {
+		if (result === undefined) return undefined;
+		// A development formula task carries a plain number, so its answer is that number
+		// written out. Either language-model task carries the generated text.
+		if (taskInput.taskType === 'task_type_dev_formula') return typeof result === 'number' ? String(result) : undefined;
+		if (typeof result === 'number') return undefined;
+		return result.text;
+	}
+
+	///////////////////////////////////////////////////////////////////////////////
+	///////////////////////////////////////////////////////////////////////////////
+	//	Answering One Request
+	///////////////////////////////////////////////////////////////////////////////
+	///////////////////////////////////////////////////////////////////////////////
+
+	/**
+	 * Cancels the task of a request this server is no longer waiting for, and then refuses the
+	 * request, so the cluster stops running stages for work nobody reads.
+	 *
+	 * @param pending The request being given up on.
+	 * @param failure The failure to refuse it with.
+	 * @param cancelReason Why the task is being cancelled, recorded by the gateway on the task.
+	 */
+	private giveUp(pending: PendingTask, failure: OpenaiError, cancelReason: string): void {
+		if (pending.isSettled === true) return;
+		if (pending.taskId !== undefined) this.client?.cancel(pending.taskId, cancelReason);
+		this.settleWithFailure(pending, failure);
+	}
+
+	/**
+	 * Answers one request with the text its task generated.
+	 *
+	 * @param pending The request being answered.
+	 * @param answer The generated text.
+	 */
+	private settleWithAnswer(pending: PendingTask, answer: string): void {
+		if (this.forget(pending) === false) return;
+		pending.resolve(answer);
+	}
+
+	/**
+	 * Refuses one request.
+	 *
+	 * @param pending The request being refused.
+	 * @param failure The failure to refuse it with.
+	 */
+	private settleWithFailure(pending: PendingTask, failure: OpenaiError): void {
+		if (this.forget(pending) === false) return;
+		pending.reject(failure);
+	}
+
+	/**
+	 * Refuses every request waiting for a task.
+	 *
+	 * @param failure The failure to refuse them with.
+	 */
+	private failEveryPendingTask(failure: OpenaiError): void {
+		for (const pending of [...this.pendingByRequestId.values()]) this.settleWithFailure(pending, failure);
+	}
+
+	/**
+	 * Stops tracking one request and cancels its timer.
+	 *
+	 * @param pending The request to stop tracking.
+	 * @returns `true` when this call is the one that ends the request, and `false` when the
+	 * request had already been answered, so it is not answered a second time.
+	 */
+	private forget(pending: PendingTask): boolean {
+		if (pending.isSettled === true) return false;
+		pending.isSettled = true;
+		if (pending.timeoutTimer !== undefined) clearTimeout(pending.timeoutTimer);
+		pending.timeoutTimer = undefined;
+		this.pendingByRequestId.delete(pending.requestId);
+		if (pending.taskId !== undefined) this.pendingByTaskId.delete(pending.taskId);
+		return true;
+	}
+}

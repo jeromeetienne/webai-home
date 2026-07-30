@@ -1,4 +1,4 @@
-import type { ClientMessage, GatewayEnvelope, GatewayMessage, TaskInput, TaskSnapshot, TaskUpdate } from '@webai/protocol';
+import type { ClientMessage, GatewayEnvelope, GatewayMessage, ProtocolError, TaskInput, TaskSnapshot, TaskUpdate } from '@webai/protocol';
 import { Envelope } from '@webai/protocol/envelope';
 import { SessionRenewal } from '@webai/protocol/session_renewal';
 
@@ -40,7 +40,16 @@ export type ConsumerClientCallbacks = {
 	onTaskSnapshot?: (task: TaskSnapshot) => void;
 	/** Called on every task revision, with the slim projection rather than the whole task. */
 	onTaskUpdated?: (update: TaskUpdate) => void;
-	onError?: (message: string) => void;
+	/**
+	 * Called with the whole error rather than only its text.
+	 *
+	 * A program that submits one task at a time needs no more than the text, but a program
+	 * that keeps several submissions in flight on one connection needs the `code` to decide
+	 * how to answer and the `requestId` to know which submission failed. An error the client
+	 * itself raises, such as a frame that could not be read, is reported with the same shape
+	 * and the code `INVALID_MESSAGE`.
+	 */
+	onError?: (error: ProtocolError) => void;
 	onConnectionChange?: (isConnected: boolean) => void;
 };
 
@@ -83,7 +92,7 @@ export class ConsumerClient {
 			this.handleMessage(typeof event.data === 'string' ? event.data : event.data.toString());
 		};
 		socket.onerror = (): void => {
-			this.callbacks.onError?.('The connection to the central gateway failed');
+			this.reportOwnError('The connection to the central gateway failed');
 		};
 		socket.onclose = (): void => {
 			this.isRegistered = false;
@@ -103,6 +112,21 @@ export class ConsumerClient {
 		if (this.isRegistered === false) throw new Error('The consumer is not connected');
 		this.send({ type: 'task.submit', requestId, input });
 		return requestId;
+	}
+
+	/**
+	 * Asks the central gateway to cancel one task this consumer submitted.
+	 *
+	 * A program that gives up on a task before it finishes — because whoever asked for it has
+	 * gone, or because it waited as long as it is willing to — says so, so that the cluster
+	 * stops assigning stages for work nobody is waiting for.
+	 *
+	 * @param taskId The identifier of the task to cancel.
+	 * @param reason Why the task is being cancelled, which the gateway records on the task.
+	 */
+	cancel(taskId: string, reason: string): void {
+		if (this.isRegistered === false) return;
+		this.send({ type: 'task.cancel', taskId, reason });
 	}
 
 	/** Cancels any pending session renewal and closes the connection. */
@@ -141,12 +165,12 @@ export class ConsumerClient {
 		try {
 			frame = JSON.parse(rawStr) as GatewayEnvelope;
 		} catch {
-			this.callbacks.onError?.('The central gateway sent invalid data');
+			this.reportOwnError('The central gateway sent invalid data');
 			return;
 		}
 		const message: GatewayMessage = frame.body;
 		if (message === undefined) {
-			this.callbacks.onError?.('The central gateway sent a frame with no message in it');
+			this.reportOwnError('The central gateway sent a frame with no message in it');
 			return;
 		}
 		this.callbacks.onMessage?.('received', message);
@@ -176,9 +200,19 @@ export class ConsumerClient {
 			return;
 		}
 		if (message.type === 'error') {
-			this.callbacks.onError?.(message.message);
+			this.callbacks.onError?.(message);
 			return;
 		}
+	}
+
+	/**
+	 * Reports a failure this client noticed itself, in the same shape as an error the gateway
+	 * sends, so that whoever reads the callback handles one shape rather than two.
+	 *
+	 * @param message What went wrong, in words.
+	 */
+	private reportOwnError(message: string): void {
+		this.callbacks.onError?.({ type: 'error', code: 'INVALID_MESSAGE', message });
 	}
 
 	///////////////////////////////////////////////////////////////////////////////

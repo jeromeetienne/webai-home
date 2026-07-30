@@ -2,7 +2,7 @@ import Assert from 'node:assert/strict';
 import Test from 'node:test';
 import { ConsumerClient, type TaskSocket } from '../src/libs/consumer_client.js';
 import { TaskInputFactory, taskTypeNames } from '../src/libs/task_input_factory.js';
-import { protocolVersion } from '@webai/protocol';
+import { protocolVersion, type ProtocolError } from '@webai/protocol';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -71,7 +71,32 @@ Test('registers and submits through the shared client', () => {
 	client.submit({ taskType: 'task_type_dev_formula', input: 5 }, 'request-formula-1');
 	const submitFrame = sentFrame(2);
 	Assert.deepEqual(submitFrame.body, { type: 'task.submit', requestId: 'request-formula-1', input: { taskType: 'task_type_dev_formula', input: 5 } });
+	client.cancel('task-1', 'the caller went away');
+	Assert.deepEqual(sentFrame(3).body, { type: 'task.cancel', taskId: 'task-1', reason: 'the caller went away' });
 	// Each frame carries its own identifier, so two requests of the same kind can be told apart.
 	Assert.notEqual(authenticateFrame.id, registerFrame.id);
 	Assert.notEqual(registerFrame.id, submitFrame.id);
+});
+
+Test('reports an error the gateway sent with its code and its request identifier', () => {
+	const errors: ProtocolError[] = [];
+	const socket: TaskSocket = {
+		readyState: 1,
+		OPEN: 1,
+		send: () => undefined,
+		close: () => undefined,
+		onopen: null,
+		onmessage: null,
+		onerror: null,
+		onclose: null,
+	};
+	new ConsumerClient(socket, { onError: (error) => errors.push(error) });
+	const gatewayError: ProtocolError = { type: 'error', code: 'RATE_LIMITED', message: 'The principal has reached its active-task limit', requestId: 'request-formula-1', retryable: true };
+	socket.onmessage?.({ data: JSON.stringify({ v: protocolVersion, id: 'message-1', ts: new Date().toISOString(), body: gatewayError }) });
+	Assert.deepEqual(errors, [gatewayError]);
+
+	// A failure the client noticed itself is reported in the same shape, so a caller reading
+	// the callback handles one shape rather than two.
+	socket.onmessage?.({ data: 'not json at all' });
+	Assert.deepEqual(errors[1], { type: 'error', code: 'INVALID_MESSAGE', message: 'The central gateway sent invalid data' });
 });

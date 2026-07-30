@@ -54,8 +54,8 @@ export class Cli {
 				console.log(JSON.stringify(update, null, 2));
 				if (update.state === 'completed' || update.state === 'failed') client.close();
 			},
-			onError: (message) => {
-				console.error(message);
+			onError: (error) => {
+				console.error(error.message);
 				client.close();
 			},
 		}, options.name);

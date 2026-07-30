@@ -2,6 +2,16 @@
   "name": "@webai/consumer-cli",
   "version": "0.1.0",
   "type": "module",
+  "exports": {
+    "./libs/consumer_client": {
+      "types": "./dist/libs/consumer_client.d.ts",
+      "default": "./dist/libs/consumer_client.js"
+    },
+    "./libs/task_input_factory": {
+      "types": "./dist/libs/task_input_factory.d.ts",
+      "default": "./dist/libs/task_input_factory.js"
+    }
+  },
   "scripts": {
     "clean:logs": "bash scripts/clean_logs.sh",
     "sample:dev_formula": "node --import tsx src/cli.ts --type dev_formula --name dev-formula-consumer 5 | jq",
