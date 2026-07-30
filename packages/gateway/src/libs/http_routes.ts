@@ -220,6 +220,7 @@ export class HttpRoutes {
 			response.end(`Shard file not found at ${shardPath}. Generate the qwen3-0.6b shards into packages/_onnx_experiments first.`);
 			return true;
 		}
+		response.setHeader('access-control-allow-origin', '*');
 		response.setHeader('content-type', 'application/octet-stream');
 		response.end(Fs.readFileSync(shardPath));
 		return true;
@@ -243,6 +244,7 @@ export class HttpRoutes {
 		const ortAssetName = pathname.slice(1);
 		if (ortAssetNames.includes(ortAssetName) === false) return false;
 		const ortDistDirectory = Path.dirname(Url.fileURLToPath(import.meta.resolve('onnxruntime-web')));
+		response.setHeader('access-control-allow-origin', '*');
 		response.setHeader('content-type', ortAssetName.endsWith('.wasm') ? 'application/wasm' : 'text/javascript');
 		response.end(Fs.readFileSync(Path.join(ortDistDirectory, ortAssetName)));
 		return true;

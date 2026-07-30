@@ -480,7 +480,7 @@ export class WorkerPage {
 			}
 		}
 		if (offered.llmShardIndexes.length > 0) {
-			this.statusEl.textContent = 'Loading LLM shards';
+			this.statusEl.textContent = 'Loading model into graphics memory';
 			this.statusEl.className = 'badge text-bg-warning';
 		}
 		await StageLlmQwen3_0_6bHelper.preload(offered.llmShardIndexes);

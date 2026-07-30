@@ -36,6 +36,8 @@ const SHARD_URLS = [
 const TOKENIZER_URL = `https://huggingface.co/${MODEL_ID}/resolve/main/tokenizer.json`;
 /** Direct URL for the tokenizer settings. */
 const TOKENIZER_CONFIG_URL = `https://huggingface.co/${MODEL_ID}/resolve/main/tokenizer_config.json`;
+/** Cache Storage name for the tokenizer files, separate from the IndexedDB model cache. */
+const TOKENIZER_CACHE_NAME = 'webai-qwen3-tokenizer-v1';
 /** IndexedDB database name for the downloaded model. */
 const MODEL_CACHE_NAME = 'onnxruntime-qwen3-models';
 /** IndexedDB schema version for the model cache. */
@@ -218,14 +220,8 @@ export class StageLlmQwen3_0_6bHelper {
 
 		const hasWebGPU = 'gpu' in navigator;
 		StageLlmQwen3_0_6bHelper.loadPromise = Promise.all([
-			fetch(TOKENIZER_URL).then(async (response) => {
-				if (response.ok === false) throw new Error(`Tokenizer download failed (${response.status}).`);
-				return response.json();
-			}),
-			fetch(TOKENIZER_CONFIG_URL).then(async (response) => {
-				if (response.ok === false) throw new Error(`Tokenizer configuration download failed (${response.status}).`);
-				return response.json();
-			}),
+			StageLlmQwen3_0_6bHelper.fetchTokenizerJson(TOKENIZER_URL, 'Tokenizer download'),
+			StageLlmQwen3_0_6bHelper.fetchTokenizerJson(TOKENIZER_CONFIG_URL, 'Tokenizer configuration download'),
 			...shardIndexes.map((shardIndex) => StageLlmQwen3_0_6bHelper.fetchModelBytes(SHARD_URLS[shardIndex])),
 		]).then(async ([tokenizerJson, tokenizerConfig, ...shardBytes]) => {
 			StageLlmQwen3_0_6bHelper.tokenizer = new Tokenizer(tokenizerJson, tokenizerConfig);
@@ -240,6 +236,29 @@ export class StageLlmQwen3_0_6bHelper {
 			throw error;
 		});
 		return StageLlmQwen3_0_6bHelper.loadPromise;
+	}
+
+	/** Reads a tokenizer JSON file from Cache Storage or downloads and stores it there. */
+	private static async fetchTokenizerJson(url: string, description: string): Promise<Record<string, unknown>> {
+		let cache: Cache | undefined;
+		try {
+			cache = await caches.open(TOKENIZER_CACHE_NAME);
+			const cachedResponse = await cache.match(url);
+			if (cachedResponse !== undefined) return cachedResponse.json();
+		} catch {
+			// Cache Storage is a speed optimization only; continue with the network request.
+		}
+
+		const response = await fetch(url);
+		if (response.ok === false) throw new Error(`${description} failed (${response.status}).`);
+		if (cache !== undefined) {
+			try {
+				await cache.put(url, response.clone());
+			} catch {
+				// Cache Storage is a speed optimization only; inference can use the response directly.
+			}
+		}
+		return response.json();
 	}
 
 	/** Opens the IndexedDB database used to store the downloaded ONNX model. */

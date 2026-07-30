@@ -611,6 +611,7 @@ Test('an advertised session expiry is actually enforced, and survives re-authent
 const withHttpRoutesServer = async (
 	body: (server: {
 		statusOf: (requestTarget: string) => Promise<number>;
+		headersOf: (requestTarget: string) => Promise<Headers>;
 		transformedUrls: string[];
 	}) => Promise<void>,
 ): Promise<void> => {
@@ -651,6 +652,8 @@ const withHttpRoutesServer = async (
 			// arrives as a test run which hangs instead of one which fails.
 			statusOf: async (requestTarget: string): Promise<number> =>
 				(await fetch(`http://127.0.0.1:${port}${requestTarget}`, { signal: AbortSignal.timeout(5_000) })).status,
+			headersOf: async (requestTarget: string): Promise<Headers> =>
+				(await fetch(`http://127.0.0.1:${port}${requestTarget}`, { signal: AbortSignal.timeout(5_000) })).headers,
 			transformedUrls,
 		});
 	} finally {
@@ -685,6 +688,16 @@ Test('a request target naming another host is refused, and the server keeps answ
 
 		Assert.equal(await statusOf('/health'), 200);
 		Assert.equal(await statusOf('/monitor'), 200);
+	});
+});
+
+Test('browser model assets allow cross-origin fetches', async () => {
+	await withHttpRoutesServer(async ({ headersOf }) => {
+		const shardHeaders = await headersOf('/onnxruntime_qwen3-0.6b-with-shards/shards/shard-1.onnx');
+		Assert.equal(shardHeaders.get('access-control-allow-origin'), '*');
+
+		const runtimeHeaders = await headersOf('/ort-wasm-simd-threaded.jsep.mjs');
+		Assert.equal(runtimeHeaders.get('access-control-allow-origin'), '*');
 	});
 });
 

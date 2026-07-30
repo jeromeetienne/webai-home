@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import Fs from 'node:fs';
 import Path from 'node:path';
 import { defineConfig } from 'vite';
@@ -52,8 +53,17 @@ export default defineConfig({
 						next();
 						return;
 					}
+					const contents = Fs.readFileSync(Path.resolve(ortDistDir, fileName));
+					const etag = `"${createHash('sha256').update(contents).digest('hex')}"`;
+					response.setHeader('Cache-Control', 'no-cache');
+					response.setHeader('ETag', etag);
+					if (request.headers['if-none-match'] === etag) {
+						response.statusCode = 304;
+						response.end();
+						return;
+					}
 					response.setHeader('Content-Type', fileName.endsWith('.wasm') ? 'application/wasm' : 'text/javascript');
-					response.end(Fs.readFileSync(Path.resolve(ortDistDir, fileName)));
+					response.end(contents);
 				});
 			},
 			generateBundle() {
