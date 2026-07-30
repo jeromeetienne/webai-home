@@ -18,12 +18,13 @@ export type TaskState = z.infer<typeof TaskState>;
 export const StageName = z.string().min(1).max(100).regex(/^[a-z][a-z0-9_]*$/, "A stage name must start with a lower-case letter and contain only lower-case letters, digits, and underscores");
 export type StageName = z.infer<typeof StageName>;
 
-export const TaskType = z.enum(["task_type_dev_formula", "task_type_llm_qwen3_0_6b_sharded"]);
+export const TaskType = z.enum(["task_type_dev_formula", "task_type_llm_qwen3_0_6b_sharded", "task_type_llm_gemma_nano_chrome_full"]);
 export type TaskType = z.infer<typeof TaskType>;
 
 export const TaskInput = z.discriminatedUnion("taskType", [
   z.object({ taskType: z.literal("task_type_dev_formula"), input: z.number().finite() }),
   z.object({ taskType: z.literal("task_type_llm_qwen3_0_6b_sharded"), input: z.string() }),
+  z.object({ taskType: z.literal("task_type_llm_gemma_nano_chrome_full"), input: z.string() }),
 ]);
 export type TaskInput = z.infer<typeof TaskInput>;
 
@@ -102,6 +103,16 @@ export interface LlmStagePayload {
   inputIds?: number[];
   /** Position of the first token in `inputIds` within the full generated sequence. */
   position?: number;
+  /**
+   * Set on a payload that continues a generation already under way in the memory of the
+   * device that produced the previous result, instead of starting a new one.
+   *
+   * The Chrome built-in language-model task needs this because its prompt and its partial
+   * answers are both carried in `text`, so the two cannot be told apart by shape. A worker
+   * that receives a continuation and holds no generation for the task refuses the stage
+   * instead of reading the partial answer as a new prompt.
+   */
+  isContinuation?: boolean;
   /** Set by the final shard once generation should stop (end-of-sequence token or the token limit reached). */
   done?: boolean;
 }
@@ -119,6 +130,7 @@ const StagePayloadSchema = z.union([
     text: z.string().max(100_000).optional(),
     inputIds: z.array(z.number().int()).max(100_000).optional(),
     position: z.number().int().nonnegative().optional(),
+    isContinuation: z.boolean().optional(),
     done: z.boolean().optional(),
   }).strict(),
 ]) as unknown as z.ZodType<StagePayload>;

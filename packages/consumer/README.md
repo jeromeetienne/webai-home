@@ -22,7 +22,11 @@ Use `--url` to connect to another WebSocket endpoint:
 npm run dev --workspace @webai/consumer -- 5 --url ws://localhost:9000
 ```
 
-Use `-t/--type` to choose the task type — `dev_formula` (default, numeric input) or `llm_qwen3_0_6b_sharded` (free-text input):
+Use `-t/--type` to choose the task type:
+
+- `dev_formula` (default) takes a number.
+- `llm_qwen3_0_6b_sharded` takes free text, and is run by three worker browser tabs, each holding one shard of the Qwen3-0.6B model.
+- `llm_gemma_nano_chrome_full` takes free text, and is run by one worker browser tab using the Gemma Nano model built into Chrome.
 
 ```sh
 npm run dev --workspace @webai/consumer -- "hello there" --type llm_qwen3_0_6b_sharded

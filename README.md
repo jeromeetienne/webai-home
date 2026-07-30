@@ -51,8 +51,10 @@ deadline makes volunteer computing practical:
 ## Current state
 
 This repository contains early experiments and a minimal distributed pipeline.
-The current gateway prototype assigns two simple formula stages to worker
-browsers. The ONNX experiments test running model work directly in browsers,
+The current gateway prototype runs three kinds of task: two simple formula
+stages, a Qwen3-0.6B model split into three shards across three worker browser
+tabs, and the Gemma Nano model built into Chrome running in one worker browser
+tab. The ONNX experiments test running model work directly in browsers,
 including a small Iris classifier and larger model experiments.
 
 The central research questions are still open, especially result verification,

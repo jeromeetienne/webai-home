@@ -228,7 +228,7 @@ Three separate things are involved, and keeping them apart is what allows a pipe
 
 - The **stage name** identifies one step of one pipeline, such as `stage_dev_formula_multiply`. The shared protocol package checks only the shape of a stage name — lower-case letters, digits, and underscores, starting with a letter, up to 100 characters. It does not list which stage names exist. The pipeline registry in the gateway is the authority on that.
 - The **computation** identifies the code that carries the step out, such as `dev_formula_multiply` or `llm_qwen3_0_6b_shard`. Every stage names one, and every `stage.assign` carries it, so a worker never has to recognise a stage name to know what to run. A new pipeline can give a new stage name a computation that workers already ship.
-- The **task type** still decides which pipelines a task may select, and remains a closed list of the two kinds of task input the protocol validates.
+- The **task type** still decides which pipelines a task may select, and remains a closed list of the three kinds of task input the protocol validates.
 
 A worker asks for `pipelines.get` before it registers, and advertises every stage whose computation it implements. A worker that advertises a stage no loaded pipeline defines is refused at registration with the error code `VALIDATION`, whose details list both the stage names it asked for and the stage names that exist, so a mistyped name is reported rather than silently never receiving work.
 
@@ -276,9 +276,9 @@ gateway --task.updated(completed)--> consumer
 
 The current formula stages multiply the input by `2` and then add `7`.
 
-### Language-model flow
+### Sharded language-model flow
 
-The language-model task sequence cycles through three shards:
+The sharded language-model task sequence cycles through three shards:
 
 ```text
 stage_llm_qwen3_0_6b_shard1of3 -> stage_llm_qwen3_0_6b_shard2of3 -> stage_llm_qwen3_0_6b_shard3of3
@@ -294,6 +294,24 @@ token and the gateway starts another cycle at `stage_llm_qwen3_0_6b_shard1of3`.
 An encoded tensor contains `dims`, `type`, and base64-encoded data. The current
 JSON tensor encoding is a probe format and is not a final compatibility
 contract.
+
+### Chrome built-in language-model flow
+
+The task that uses the language model built into the browser has one stage, and
+that stage runs once per piece of the answer:
+
+```text
+stage_llm_gemma_nano_chrome_full -> stage_llm_gemma_nano_chrome_full -> ...
+```
+
+The first assignment carries the prompt in `LlmStagePayload.text`. Each result
+carries the answer so far, again in `text`. A result that continues the answer
+also sets `isContinuation: true` and `done: false`, and the assignment that
+follows carries both fields back to the worker; that is what tells a
+continuation apart from a first assignment, since both carry text. The last
+result carries the complete answer and sets `done: true`. Every assignment for
+one task goes to the same worker, because the open answer lives only in that
+browser tab's memory.
 
 ## Validation and errors
 

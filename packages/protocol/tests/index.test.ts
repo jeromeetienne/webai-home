@@ -14,6 +14,7 @@ import { SessionRenewal } from "../src/session_renewal.js";
 test("accepts valid task input", () => {
   assert.deepEqual(TaskInput.parse({ taskType: "task_type_dev_formula", input: 12.5 }), { taskType: "task_type_dev_formula", input: 12.5 });
   assert.deepEqual(TaskInput.parse({ taskType: "task_type_llm_qwen3_0_6b_sharded", input: "hello" }), { taskType: "task_type_llm_qwen3_0_6b_sharded", input: "hello" });
+  assert.deepEqual(TaskInput.parse({ taskType: "task_type_llm_gemma_nano_chrome_full", input: "hello" }), { taskType: "task_type_llm_gemma_nano_chrome_full", input: "hello" });
 });
 
 test("rejects non-finite task input", () => {
@@ -23,6 +24,7 @@ test("rejects non-finite task input", () => {
 
 test("rejects task input that does not match its task type", () => {
   assert.equal(TaskInput.safeParse({ taskType: "task_type_llm_qwen3_0_6b_sharded", input: 5 }).success, false);
+  assert.equal(TaskInput.safeParse({ taskType: "task_type_llm_gemma_nano_chrome_full", input: 5 }).success, false);
   assert.equal(TaskInput.safeParse({ taskType: "task_type_dev_formula", input: "5" }).success, false);
 });
 
@@ -49,12 +51,20 @@ test("StagePayloadFactory builds each stage payload shape", () => {
   assert.deepEqual(StagePayloadFactory.llmHandoff(tensors, [1, 2, 3], 0), { tensors, inputIds: [1, 2, 3], position: 0 });
 
   assert.deepEqual(StagePayloadFactory.llmContinue("The", 464, 20), { text: "The", inputIds: [464], position: 20, done: false });
+  assert.deepEqual(StagePayloadFactory.llmPartialText("The capital"), { text: "The capital", isContinuation: true, done: false });
   assert.deepEqual(StagePayloadFactory.llmDone("The capital of France is Paris."), { text: "The capital of France is Paris.", done: true });
+});
+
+test("StagePayloadFactory answers every task type with a first stage value", () => {
+  assert.equal(StagePayloadFactory.initial({ taskType: "task_type_dev_formula", input: 5 }), 5);
+  assert.deepEqual(StagePayloadFactory.initial({ taskType: "task_type_llm_qwen3_0_6b_sharded", input: "hello" }), { text: "hello" });
+  assert.deepEqual(StagePayloadFactory.initial({ taskType: "task_type_llm_gemma_nano_chrome_full", input: "hello" }), { text: "hello" });
 });
 
 test("validates every inbound client message shape", () => {
   assert.equal(ClientMessageSchema.safeParse({ type: "task.submit", requestId: "request-1", input: { taskType: "task_type_dev_formula", input: 5 } }).success, true);
   assert.equal(ClientMessageSchema.safeParse({ type: "stage.result", taskId: "task-1", assignmentId: "assignment-1", attempt: 1, stage: "stage_dev_formula_multiply", value: 10 }).success, true);
+  assert.equal(ClientMessageSchema.safeParse({ type: "stage.result", taskId: "task-1", assignmentId: "assignment-1", attempt: 1, stage: "stage_llm_gemma_nano_chrome_full", value: { text: "The capital", isContinuation: true, done: false } }).success, true);
   assert.equal(ClientMessageSchema.safeParse({ type: "task.submit", input: { taskType: "task_type_dev_formula", input: 5 } }).success, false);
   assert.equal(ClientMessageSchema.safeParse({ type: "stage.result", taskId: "task-1", stage: "stage_dev_formula_multiply", value: 10 }).success, false);
   assert.equal(ClientMessageSchema.safeParse({ type: "register", role: "consumer", name: "consumer", unexpected: true }).success, false);

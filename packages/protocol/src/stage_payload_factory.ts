@@ -1,11 +1,27 @@
-import type { EncodedTensor, LlmStagePayload, StagePayload } from "./index.js";
+import type { EncodedTensor, LlmStagePayload, StagePayload, TaskInput } from "./index.js";
 
 /**
  * Builds the `StagePayload` values carried by `stage.assign`/`stage.result` messages, so
- * cli.ts and stage_llm_qwen3_0_6b_helper.ts share one definition of each payload shape instead of
- * repeating the object literals inline.
+ * cli.ts, stage_llm_qwen3_0_6b_helper.ts, and stage_llm_gemma_nano_chrome_helper.ts share one
+ * definition of each payload shape instead of repeating the object literals inline.
  */
 export class StagePayloadFactory {
+	/**
+	 * Builds the value handed to the first stage of a task, from the task input the consumer
+	 * submitted.
+	 *
+	 * Every task type is answered here, so the gateway never decides what a first stage
+	 * value looks like for itself. Adding a task type is a change to this one method rather
+	 * than to each place the gateway starts or restarts a task.
+	 *
+	 * @param input The task type and value the consumer submitted.
+	 * @returns The stage payload to assign to the task's first stage.
+	 */
+	static initial(input: TaskInput): StagePayload {
+		if (input.taskType === "task_type_dev_formula") return StagePayloadFactory.formula(input.input);
+		return StagePayloadFactory.llmPrompt(input.input);
+	}
+
 	/**
 	 * Builds the payload for a formula stage: the plain number, unchanged.
 	 *
@@ -51,6 +67,21 @@ export class StagePayloadFactory {
 	 */
 	static llmContinue(text: string, nextTokenId: number, position: number): LlmStagePayload {
 		return { text, inputIds: [nextTokenId], position, done: false };
+	}
+
+	/**
+	 * Builds the payload a stage returns to continue a generation it is holding open in the
+	 * memory of the device running it.
+	 *
+	 * The Chrome built-in language-model task works this way: one stage run reads one piece
+	 * of the answer from a stream the same device keeps open, so the payload carries the
+	 * answer so far and says the generation is already under way.
+	 *
+	 * @param text The text generated so far.
+	 * @returns The stage payload that runs the same stage again on the same device.
+	 */
+	static llmPartialText(text: string): LlmStagePayload {
+		return { text, isContinuation: true, done: false };
 	}
 
 	/**

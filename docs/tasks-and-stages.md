@@ -4,7 +4,7 @@ This document lists every kind of task the `webai-at-home` cluster can run, what
 
 ## How a task turns into stages
 
-A task is submitted by a consumer as a task input: a task type together with one value. The task type is one of exactly two values, checked by `TaskType` in [`packages/protocol/src/index.ts`](../packages/protocol/src/index.ts).
+A task is submitted by a consumer as a task input: a task type together with one value. The task type is one of exactly three values, checked by `TaskType` in [`packages/protocol/src/index.ts`](../packages/protocol/src/index.ts).
 
 When a task is submitted, the gateway picks a pipeline for it. A pipeline is a specification that names the task type it serves and lists the ordered stages that make that task type up. The gateway chooses the highest version among the pipelines that serve the task's type and are not retired, and it copies that pipeline's stage sequence onto the task. The stage sequence is therefore data the task carries, not a sequence built into the gateway. The pipelines the gateway knows without being given a pipeline file are in `builtinPipelineSpecifications` in [`packages/gateway/src/libs/pipeline_registry.ts`](../packages/gateway/src/libs/pipeline_registry.ts), and the `--pipeline-file` command line option can add more.
 
@@ -17,8 +17,8 @@ Each stage also states the identifier of the schema its input must match, the id
 
 A stage may state two optional scheduling settings:
 
-- `leaseMs` is how long the assignment lease for that stage lasts. A stage that does not state one uses the gateway's `--lease-ms` default of 15000 milliseconds. No stage of either built-in pipeline states its own value, so both pipelines use that default. A worker keeps a lease alive while it is still working by sending a stage heartbeat message.
-- `prefersSameWorkerOnRetry` makes a retried attempt go back to the device that previously held the stage, instead of deliberately avoiding that device. This matters for a stage that keeps state in memory between assignments.
+- `leaseMs` is how long the assignment lease for that stage lasts. A stage that does not state one uses the gateway's `--lease-ms` default of 15000 milliseconds. Only `stage_llm_gemma_nano_chrome_full` states its own value, 60000 milliseconds; every other built-in stage uses the default. A worker keeps a lease alive while it is still working by sending a stage heartbeat message.
+- `prefersSameWorkerOnRetry` makes a retried attempt go back to the device that previously held the stage, instead of deliberately avoiding that device. This matters for a stage that keeps state in memory between assignments. It also decides where the stage that follows a finished one goes: a stage that sets it may be given to the device that just ran a stage of the task, and a stage that does not is preferably moved to a different device.
 
 A pipeline may also state `repeatsUntilDone`. A pipeline that does not state it runs each of its stages exactly once and then the task is complete. A pipeline that does state it runs its stages again from the first once the last stage finishes, and stops only when the last stage returns a result whose `done` field is `true`. The decision is made by `TaskStore.nextStage` in [`packages/gateway/src/libs/task_store.ts`](../packages/gateway/src/libs/task_store.ts).
 
@@ -103,9 +103,55 @@ That script submits the prompt "What is the capital of France?" under the consum
 npm run dev --workspace @webai/consumer -- --type llm_qwen3_0_6b_sharded "Write one sentence about rain."
 ```
 
+### Task type `task_type_llm_gemma_nano_chrome_full`
+
+**Name:** `task_type_llm_gemma_nano_chrome_full`, served by the pipeline whose identifier is `llm_gemma_nano_chrome_full`, at version 1.
+
+**Input:** one text prompt, which must not be empty.
+
+**What it does:** it generates text with the Gemma Nano language model that is built into the Chrome browser. Nothing about the model is downloaded, held, or run by this project: the browser holds the model, and the worker browser tab asks it for an answer through the browser's own prompt interface, reached through the global `LanguageModel` object.
+
+The browser is asked for the answer once and then produces it in pieces. One run of the stage reads one piece, adds it to the answer so far, and returns the answer so far as its result. Because a whole answer takes many pieces, the pipeline sets `repeatsUntilDone`, so the gateway runs the single stage again for each piece, and the task ends on the run in which the browser reports that the answer is finished. There is also a safety bound of 400 pieces per answer, defined in [`packages/worker/public/src/stage_llm_gemma_nano_chrome_helper.ts`](../packages/worker/public/src/stage_llm_gemma_nano_chrome_helper.ts), so a model that never finished an answer could not keep one task running for as long as the page stays open.
+
+**Purpose:** it is the lightest language-model task in the project and the simplest end-to-end demonstration that the cluster can generate text at all. It needs no model download, no model files in this repository, no graphics processor of its own, and no cooperation between devices, so it separates the question of whether the coordination path can carry a language-model task from the question of whether a volunteer device can run a model the project ships. That makes it the baseline the two model-downloading tasks can be compared against.
+
+**Stages the cluster must carry out**, one run per piece of the answer:
+
+| Order | Stage name | Computation | Input schema | Output schema | Encoding | What this stage does |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | `stage_llm_gemma_nano_chrome_full` | `llm_gemma_nano_chrome_full` | `llm@1` | `llm@1` | `inline-json` | On the first run of a task it creates a session with the browser's built-in language model, asks it for an answer to the submitted prompt, and reads the first piece. On every later run it reads the next piece of the same answer. It returns the answer so far, and marks the answer finished on the run in which the browser has no further piece to give. |
+
+The stage states a lease of 60000 milliseconds rather than using the gateway default, because creating the session can take far longer than reading one piece of an answer: on a device that has only just downloaded the model, the first session of a page took about 15 seconds in testing, while reading a piece took a fraction of a second. The worker also extends the lease while it is working by sending stage heartbeat messages.
+
+The stage sets `prefersSameWorkerOnRetry`, and this is what keeps the whole answer on one device. The session and the reader that delivers the answer live in the memory of the browser tab that started them, so no other device can carry on an answer that was begun somewhere else. A stage run that says it continues an answer, but reaches a browser tab holding no answer for that task, fails with a message saying so, rather than reading the answer so far as if it were a new prompt.
+
+**What the cluster needs in order to run it:** one connected worker browser tab in a browser that has its own language model ready. Before a tab advertises the stage it asks the browser how ready that model is, and it only advertises the stage when a session can be created. Three other answers are possible, and each is reported on the page rather than being discovered when work arrives:
+
+- The browser has no built-in language model at all, which is the case for every browser other than a recent Chrome. The tab says so and does not offer the stage.
+- The browser has the model but will not run it on this device, usually because of its storage, memory, or graphics requirements. The tab says so and does not offer the stage.
+- The browser has the model on offer but has not downloaded it yet. The browser only starts that download when the person using the page asks for it, so the tab shows a button that starts the download, reports its progress, and connects again once the model is ready. Until then the tab does not offer the stage.
+
+A tab that offers no other stage either closes its connection instead of registering, so the gateway never lists a worker that could not do the work. A task submitted while no tab offers the stage waits in the `queued` state.
+
+The normal arrangement is one tab, which is what the page `packages/gateway/public/debug_iframe_llm_gemma_nano_chrome_full/index.html` opens: the gateway monitor page beside one inline frame named `llm-gemma-nano-chrome-full`, restricted to `stage_llm_gemma_nano_chrome_full`.
+
+One tab per stage is a real requirement here, not only a convenience. The gateway chooses a device for each run of a stage among all the devices advertising it, and it has no way of preferring the device that holds a task's open answer, so a second tab advertising the same stage can be given a later run of an answer it cannot continue. That run fails with a message saying this browser is not holding the answer, and the task fails once its attempts are used up. The sharded task has the same weakness for the same reason, except that a shard given a round it holds no key-value cache for returns a wrong answer instead of failing, so the fault is harder to see there.
+
+**How to submit one:**
+
+```bash
+npm run sample:llm_gemma_nano_chrome_full --workspace @webai/consumer
+```
+
+That script submits the prompt "What is the capital of France?" under the consumer name `llm-gemma-nano-chrome-full-consumer`. To submit a different prompt, call the command line client directly:
+
+```bash
+npm run dev --workspace @webai/consumer -- --type llm_gemma_nano_chrome_full "Write one sentence about rain."
+```
+
 ## Every stage in the cluster
 
-Five stage names exist across the two built-in pipelines, using three distinct computations.
+Six stage names exist across the three built-in pipelines, using four distinct computations.
 
 | Stage name | Pipeline | Task type | Computation |
 | --- | --- | --- | --- |
@@ -114,25 +160,32 @@ Five stage names exist across the two built-in pipelines, using three distinct c
 | `stage_llm_qwen3_0_6b_shard1of3` | `llm_qwen3_0_6b_sharded` version 1 | `task_type_llm_qwen3_0_6b_sharded` | `llm_qwen3_0_6b_shard` |
 | `stage_llm_qwen3_0_6b_shard2of3` | `llm_qwen3_0_6b_sharded` version 1 | `task_type_llm_qwen3_0_6b_sharded` | `llm_qwen3_0_6b_shard` |
 | `stage_llm_qwen3_0_6b_shard3of3` | `llm_qwen3_0_6b_sharded` version 1 | `task_type_llm_qwen3_0_6b_sharded` | `llm_qwen3_0_6b_shard` |
+| `stage_llm_gemma_nano_chrome_full` | `llm_gemma_nano_chrome_full` version 1 | `task_type_llm_gemma_nano_chrome_full` | `llm_gemma_nano_chrome_full` |
 
-A worker browser tab decides which of these it offers by asking the gateway for its loaded pipelines and keeping every stage whose computation the tab implements. The page address may narrow that set further through its `enabledStages` parameter, which is how the two debug pages give each inline frame a single stage. A tab that names no stages at all offers every stage the loaded pipelines define whose computation it implements. The choice is made by `offeredStages` in [`packages/worker/public/src/main.ts`](../packages/worker/public/src/main.ts).
+A worker browser tab decides which of these it offers by asking the gateway for its loaded pipelines and keeping every stage whose computation the tab implements. The page address may narrow that set further through its `enabledStages` parameter, which is how the three debug pages give each inline frame a single stage. A tab that names no stages at all offers every stage the loaded pipelines define whose computation it implements. The choice is made by `offeredStages` in [`packages/worker/public/src/main.ts`](../packages/worker/public/src/main.ts).
+
+Being able to run a computation is not always enough to offer its stage. A tab drops `stage_llm_gemma_nano_chrome_full` again when its browser's own language model is not ready, and it downloads the shards for the language-model shard stages it offers before it registers, so that a shard is never downloaded while a task waits for it. Both happen between asking for the pipelines and registering.
 
 ## The values carried between stages
 
 Every value sent to a stage or returned by one is built by `StagePayloadFactory` in [`packages/protocol/src/stage_payload_factory.ts`](../packages/protocol/src/stage_payload_factory.ts), so the gateway and the worker browsers share one definition of each shape:
 
 - A formula stage carries a plain number, unchanged.
-- The first round of a language-model task carries the submitted prompt text to `stage_llm_qwen3_0_6b_shard1of3`.
+- The first stage of a task is given its value by `StagePayloadFactory.initial`, which answers every task type: the submitted number for a development formula task, and the submitted prompt text for either language-model task. Nothing outside that one method decides what a first stage value looks like.
+- The first round of a sharded language-model task carries the submitted prompt text to `stage_llm_qwen3_0_6b_shard1of3`.
 - A hand-off from one shard to the next within one round carries the boundary tensors, the token identifiers processed in that round, and the position of the first of those tokens within the whole sequence.
 - A third-stage result that continues generation carries the text generated so far, the single token just chosen, that token's position, and `done` set to `false`.
 - A third-stage result that ends generation carries the complete generated text and `done` set to `true`.
+- A result of the Chrome built-in language-model stage that continues an answer carries the answer so far, `isContinuation` set to `true`, and `done` set to `false`. The `isContinuation` field is what tells the next run apart from the first: both carry text, and only the first carries a prompt.
+- A result of the Chrome built-in language-model stage that ends an answer carries the complete answer and `done` set to `true`, exactly as the sharded task's last stage does.
 
 ## Where these definitions live
 
 - Task types and task inputs: `TaskType` and `TaskInput` in [`packages/protocol/src/index.ts`](../packages/protocol/src/index.ts).
-- Pipeline and stage specifications, including the two built-in pipelines: [`packages/gateway/src/libs/pipeline_registry.ts`](../packages/gateway/src/libs/pipeline_registry.ts).
+- Pipeline and stage specifications, including the three built-in pipelines: [`packages/gateway/src/libs/pipeline_registry.ts`](../packages/gateway/src/libs/pipeline_registry.ts).
 - The rule that decides which stage comes next, including the repeating case: `TaskStore.nextStage` in [`packages/gateway/src/libs/task_store.ts`](../packages/gateway/src/libs/task_store.ts).
 - Stage assignment, worker selection, leases, and retries: [`packages/gateway/src/cli.ts`](../packages/gateway/src/cli.ts).
 - The formula computations: [`packages/worker/public/src/stage_dev_formula_helper.ts`](../packages/worker/public/src/stage_dev_formula_helper.ts).
 - The language-model shard computation: [`packages/worker/public/src/stage_llm_qwen3_0_6b_helper.ts`](../packages/worker/public/src/stage_llm_qwen3_0_6b_helper.ts).
+- The computation that uses the language model built into the browser: [`packages/worker/public/src/stage_llm_gemma_nano_chrome_helper.ts`](../packages/worker/public/src/stage_llm_gemma_nano_chrome_helper.ts).
 - Submitting a task from the command line: [`packages/consumer/src/cli.ts`](../packages/consumer/src/cli.ts) and [`packages/consumer/src/consumer_client.ts`](../packages/consumer/src/consumer_client.ts).

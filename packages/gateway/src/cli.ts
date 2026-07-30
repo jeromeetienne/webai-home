@@ -359,7 +359,7 @@ function scheduleQueuedTasks(): void {
 			continue;
 		}
 		const stage = TaskStore.nextStage(task);
-		if (stage) assign(task.taskId, task.completedStages.at(-1)?.value ?? (task.input.taskType === "task_type_llm_qwen3_0_6b_sharded" ? StagePayloadFactory.llmPrompt(task.input.input) : StagePayloadFactory.formula(task.input.input)), stage);
+		if (stage) assign(task.taskId, task.completedStages.at(-1)?.value ?? StagePayloadFactory.initial(task.input), stage);
 	}
 }
 
@@ -607,7 +607,7 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage, req
 			task: TaskProjection.snapshot(task),
 		}, counterpartFor(deviceId), requestFrameId);
 		const stage = TaskStore.nextStage(task);
-		if (stage) assign(task.taskId, message.input.taskType === "task_type_llm_qwen3_0_6b_sharded" ? StagePayloadFactory.llmPrompt(message.input.input) : StagePayloadFactory.formula(message.input.input), stage);
+		if (stage) assign(task.taskId, StagePayloadFactory.initial(message.input), stage);
 		return;
 	}
 
@@ -757,11 +757,14 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage, req
 		releaseWorkerAssignment(deviceId);
 		const upcoming = TaskStore.nextStage(updated);
 		if (upcoming) {
-			// An LLM task's shards must all run on the same device: later shards need the
-			// key-value cache and hand-off tensors this device already holds in memory.
-			// The formula pipeline instead prefers handing the next stage to a different
-			// device, to demonstrate multiple workers cooperating on one task.
-			const excluded = updated.input.taskType === "task_type_llm_qwen3_0_6b_sharded" ? [] : [deviceId];
+			// A stage that keeps state in the memory of the device running it must be allowed
+			// to land on the device that just finished a stage of this task: a language-model
+			// shard needs the key-value cache and hand-off tensors that device holds, and a
+			// built-in language-model stage needs the generation it is holding open. A stage
+			// that keeps no such state is instead preferably moved to a different device, to
+			// demonstrate several workers cooperating on one task. Each stage states which of
+			// the two it is, so no task type is named here.
+			const excluded = stagePolicyResolver.resolve(updated, upcoming).prefersSameWorkerOnRetry ? [] : [deviceId];
 			assign(updated.taskId, message.value, upcoming, excluded);
 		} else {
 			const completed = taskStore.update(updated.taskId, {
@@ -851,6 +854,7 @@ const pageRoutes: Record<string, string> = {
 	"/debug_iframe": "debug_iframe/index.html",
 	"/debug_iframe_dev_formula": "debug_iframe_dev_formula/index.html",
 	"/debug_iframe_llm_qwen3_0_6b_sharded": "debug_iframe_llm_qwen3_0_6b_sharded/index.html",
+	"/debug_iframe_llm_gemma_nano_chrome_full": "debug_iframe_llm_gemma_nano_chrome_full/index.html",
 };
 const assetContentTypeByExtension: Record<string, string> = {
 	".js": "application/javascript; charset=utf-8",

@@ -86,6 +86,7 @@ test("finds workers by capability and excludes devices", () => {
 test("selects a pinned compatible pipeline version and rejects invalid definitions", () => {
   const registry = new PipelineRegistry(builtinPipelineSpecifications);
   assert.equal(registry.select({ taskType: "task_type_dev_formula", input: 5 })?.pipelineId, "dev_formula");
+  assert.equal(registry.select({ taskType: "task_type_llm_gemma_nano_chrome_full", input: "hello" })?.pipelineId, "llm_gemma_nano_chrome_full");
   assert.equal(registry.select({ taskType: "task_type_dev_formula", input: 5 }, "dev_formula", 1)?.version, 1);
   assert.throws(() => registry.add({ pipelineId: "bad", version: 1, taskType: "task_type_dev_formula", stages: [] }));
 });
@@ -196,6 +197,50 @@ test("loops an LLM task through its three shards once per generated token", () =
   }
   const afterSecondToken = store.addStage(current.taskId, { name: "stage_llm_qwen3_0_6b_shard3of3", value: { text: "The capital", done: true } });
   assert.equal(TaskStore.nextStage(afterSecondToken), undefined);
+});
+
+test("repeats the single Chrome built-in language-model stage until it reports the answer finished", () => {
+  const store = new TaskStore();
+  const task = createTask(store, { taskType: "task_type_llm_gemma_nano_chrome_full", input: "What is the capital of France?" });
+
+  assert.equal(task.pipelineId, "llm_gemma_nano_chrome_full");
+  assert.deepEqual(task.pipelineStages, ["stage_llm_gemma_nano_chrome_full"]);
+  assert.equal(TaskStore.nextStage(task), "stage_llm_gemma_nano_chrome_full");
+
+  // Each run of the stage reads one more piece of the answer, so the stage runs again for as
+  // long as its results say the answer is not finished.
+  const afterFirstPiece = store.addStage(task.taskId, { name: "stage_llm_gemma_nano_chrome_full", value: { text: "The", isContinuation: true, done: false } });
+  assert.equal(TaskStore.nextStage(afterFirstPiece), "stage_llm_gemma_nano_chrome_full");
+
+  const afterSecondPiece = store.addStage(afterFirstPiece.taskId, { name: "stage_llm_gemma_nano_chrome_full", value: { text: "The capital", isContinuation: true, done: false } });
+  assert.equal(TaskStore.nextStage(afterSecondPiece), "stage_llm_gemma_nano_chrome_full");
+
+  const afterLastPiece = store.addStage(afterSecondPiece.taskId, { name: "stage_llm_gemma_nano_chrome_full", value: { text: "The capital of France is Paris.", done: true } });
+  assert.equal(TaskStore.nextStage(afterLastPiece), undefined);
+});
+
+test("keeps a state-holding stage on its own device and moves a stateless one away", () => {
+  const registry = new PipelineRegistry(builtinPipelineSpecifications);
+  const resolver = new StagePolicyResolver(registry, 15_000);
+  const store = new TaskStore();
+
+  // This is the decision the gateway makes when it hands out the stage that follows a
+  // finished one: a stage that keeps state in the memory of one device must be allowed back
+  // onto the device that just ran a stage of the task, and a stage that keeps none is
+  // preferably moved elsewhere. Each stage says which it is, so no task type decides it.
+  const builtInModelTask = createTask(store, { taskType: "task_type_llm_gemma_nano_chrome_full", input: "hello" });
+  assert.equal(resolver.resolve(builtInModelTask, "stage_llm_gemma_nano_chrome_full").prefersSameWorkerOnRetry, true);
+
+  const shardTask = createTask(store, { taskType: "task_type_llm_qwen3_0_6b_sharded", input: "hello" });
+  assert.equal(resolver.resolve(shardTask, "stage_llm_qwen3_0_6b_shard2of3").prefersSameWorkerOnRetry, true);
+
+  const formulaTask = createTask(store, { taskType: "task_type_dev_formula", input: 5 });
+  assert.equal(resolver.resolve(formulaTask, "stage_dev_formula_add").prefersSameWorkerOnRetry, false);
+
+  // The built-in language-model stage also states a longer lease than the gateway default,
+  // because creating the model session can take much longer than reading one piece of an answer.
+  assert.equal(resolver.resolve(builtInModelTask, "stage_llm_gemma_nano_chrome_full").leaseMs, 60_000);
+  assert.equal(resolver.resolve(formulaTask, "stage_dev_formula_add").leaseMs, 15_000);
 });
 
 test("resets the retry budget after each successful LLM stage", () => {

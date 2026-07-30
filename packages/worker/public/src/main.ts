@@ -5,6 +5,7 @@ import { StageName, type StageName as StageNameType, type StagePayload, type Cli
 import { Envelope } from "@webai/protocol/envelope";
 import { StageDevFormulaHelper } from "./stage_dev_formula_helper";
 import { StageLlmQwen3_0_6bHelper } from "./stage_llm_qwen3_0_6b_helper";
+import { StageLlmGemmaNanoChromeHelper } from "./stage_llm_gemma_nano_chrome_helper";
 import { centralGatewayAuthToken, centralGatewayWebSocketUrl } from "./gateway_config";
 import { DiagnosticsReporter } from "./diagnostics_reporter";
 import { SessionRenewal } from "@webai/protocol/session_renewal";
@@ -41,7 +42,9 @@ export const requestedStageNamesFromUrl = (search: string): StageNameType[] => {
  * @returns `true` when one of this browser's helpers implements it.
  */
 const implementsComputation = (computation: string): boolean =>
-	StageDevFormulaHelper.implementsComputation(computation) || StageLlmQwen3_0_6bHelper.implementsComputation(computation);
+	StageDevFormulaHelper.implementsComputation(computation)
+	|| StageLlmQwen3_0_6bHelper.implementsComputation(computation)
+	|| StageLlmGemmaNanoChromeHelper.implementsComputation(computation);
 
 /**
  * Chooses the stages this browser offers to the gateway, from the pipelines the gateway has
@@ -52,23 +55,26 @@ const implementsComputation = (computation: string): boolean =>
  *
  * @param pipelines The pipeline specifications the gateway returned.
  * @param requestedStageNames The stages the page URL restricts this browser to, if any.
- * @returns The stage names to advertise, and the language-model shard positions to preload.
+ * @returns The stage names to advertise, the language-model shard positions to preload, and
+ * the offered stages that need the language model built into the browser.
  */
 export const offeredStages = (
 	pipelines: { stages: { name: string; computation: string }[] }[],
 	requestedStageNames: readonly string[],
-): { stageNames: string[]; llmShardIndexes: number[] } => {
+): { stageNames: string[]; llmShardIndexes: number[]; builtInModelStageNames: string[] } => {
 	const stageNames: string[] = [];
 	const llmShardIndexes: number[] = [];
+	const builtInModelStageNames: string[] = [];
 	for (const pipeline of pipelines) {
 		for (const [stageIndex, stage] of pipeline.stages.entries()) {
 			if (implementsComputation(stage.computation) === false) continue;
 			if (requestedStageNames.length > 0 && requestedStageNames.includes(stage.name) === false) continue;
 			if (stageNames.includes(stage.name) === false) stageNames.push(stage.name);
 			if (StageLlmQwen3_0_6bHelper.implementsComputation(stage.computation) && llmShardIndexes.includes(stageIndex) === false) llmShardIndexes.push(stageIndex);
+			if (StageLlmGemmaNanoChromeHelper.implementsComputation(stage.computation) && builtInModelStageNames.includes(stage.name) === false) builtInModelStageNames.push(stage.name);
 		}
 	}
-	return { stageNames, llmShardIndexes };
+	return { stageNames, llmShardIndexes, builtInModelStageNames };
 };
 
 /** A message received from the central gateway. */
@@ -262,6 +268,11 @@ const stopLeaseHeartbeat = (assignmentId?: string): void => {
 	const workerNameEl: HTMLElement = getElement("#worker-name");
 	const deviceIdEl: HTMLElement = getElement("#device-id");
 	const stagesEl: HTMLElement = getElement("#stages");
+	/** The message shown when the language model built into the browser is not ready to run. */
+	const builtInModelNoticeEl: HTMLElement = getElement("#built-in-model-notice");
+	const builtInModelMessageEl: HTMLElement = getElement("#built-in-model-message");
+	/** The button that asks the browser to download its own language model. */
+	const builtInModelDownloadButtonEl: HTMLButtonElement = getButton("#built-in-model-download");
 	/** The active WebSocket connection, when the worker browser is connected. */
 	let socket: WebSocket | undefined;
 	/** Whether this browser has completed registration on the current connection. */
@@ -287,6 +298,14 @@ const stopLeaseHeartbeat = (assignmentId?: string): void => {
 			sendToGateway(openSocket, { type: "authenticate", token: centralGatewayAuthToken });
 		}, SessionRenewal.renewAfterMs(expiresAt));
 	};
+	/**
+	 * Whether the connection should be opened again as soon as the current one has closed.
+	 *
+	 * Which stages this browser offers is decided once per connection, just before it
+	 * registers. Downloading the browser's own language model therefore only takes effect on
+	 * the next connection, and this asks for one.
+	 */
+	let isReconnectRequested = false;
 	/** Whether the gateway has accepted this worker browser's registration. */
 	/** The stages the page URL restricts this worker browser to, if it names any. */
 	const requestedStageNames = requestedStageNamesFromUrl(location.search);
@@ -320,6 +339,55 @@ const stopLeaseHeartbeat = (assignmentId?: string): void => {
 	};
 	renderStages();
 	renderEvents(events);
+
+	/** Shows why a stage that needs the browser's own language model is not being offered. */
+	const showBuiltInModelNotice = (text: string, isDownloadOffered: boolean): void => {
+		builtInModelMessageEl.textContent = text;
+		builtInModelNoticeEl.classList.remove("d-none");
+		builtInModelDownloadButtonEl.classList.toggle("d-none", isDownloadOffered === false);
+	};
+
+	/** Hides the notice about the browser's own language model. */
+	const hideBuiltInModelNotice = (): void => {
+		builtInModelNoticeEl.classList.add("d-none");
+		builtInModelDownloadButtonEl.classList.add("d-none");
+	};
+
+	/**
+	 * Gets this browser ready to run the stages it could offer, and reports which of them it
+	 * can actually offer.
+	 *
+	 * Two stages need something to be in place before work arrives. A language-model shard
+	 * stage needs its shard downloaded, which is done here so that a shard is never downloaded
+	 * while a task is waiting for it. A stage that runs the language model built into the
+	 * browser needs that model to be ready, and this browser drops the stage rather than
+	 * advertising work it would fail, because the browser may have no built-in model at all or
+	 * may not have downloaded it yet.
+	 *
+	 * @param offered The stages this browser could offer, from the loaded pipelines.
+	 * @returns The stage names this browser can offer, in the order they were found.
+	 */
+	const prepareOfferedStages = async (offered: { stageNames: string[]; llmShardIndexes: number[]; builtInModelStageNames: string[] }): Promise<string[]> => {
+		let stageNames = offered.stageNames;
+		if (offered.builtInModelStageNames.length > 0) {
+			statusEl.textContent = "Checking the built-in language model";
+			statusEl.className = "badge text-bg-warning";
+			const readiness = await StageLlmGemmaNanoChromeHelper.readiness();
+			if (readiness.status === "ready") {
+				hideBuiltInModelNotice();
+			} else {
+				stageNames = stageNames.filter((stageName) => offered.builtInModelStageNames.includes(stageName) === false);
+				showBuiltInModelNotice(readiness.message, readiness.status === "user_gesture_required");
+				addEvent({ direction: "local", type: "worker.built_in_model", timestamp: new Date().toISOString(), message: readiness.message });
+			}
+		}
+		if (offered.llmShardIndexes.length > 0) {
+			statusEl.textContent = "Loading LLM shards";
+			statusEl.className = "badge text-bg-warning";
+		}
+		await StageLlmQwen3_0_6bHelper.preload(offered.llmShardIndexes);
+		return stageNames;
+	};
 
 	/**
 	 * Opens a connection to the central gateway and registers this browser as a worker.
@@ -400,27 +468,23 @@ const stopLeaseHeartbeat = (assignmentId?: string): void => {
 			}
 			if (message.type === "pipelines" && socket) {
 				const offered = offeredStages(message.pipelines ?? [], requestedStageNames);
-				enabledStageNames = offered.stageNames;
-				renderStages();
-				if (offered.stageNames.length === 0) {
-					statusEl.textContent = "No stage to run";
-					statusEl.className = "badge text-bg-danger";
-					addEvent({ direction: "local", type: "worker.error", timestamp: new Date().toISOString(), message: "No loaded pipeline has a stage this browser implements" });
-					socket.close(1000, "No stage to run");
-					return;
-				}
 				isPreparing = true;
-				if (offered.llmShardIndexes.length > 0) {
-					statusEl.textContent = "Loading LLM shards";
-					statusEl.className = "badge text-bg-warning";
-				}
-				StageLlmQwen3_0_6bHelper.preload(offered.llmShardIndexes)
-					.then(() => {
+				prepareOfferedStages(offered)
+					.then((stageNames) => {
 						isPreparing = false;
 						if (!socket) return;
+						enabledStageNames = stageNames;
+						renderStages();
+						if (stageNames.length === 0) {
+							statusEl.textContent = "No stage to run";
+							statusEl.className = "badge text-bg-danger";
+							addEvent({ direction: "local", type: "worker.error", timestamp: new Date().toISOString(), message: "This browser can run none of the stages the loaded pipelines define" });
+							socket.close(1000, "No stage to run");
+							return;
+						}
 						statusEl.textContent = "Connected";
 						statusEl.className = "badge text-bg-success";
-						const register: ClientMessage = { type: "register", role: "worker", name: nameInputEl.value, stageNames: enabledStageNames };
+						const register: ClientMessage = { type: "register", role: "worker", name: nameInputEl.value, stageNames };
 						sendToGateway(socket, register);
 						addEvent({ direction: "sent", type: register.type, timestamp: new Date().toISOString() });
 					})
@@ -444,6 +508,7 @@ const stopLeaseHeartbeat = (assignmentId?: string): void => {
 			if (message.type === "stage.cancel" && message.taskId !== undefined) {
 				stopLeaseHeartbeat(message.assignmentId);
 				StageLlmQwen3_0_6bHelper.clearTask(message.taskId);
+				StageLlmGemmaNanoChromeHelper.clearTask(message.taskId);
 				return;
 			}
 			// The gateway answers each lease heartbeat with a later expiry. Nothing has to be
@@ -458,13 +523,17 @@ const stopLeaseHeartbeat = (assignmentId?: string): void => {
 			// The assignment says which computation to run and which position in its pipeline
 			// the stage occupies. This browser never has to recognise the stage name.
 			const computation = message.computation ?? "";
-			/** Whether the assigned stage runs a language-model shard, as opposed to a formula computation. */
-			const isLlmStage = StageLlmQwen3_0_6bHelper.implementsComputation(computation);
-			/** Computes the result for the assigned stage and sends it back once ready. */
-			const computeResult: Promise<StagePayload> = isLlmStage
-				? StageLlmQwen3_0_6bHelper.compute(message.stageIndex ?? 0, taskId, value as Exclude<StagePayload, number>)
-				: Promise.resolve(StageDevFormulaHelper.compute(computation, value as number));
-			computeResult
+			/**
+			 * Runs the assigned stage with whichever helper implements its computation.
+			 *
+			 * @returns The stage result, once the computation has produced it.
+			 */
+			const runComputation = (): Promise<StagePayload> => {
+				if (StageLlmQwen3_0_6bHelper.implementsComputation(computation)) return StageLlmQwen3_0_6bHelper.compute(message.stageIndex ?? 0, taskId, value as Exclude<StagePayload, number>);
+				if (StageLlmGemmaNanoChromeHelper.implementsComputation(computation)) return StageLlmGemmaNanoChromeHelper.compute(taskId, value as Exclude<StagePayload, number>);
+				return Promise.resolve(StageDevFormulaHelper.compute(computation, value as number));
+			};
+			runComputation()
 				.then((value) => {
 					stopLeaseHeartbeat(assignmentId);
 					const resultMessage: ClientMessage = {
@@ -480,9 +549,11 @@ const stopLeaseHeartbeat = (assignmentId?: string): void => {
 				})
 				.catch((error: unknown) => {
 					stopLeaseHeartbeat(assignmentId);
-					// A failed LLM stage abandons the task; drop its in-memory key-value cache
-					// rather than leaving it in memory for a task that will never resume.
-					if (isLlmStage) StageLlmQwen3_0_6bHelper.clearTask(taskId);
+					// A failed stage abandons the task, so drop whatever this browser was keeping
+					// for it: a shard's key-value cache, or an answer the browser's own language
+					// model is still producing. Both are left alone when no such state exists.
+					StageLlmQwen3_0_6bHelper.clearTask(taskId);
+					StageLlmGemmaNanoChromeHelper.clearTask(taskId);
 					const failedMessage: ClientMessage = {
 						type: "stage.failed",
 						taskId,
@@ -513,12 +584,46 @@ const stopLeaseHeartbeat = (assignmentId?: string): void => {
 			disconnectButtonEl.classList.add("d-none");
 			nameInputEl.disabled = false;
 			socket = undefined;
+			if (isReconnectRequested === false) return;
+			isReconnectRequested = false;
+			connectToGateway();
 		});
 	};
 
 	/** Opens a WebSocket connection when the connect button is clicked. */
 	connectButtonEl.addEventListener("click", (): void => {
 		connectToGateway();
+	});
+
+	// The browser only starts downloading its own language model when the person using the page
+	// asks for it, so this download cannot be started while the page is loading. Once the model
+	// is there, the connection is opened again, because the stages a browser offers are decided
+	// as it registers.
+	builtInModelDownloadButtonEl.addEventListener("click", (): void => {
+		builtInModelDownloadButtonEl.disabled = true;
+		builtInModelMessageEl.textContent = "Downloading the browser's built-in language model.";
+		StageLlmGemmaNanoChromeHelper.download((fraction) => {
+			builtInModelMessageEl.textContent = `Downloading the browser's built-in language model: ${Math.round(fraction * 100)} per cent.`;
+		})
+			.then((readiness) => {
+				builtInModelDownloadButtonEl.disabled = false;
+				if (readiness.status !== "ready") {
+					showBuiltInModelNotice(readiness.message, readiness.status === "user_gesture_required");
+					return;
+				}
+				hideBuiltInModelNotice();
+				addEvent({ direction: "local", type: "worker.built_in_model", timestamp: new Date().toISOString(), message: "The browser's built-in language model is ready" });
+				if (socket === undefined) {
+					connectToGateway();
+					return;
+				}
+				isReconnectRequested = true;
+				socket.close(1000, "Offering the built-in language-model stage");
+			})
+			.catch((error: unknown) => {
+				builtInModelDownloadButtonEl.disabled = false;
+				showBuiltInModelNotice(error instanceof Error ? error.message : String(error), true);
+			});
 	});
 
 	/** Closes the WebSocket connection when the disconnect button is clicked. */

@@ -12,6 +12,7 @@ export default defineConfig({
 				debugIframe: resolve(import.meta.dirname, "public/debug_iframe/index.html"),
 				debugIframeDevFormula: resolve(import.meta.dirname, "public/debug_iframe_dev_formula/index.html"),
 				debugIframeLlmQwen3_0_6bSharded: resolve(import.meta.dirname, "public/debug_iframe_llm_qwen3_0_6b_sharded/index.html"),
+				debugIframeLlmGemmaNanoChromeFull: resolve(import.meta.dirname, "public/debug_iframe_llm_gemma_nano_chrome_full/index.html"),
 			},
 		},
 	},

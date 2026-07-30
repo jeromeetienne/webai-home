@@ -37,31 +37,31 @@ There is a fourth kind of name that is not a task, a task type, a pipeline, or a
 | --- | --- | --- | --- | --- |
 | `task_dev_formula` | `task_type_dev_formula` | `dev_formula@1` | `stage_dev_formula_multiply` → `stage_dev_formula_add` | `dev_formula_multiply`, `dev_formula_add` |
 | `task_llm_qwen3_0_6b_sharded` | `task_type_llm_qwen3_0_6b_sharded` | `llm_qwen3_0_6b_sharded@1` | `stage_llm_qwen3_0_6b_shard1of3` → `stage_llm_qwen3_0_6b_shard2of3` → `stage_llm_qwen3_0_6b_shard3of3` | `llm_qwen3_0_6b_shard` |
+| `task_llm_gemma_nano_chrome_full` | `task_type_llm_gemma_nano_chrome_full` | `llm_gemma_nano_chrome_full@1` | `stage_llm_gemma_nano_chrome_full` | `llm_gemma_nano_chrome_full` |
 
-The three shard stages of `llm_qwen3_0_6b_sharded@1` run as a group once per generated token, because that pipeline sets `repeatsUntilDone`. The two stages of `dev_formula@1` each run once.
+The three shard stages of `llm_qwen3_0_6b_sharded@1` run as a group once per generated token, because that pipeline sets `repeatsUntilDone`. The single stage of `llm_gemma_nano_chrome_full@1` runs once per piece of the answer the browser's own language model produces, for the same reason. The two stages of `dev_formula@1` each run once.
 
 The task type is the value a consumer submits and the value a pipeline specification declares it serves, and it is checked by `TaskType` in [`packages/protocol/src/index.ts`](../packages/protocol/src/index.ts). The pipeline identifier and the stage names are declared by `builtinPipelineSpecifications` in [`packages/gateway/src/libs/pipeline_registry.ts`](../packages/gateway/src/libs/pipeline_registry.ts). The task name itself is not an identifier the code stores; it is the name used in conversation and in documentation for the whole task, and it is the task type name with the `_type` part removed.
 
 ## Names that are not yet implemented
 
-Two further tasks are planned. Their names are written out here so that the scheme is followed when they are built, and neither of them exists in the code today:
+One further task is planned. Its names are written out here so that the scheme is followed when it is built, and it does not exist in the code today:
 
 | Task | Task type | Pipeline | Stages |
 | --- | --- | --- | --- |
 | `task_llm_gemma_4_e2b_full` | `task_type_llm_gemma_4_e2b_full` | `llm_gemma_4_e2b_full@1` | `stage_llm_gemma_4_e2b_full` |
-| `task_llm_gemma_nano_chrome_full` | `task_type_llm_gemma_nano_chrome_full` | `llm_gemma_nano_chrome_full@1` | `stage_llm_gemma_nano_chrome_full` |
 
-Each of these runs a complete model on one device, so each has a single stage that repeats until generation is finished.
+It runs a complete model on one device, so it has a single stage that repeats until generation is finished. It is tracked by [issue #60](https://github.com/webai-at-home/webai-at-home/issues/60).
 
 ## Names outside the protocol that follow the same words
 
 The scheme is about the identifiers the gateway, the consumers, and the workers exchange, but several surrounding names are kept in step with it so that one task is recognisable everywhere. These are the ones that exist today:
 
-- The task type accepted by the consumer command line option `-t/--type` is the task type name without the leading `task_type_`, so `dev_formula` and `llm_qwen3_0_6b_sharded`. See [`packages/consumer/src/cli.ts`](../packages/consumer/src/cli.ts).
-- The sample commands in [`packages/consumer/package.json`](../packages/consumer/package.json) are `sample:dev_formula` and `sample:llm_qwen3_0_6b_sharded`.
-- The consumer names those sample commands register under are the same words with underscores written as hyphens, because they are display names rather than identifiers: `dev-formula-consumer` and `llm-qwen3-0-6b-sharded-consumer`.
-- The gateway debug pages are served at `/debug_iframe_dev_formula` and `/debug_iframe_llm_qwen3_0_6b_sharded`, and each inline frame in them is named after the single stage it is restricted to, with underscores written as hyphens: `dev-formula-multiply`, `dev-formula-add`, `llm-qwen3-0-6b-shard1of3`, `llm-qwen3-0-6b-shard2of3`, and `llm-qwen3-0-6b-shard3of3`.
-- The worker source file that implements the computations of one domain is named after those computations: [`packages/worker/public/src/stage_dev_formula_helper.ts`](../packages/worker/public/src/stage_dev_formula_helper.ts) and [`packages/worker/public/src/stage_llm_qwen3_0_6b_helper.ts`](../packages/worker/public/src/stage_llm_qwen3_0_6b_helper.ts).
+- The task type accepted by the consumer command line option `-t/--type` is the task type name without the leading `task_type_`, so `dev_formula`, `llm_qwen3_0_6b_sharded`, and `llm_gemma_nano_chrome_full`. The three are listed once, in `taskTypeNames` in [`packages/consumer/src/consumer_client.ts`](../packages/consumer/src/consumer_client.ts), and [`packages/consumer/src/cli.ts`](../packages/consumer/src/cli.ts) builds both its help text and its check from that list.
+- The sample commands in [`packages/consumer/package.json`](../packages/consumer/package.json) are `sample:dev_formula`, `sample:llm_qwen3_0_6b_sharded`, and `sample:llm_gemma_nano_chrome_full`.
+- The consumer names those sample commands register under are the same words with underscores written as hyphens, because they are display names rather than identifiers: `dev-formula-consumer`, `llm-qwen3-0-6b-sharded-consumer`, and `llm-gemma-nano-chrome-full-consumer`.
+- The gateway debug pages are served at `/debug_iframe_dev_formula`, `/debug_iframe_llm_qwen3_0_6b_sharded`, and `/debug_iframe_llm_gemma_nano_chrome_full`, and each inline frame in them is named after the single stage it is restricted to, with underscores written as hyphens: `dev-formula-multiply`, `dev-formula-add`, `llm-qwen3-0-6b-shard1of3`, `llm-qwen3-0-6b-shard2of3`, `llm-qwen3-0-6b-shard3of3`, and `llm-gemma-nano-chrome-full`.
+- The worker source file that implements the computations of one domain is named after those computations: [`packages/worker/public/src/stage_dev_formula_helper.ts`](../packages/worker/public/src/stage_dev_formula_helper.ts), [`packages/worker/public/src/stage_llm_qwen3_0_6b_helper.ts`](../packages/worker/public/src/stage_llm_qwen3_0_6b_helper.ts), and [`packages/worker/public/src/stage_llm_gemma_nano_chrome_helper.ts`](../packages/worker/public/src/stage_llm_gemma_nano_chrome_helper.ts).
 
 ## What the shape of a name is checked against
 

@@ -1,5 +1,5 @@
 export { };
-import type { Device, DeviceActivity, DeviceRole, TaskSnapshot, TaskUpdate } from "@webai/protocol";
+import type { Device, DeviceActivity, DeviceRole, TaskInput, TaskSnapshot, TaskUpdate } from "@webai/protocol";
 import { Envelope } from "@webai/protocol/envelope";
 import { SessionRenewal } from "@webai/protocol/session_renewal";
 import { setupThemeToggle } from "../../../../shared/theme.js";
@@ -96,11 +96,18 @@ type TaskPanelState = {
 	update?: TaskUpdate;
 };
 
+/** What each task type is called on this page, so a task is recognisable without its identifier. */
+const taskTypeDisplayNames: Record<TaskInput["taskType"], string> = {
+	task_type_dev_formula: "Development formula",
+	task_type_llm_qwen3_0_6b_sharded: "Qwen3-0.6B sharded language model",
+	task_type_llm_gemma_nano_chrome_full: "Chrome built-in Gemma Nano language model",
+};
+
 const taskSummary = (panel: TaskPanelState): string => {
 	const state = panel.update?.state ?? panel.snapshot?.state ?? "unknown";
 	const taskInput = panel.snapshot?.input;
 	if (taskInput === undefined) return `Task · ${state} · input: not known to this connection`;
-	return `${taskInput.taskType === "task_type_dev_formula" ? "Development formula" : "Qwen3-0.6B sharded language model"} · ${state} · input: ${String(taskInput.input).slice(0, 80)}`;
+	return `${taskTypeDisplayNames[taskInput.taskType]} · ${state} · input: ${String(taskInput.input).slice(0, 80)}`;
 };
 
 const getElement = (selector: string): HTMLElement => {

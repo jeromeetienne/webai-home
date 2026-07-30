@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { MainHelper } from "../src/cli.js";
-import { ConsumerClient, type TaskSocket } from "../src/consumer_client.js";
+import { ConsumerClient, createTaskInput, isTaskTypeName, taskTypeNames, type TaskSocket } from "../src/consumer_client.js";
 import { protocolVersion } from "@webai/protocol";
 
 test("parses finite numeric input", () => {
@@ -18,6 +18,16 @@ test("rejects missing or non-finite input", () => {
 test("validates large-language-model input", () => {
 	assert.equal(MainHelper.parseInputLLM(" hello "), " hello ");
 	assert.throws(() => MainHelper.parseInputLLM("  "), /Input must be a non-empty string/);
+});
+
+test("builds the task input for every task type a consumer may submit", () => {
+	assert.deepEqual(taskTypeNames, ["dev_formula", "llm_qwen3_0_6b_sharded", "llm_gemma_nano_chrome_full"]);
+	assert.equal(isTaskTypeName("llm_gemma_nano_chrome_full"), true);
+	assert.equal(isTaskTypeName("task_type_llm_gemma_nano_chrome_full"), false);
+	assert.deepEqual(createTaskInput("dev_formula", "5"), { taskType: "task_type_dev_formula", input: 5 });
+	assert.deepEqual(createTaskInput("llm_qwen3_0_6b_sharded", "hello"), { taskType: "task_type_llm_qwen3_0_6b_sharded", input: "hello" });
+	assert.deepEqual(createTaskInput("llm_gemma_nano_chrome_full", "hello"), { taskType: "task_type_llm_gemma_nano_chrome_full", input: "hello" });
+	assert.throws(() => createTaskInput("llm_gemma_nano_chrome_full", "  "), /Input must be a non-empty string/);
 });
 
 test("registers and submits through the shared client", () => {

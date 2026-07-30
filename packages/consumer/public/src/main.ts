@@ -1,4 +1,4 @@
-import { createTaskInput, ConsumerClient } from "../../src/consumer_client.js";
+import { createTaskInput, ConsumerClient, type TaskTypeName } from "../../src/consumer_client.js";
 
 type TaskSocket = ConstructorParameters<typeof ConsumerClient>[0];
 
@@ -24,7 +24,7 @@ type.addEventListener("change", (): void => {
 });
 submit.addEventListener("click", (): void => {
 	try {
-		const taskInput = createTaskInput(type.value as "dev_formula" | "llm_qwen3_0_6b_sharded", input.value);
+		const taskInput = createTaskInput(type.value as TaskTypeName, input.value);
 		client?.close();
 		const socket = new WebSocket(url.value.trim()) as unknown as TaskSocket;
 		client = new ConsumerClient(socket, {

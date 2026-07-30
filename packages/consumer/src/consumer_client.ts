@@ -36,10 +36,38 @@ export function parseLlmInput(value: string | undefined): string {
 	return value;
 }
 
-export function createTaskInput(type: "dev_formula" | "llm_qwen3_0_6b_sharded", value: string | undefined): TaskInput {
-	return type === "dev_formula"
-		? { taskType: "task_type_dev_formula", input: parseFormulaInput(value) }
-		: { taskType: "task_type_llm_qwen3_0_6b_sharded", input: parseLlmInput(value) };
+/**
+ * The task types a consumer may submit, each named as its task type without the leading
+ * `task_type_`. This is the list the `-t/--type` command line option accepts and the list the
+ * consumer web page offers.
+ */
+export const taskTypeNames = ["dev_formula", "llm_qwen3_0_6b_sharded", "llm_gemma_nano_chrome_full"] as const;
+
+/** One of the task types a consumer may submit. */
+export type TaskTypeName = typeof taskTypeNames[number];
+
+/**
+ * Reports whether a value names a task type a consumer may submit.
+ *
+ * @param value - The value given on the command line or chosen on the web page.
+ * @returns `true` when it is one of `taskTypeNames`.
+ */
+export function isTaskTypeName(value: string): value is TaskTypeName {
+	return (taskTypeNames as readonly string[]).includes(value);
+}
+
+/**
+ * Builds the task input for one task type, checking the value it carries.
+ *
+ * @param type - The task type to submit, without the leading `task_type_`.
+ * @param value - The value submitted with the task: a number for the development formula
+ * task, and a prompt for either language-model task.
+ * @returns The task input to submit to the gateway.
+ */
+export function createTaskInput(type: TaskTypeName, value: string | undefined): TaskInput {
+	if (type === "dev_formula") return { taskType: "task_type_dev_formula", input: parseFormulaInput(value) };
+	if (type === "llm_qwen3_0_6b_sharded") return { taskType: "task_type_llm_qwen3_0_6b_sharded", input: parseLlmInput(value) };
+	return { taskType: "task_type_llm_gemma_nano_chrome_full", input: parseLlmInput(value) };
 }
 
 export class ConsumerClient {

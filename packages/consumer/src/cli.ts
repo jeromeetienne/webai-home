@@ -3,7 +3,7 @@ import NodeUrl from "node:url";
 import NodePath from "node:path";
 import WebSocket from "ws";
 import { MessageLogger } from "@webai/protocol/message_logger";
-import { createTaskInput, ConsumerClient } from "./consumer_client.js";
+import { createTaskInput, isTaskTypeName, taskTypeNames, ConsumerClient } from "./consumer_client.js";
 
 export class MainHelper {
 	static parseInputFormula(value: string | undefined): number { return createTaskInput("dev_formula", value).input as number; }
@@ -11,13 +11,13 @@ export class MainHelper {
 
 	static async run(args: string[] = process.argv.slice(2)): Promise<void> {
 		const command = new Commander.Command()
-			.argument("<input>", "number for dev_formula, free text for llm_qwen3_0_6b_sharded")
+			.argument("<input>", "number for dev_formula, free text for either language-model task type")
 			.option("-u, --url <url>", "central gateway WebSocket URL", "ws://localhost:8787")
-			.option("-t, --type <type>", "task type: dev_formula or llm_qwen3_0_6b_sharded", "dev_formula")
+			.option("-t, --type <type>", `task type: ${taskTypeNames.join(", ")}`, "dev_formula")
 			.option("-n, --name <name>", "consumer name", "consumer");
 		command.parse([process.argv[0], process.argv[1] ?? "", ...args]);
 		const options = command.opts<{ url: string; type: string; name: string }>();
-		if (options.type !== "dev_formula" && options.type !== "llm_qwen3_0_6b_sharded") throw new Error('Type must be either "dev_formula" or "llm_qwen3_0_6b_sharded"');
+		if (isTaskTypeName(options.type) === false) throw new Error(`Type must be one of ${taskTypeNames.join(", ")}`);
 		const taskInput = createTaskInput(options.type, command.args[0]);
 		const logsDirectory = NodeUrl.fileURLToPath(new URL("../logs", import.meta.url));
 		const runTimestamp = new Date().toISOString().replace(/[:.]/g, "-");
