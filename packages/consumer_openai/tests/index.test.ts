@@ -662,3 +662,39 @@ Test('audits a caller that disconnects before an answer arrives as cancelled, no
 		server.close();
 	}
 });
+
+// The same disconnection over a real HTTP connection, checked at the gateway rather than in the
+// transaction log. The test above passes whether or not the task is ever cancelled, because the
+// transaction log is written from the response either way, and the test of the runner's own
+// cancelling aborts a signal it was handed directly. Between the two sat the wiring that decides
+// when that signal is aborted, which was listening for the request's `close` event: a request
+// emits that as soon as its body has been read, so every request aborted its own signal on
+// arrival, before the runner had attached a listener to it, and no caller going away ever
+// cancelled anything.
+Test('cancels the task at the gateway when a caller hangs up over a real connection', async () => {
+	const server = await listeningServer();
+	try {
+		const abortController = new AbortController();
+		const responsePromise = fetch(`${server.url}/v1/chat/completions`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ model: 'llm_gemma_nano_chrome_full', messages: [{ role: 'user', content: 'Tell me about rain.' }] }),
+			signal: abortController.signal,
+		}).catch(() => undefined);
+		await waitUntil(() => server.cluster.lastSentBody()['type'] === 'task.submit');
+		const requestId = server.cluster.lastSentBody()['requestId'];
+		server.cluster.receive({ type: 'task.accepted', requestId, task: { taskId: 'task-hung-up-1', requestId, state: 'queued' } });
+
+		// Nothing has been cancelled while the caller is still waiting for its answer.
+		await settlePromises();
+		Assert.notEqual(server.cluster.lastSentBody()['type'], 'task.cancel');
+
+		abortController.abort();
+		await responsePromise;
+		await waitUntil(() => server.cluster.lastSentBody()['type'] === 'task.cancel');
+		Assert.equal(server.cluster.lastSentBody()['taskId'], 'task-hung-up-1');
+		Assert.equal(server.cluster.runner.tasksInFlight, 0);
+	} finally {
+		server.close();
+	}
+});

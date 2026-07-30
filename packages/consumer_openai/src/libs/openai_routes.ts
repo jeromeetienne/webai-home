@@ -175,8 +175,17 @@ export class OpenaiRoutes {
 
 		// A caller that hangs up before the answer arrives has its task cancelled, so the
 		// cluster stops running stages for an answer nobody will read.
+		//
+		// The response's `close` event is what says the caller has gone, and the request's is
+		// not. A request emits `close` as soon as its body has been read, which is before this
+		// task is even submitted, so listening there aborted every request the moment it
+		// arrived. Nothing was seen to go wrong, because `run` attaches its own listener to the
+		// signal afterwards and an abort that has already happened is never delivered to a
+		// listener attached later — so no task was ever cancelled, whether or not its caller
+		// was still there. The transaction record below listens on the response for the same
+		// reason.
 		const abortController = new AbortController();
-		request.on('close', () => {
+		response.on('close', () => {
 			if (response.writableEnded === false) abortController.abort();
 		});
 
