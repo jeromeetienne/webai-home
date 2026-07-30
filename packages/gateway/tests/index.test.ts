@@ -1,11 +1,17 @@
 // node imports
 import Assert from 'node:assert/strict';
 import Fs from 'node:fs';
+import Http from 'node:http';
 import Path from 'node:path';
 import Os from 'node:os';
 import Test from 'node:test';
 
 // local imports
+import { MessageLogger } from '@webai/protocol/message_logger';
+import { ConnectionHub } from '../src/libs/connection_hub.js';
+import { DeviceAnnouncer } from '../src/libs/device_announcer.js';
+import { HttpRoutes } from '../src/libs/http_routes.js';
+import type { PageDevServer } from '../src/libs/http_routes.js';
 import { DeviceRegistry } from '../src/libs/device_registry.js';
 import { TaskStore } from '../src/libs/task_store.js';
 import { PipelineRegistry, builtinPipelineSpecifications } from '../src/libs/pipeline_registry.js';
@@ -584,4 +590,98 @@ Test('an advertised session expiry is actually enforced, and survives re-authent
 	registry.close('device-a');
 	Assert.equal(registry.active('device-a', start + 5_500), undefined);
 	Assert.notEqual(registry.active('device-b', start + 5_500), undefined);
+});
+
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+//	HTTP Routing
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+/**
+ * Runs a test body against a real HTTP server answering through `HttpRoutes`, and takes the
+ * server and its temporary log directory down afterwards.
+ *
+ * The body is given a way to request one path and read back the status, and the list of paths
+ * the page transform was asked for, which is how a test sees which page route entry a request
+ * resolved to.
+ */
+const withHttpRoutesServer = async (
+	body: (server: {
+		statusOf: (requestTarget: string) => Promise<number>;
+		transformedUrls: string[];
+	}) => Promise<void>,
+): Promise<void> => {
+	const logsDirectory = Fs.mkdtempSync(Path.join(Os.tmpdir(), 'gateway-http-routes-'));
+	const deviceRegistry = new DeviceRegistry();
+	const messageLogger = new MessageLogger(Path.join(logsDirectory, 'gateway.log_entry.jsonl'));
+	const hub = new ConnectionHub(deviceRegistry, messageLogger, logsDirectory);
+	const announcer = new DeviceAnnouncer(deviceRegistry, hub, 0);
+
+	// Each page is read from disk and handed to this stand-in instead of to Vite, so the routing
+	// is exercised without starting a development server.
+	const transformedUrls: string[] = [];
+	const pageDevServer: PageDevServer = {
+		middlewares: (_request, _response, next): void => next(),
+		transformIndexHtml: async (url: string, html: string): Promise<string> => {
+			transformedUrls.push(url);
+			return html;
+		},
+		close: async (): Promise<unknown> => undefined,
+	};
+	const routes = new HttpRoutes(
+		hub,
+		announcer,
+		new SessionRegistry(),
+		new DiagnosticsRateLimiter(),
+		'development-token',
+		pageDevServer,
+	);
+	const httpServer = Http.createServer((request, response) => routes.handleRequest(request, response));
+	await new Promise<void>((resolve) => httpServer.listen(0, '127.0.0.1', () => resolve()));
+	const address = httpServer.address();
+	const port = typeof address === 'object' && address !== null ? address.port : 0;
+
+	try {
+		await body({
+			// Each request gives up rather than waiting forever. A request target that ends the
+			// server process leaves its own request unanswered, and without a deadline here that
+			// arrives as a test run which hangs instead of one which fails.
+			statusOf: async (requestTarget: string): Promise<number> =>
+				(await fetch(`http://127.0.0.1:${port}${requestTarget}`, { signal: AbortSignal.timeout(5_000) })).status,
+			transformedUrls,
+		});
+	} finally {
+		announcer.stop();
+		await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+		Fs.rmSync(logsDirectory, { recursive: true, force: true });
+	}
+};
+
+Test('a page answers whether or not its address was typed with a trailing slash', async () => {
+	await withHttpRoutesServer(async ({ statusOf, transformedUrls }) => {
+		Assert.equal(await statusOf('/monitor'), 200);
+		Assert.equal(await statusOf('/monitor/'), 200);
+		Assert.equal(await statusOf('/'), 200);
+
+		// Both spellings resolve to the single route entry the page is listed under, rather than
+		// the trailing-slash spelling reaching a second entry of its own.
+		Assert.deepEqual(transformedUrls, ['/monitor', '/monitor', '/']);
+
+		// A path no page is listed under is still answered as missing.
+		Assert.equal(await statusOf('/nope'), 404);
+		Assert.equal(await statusOf('/nope/'), 404);
+	});
+});
+
+Test('a request target naming another host is refused, and the server keeps answering', async () => {
+	await withHttpRoutesServer(async ({ statusOf }) => {
+		// Reaching the URL parser with one of these used to throw out of the request handler and
+		// end the whole gateway process, so every request afterwards went unanswered.
+		Assert.equal(await statusOf('//'), 404);
+		Assert.equal(await statusOf('//another.example/monitor'), 404);
+
+		Assert.equal(await statusOf('/health'), 200);
+		Assert.equal(await statusOf('/monitor'), 200);
+	});
 });

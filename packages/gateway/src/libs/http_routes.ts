@@ -93,10 +93,11 @@ export class HttpRoutes {
 	 * @param response The HTTP response to answer with.
 	 */
 	handleRequest(request: Http.IncomingMessage, response: Http.ServerResponse): void {
-		const pathname = new URL(
-			request.url ?? '/',
-			`http://${request.headers.host ?? 'localhost'}`,
-		).pathname;
+		const pathname = HttpRoutes.requestPathnameOf(request);
+		if (pathname === undefined) {
+			HttpRoutes.sendNotFound(response);
+			return;
+		}
 
 		// Handled before anything else so the route behaves the same in development and in
 		// production. In development every unmatched path falls through to Vite's middleware,
@@ -124,9 +125,13 @@ export class HttpRoutes {
 		if (this.sendModelShard(response, pathname)) return;
 		if (HttpRoutes.sendOnnxRuntimeAsset(response, pathname)) return;
 
-		const pageSourcePath = pageRoutes[pathname];
+		// A page route is looked up with any trailing slash removed, so "/monitor/" reaches the
+		// same page as "/monitor". Every page names its own assets with absolute paths, such as
+		// "/monitor/src/monitor_page.ts", so both spellings serve an identical working page.
+		const pageRoutePathname = HttpRoutes.pageRoutePathnameOf(pathname);
+		const pageSourcePath = pageRoutes[pageRoutePathname];
 		if (pageSourcePath !== undefined) {
-			this.sendPage(response, pathname, pageSourcePath).catch((error: unknown) => console.error(error));
+			this.sendPage(response, pageRoutePathname, pageSourcePath).catch((error: unknown) => console.error(error));
 			return;
 		}
 		if (pathname === '/health') {
@@ -401,5 +406,44 @@ export class HttpRoutes {
 			request.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
 			request.on('error', () => resolve(undefined));
 		});
+	}
+
+	/**
+	 * Reads the path out of a request, refusing any request target this server will not route.
+	 *
+	 * Only a target naming a path on this server is accepted: one starting with a single slash.
+	 * Two leading slashes are refused for two reasons. Such a target cannot be parsed against
+	 * this server's own address at all, because a leading `//` names another host rather than a
+	 * path, and reaching the parser with one used to end the whole gateway process rather than
+	 * the one request. Even parsed successfully it would let the target name a different host
+	 * and still be served a page from here.
+	 *
+	 * @param request The incoming HTTP request.
+	 * @returns The requested path, or `undefined` when the request target is not a path on this server.
+	 */
+	private static requestPathnameOf(request: Http.IncomingMessage): string | undefined {
+		const requestTarget = request.url ?? '/';
+		if (requestTarget.startsWith('/') === false || requestTarget.startsWith('//')) return undefined;
+		try {
+			return new URL(requestTarget, `http://${request.headers.host ?? 'localhost'}`).pathname;
+		} catch {
+			return undefined;
+		}
+	}
+
+	/**
+	 * Reduces a requested path to the spelling the page route table is keyed by, which is the
+	 * path without any trailing slash.
+	 *
+	 * A person typing a page address by hand, and a link written with a trailing slash, both
+	 * reach the page rather than a "Not found" answer. The site root stays "/", since that is
+	 * the key the home page is listed under.
+	 *
+	 * @param pathname The requested path.
+	 * @returns The path to look up in the page route table.
+	 */
+	private static pageRoutePathnameOf(pathname: string): string {
+		const withoutTrailingSlashes = pathname.replace(/\/+$/, '');
+		return withoutTrailingSlashes === '' ? '/' : withoutTrailingSlashes;
 	}
 }
