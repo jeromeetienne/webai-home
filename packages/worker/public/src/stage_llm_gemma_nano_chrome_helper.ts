@@ -120,7 +120,10 @@ export class StageLlmGemmaNanoChromeHelper {
 		const factory = StageLlmGemmaNanoChromeHelper.factory();
 		if (factory === undefined) return { status: "unavailable", message: "This browser has no built-in language model. Chrome 138 or a later version is needed, on a desktop computer that meets its requirements." };
 		const availability = await factory.availability();
-		if (availability === "unavailable") return { status: "unavailable", message: "This browser has a built-in language model but will not run it on this device. Its storage, memory, or graphics requirements are usually the reason." };
+		if (availability === "unavailable") {
+			if (StageLlmGemmaNanoChromeHelper.isDeniedToThisPage()) return { status: "unavailable", message: "This page is not allowed to use the browser's built-in language model. A page shown inside a frame from a different address is not allowed to by default, and the page around it has to pass the permission on by setting allow=\"language-model\" on the frame." };
+			return { status: "unavailable", message: "This browser has a built-in language model but will not run it on this device. Its storage, memory, or graphics requirements are usually the reason." };
+		}
 		if (availability === "available") return { status: "ready" };
 		return { status: "user_gesture_required", message: "The browser has not downloaded its built-in language model yet, and it only starts that download when the person using the page asks for it." };
 	}
@@ -222,5 +225,22 @@ export class StageLlmGemmaNanoChromeHelper {
 	/** The browser object that creates sessions with the built-in language model, when it exists. */
 	private static factory(): BuiltInModelFactory | undefined {
 		return (globalThis as { LanguageModel?: BuiltInModelFactory }).LanguageModel;
+	}
+
+	/**
+	 * Reports whether this page has been refused permission to use the built-in language model.
+	 *
+	 * The browser answers `unavailable` for two quite different situations: it will not run the
+	 * model on this device, or this page is not allowed to use it. Only the second can be
+	 * recognised, and this is how, so that a page inside a frame is not told its device is at
+	 * fault when the frame was simply never given the permission.
+	 *
+	 * @returns `true` when the permission is known to have been refused, and `false` both when
+	 * it was granted and when the browser offers no way to ask.
+	 */
+	private static isDeniedToThisPage(): boolean {
+		const featurePolicy = (document as { featurePolicy?: { allowsFeature(feature: string): boolean } }).featurePolicy;
+		if (featurePolicy === undefined) return false;
+		return featurePolicy.allowsFeature("language-model") === false;
 	}
 }
