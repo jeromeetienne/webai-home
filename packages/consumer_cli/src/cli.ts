@@ -3,7 +3,7 @@ import NodeUrl from "node:url";
 import NodePath from "node:path";
 import WebSocket from "ws";
 import { MessageLogger } from "@webai/protocol/message_logger";
-import { createTaskInput, isTaskTypeName, taskTypeNames, ConsumerClient } from "./consumer_client.js";
+import { createTaskInput, isTaskTypeName, taskTypeNames, ConsumerClient } from "./libs/consumer_client.js";
 
 export class MainHelper {
 	static parseInputFormula(value: string | undefined): number { return createTaskInput("dev_formula", value).input as number; }

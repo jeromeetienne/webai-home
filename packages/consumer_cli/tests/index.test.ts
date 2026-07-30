@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { MainHelper } from "../src/cli.js";
-import { ConsumerClient, createTaskInput, isTaskTypeName, taskTypeNames, type TaskSocket } from "../src/consumer_client.js";
+import { ConsumerClient, createTaskInput, isTaskTypeName, taskTypeNames, type TaskSocket } from "../src/libs/consumer_client.js";
 import { protocolVersion } from "@webai/protocol";
 
 test("parses finite numeric input", () => {
