@@ -480,10 +480,12 @@ export class WorkerPage {
 			}
 		}
 		if (offered.llmShardIndexes.length > 0) {
-			this.statusEl.textContent = 'Loading model into graphics memory';
+			this.statusEl.textContent = 'Downloading model files';
 			this.statusEl.className = 'badge text-bg-warning';
 		}
-		await StageLlmQwen3_0_6bHelper.preload(offered.llmShardIndexes);
+		await StageLlmQwen3_0_6bHelper.preload(offered.llmShardIndexes, (phase) => {
+			this.statusEl.textContent = phase === 'downloading' ? 'Downloading model files' : 'Loading model in GPU';
+		});
 		return stageNames;
 	}
 

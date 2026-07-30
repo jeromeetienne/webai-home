@@ -26,7 +26,7 @@ const gatewayFaviconPath = Path.resolve(import.meta.dirname, '../gateway/web/ima
 
 export default defineConfig({
 	root: Path.resolve(import.meta.dirname, 'web'),
-	base: '/',
+	base: process.env.WORKER_BASE_PATH ?? '/',
 	plugins: [
 		{
 			name: 'serve-gateway-favicon',
@@ -48,7 +48,8 @@ export default defineConfig({
 			name: 'serve-onnxruntime-web-assets',
 			configureServer(server) {
 				server.middlewares.use((request, response, next) => {
-					const fileName = request.url?.split('?')[0]?.replace(/^\/assets\//, '');
+					const requestPath = request.url?.split('?')[0];
+					const fileName = requestPath?.replace(/^\/assets\//, '');
 					if (fileName === undefined || ortDevServedFiles.includes(fileName) === false) {
 						next();
 						return;

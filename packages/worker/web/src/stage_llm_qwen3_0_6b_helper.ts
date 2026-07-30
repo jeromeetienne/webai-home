@@ -1,7 +1,8 @@
+/// <reference types="vite/client" />
+
 import * as OnnxRuntimeWeb from 'onnxruntime-web';
 import { Tokenizer } from '@huggingface/tokenizers';
 import { StagePayloadFactory, type EncodedTensor, type LlmStagePayload } from '@webai/protocol';
-import { GatewayConfig } from './gateway_config';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -26,11 +27,13 @@ import { GatewayConfig } from './gateway_config';
 
 /** Hugging Face identifier for the Qwen3 model used by this experiment. */
 const MODEL_ID = 'onnx-community/Qwen3-0.6B-ONNX';
-/** URLs for the three shards, served by the dev-only route added to packages/gateway/src/cli.ts. */
+/** Immutable Hugging Face revision containing the three published model shards. */
+const QWEN_SHARD_BASE_URL = 'https://huggingface.co/jerome-etienne/webai-at-home-qwen3-0.6b-shards/resolve/8ba2b869c4dbb96de8b72e448e79b4ec5825ae47/shards/';
+/** URLs for the three shards, pinned to the uploaded Hugging Face revision. */
 const SHARD_URLS = [
-	GatewayConfig.assetUrl('/onnxruntime_qwen3-0.6b-with-shards/shards/shard-1.onnx'),
-	GatewayConfig.assetUrl('/onnxruntime_qwen3-0.6b-with-shards/shards/shard-2.onnx'),
-	GatewayConfig.assetUrl('/onnxruntime_qwen3-0.6b-with-shards/shards/shard-3.onnx'),
+	`${QWEN_SHARD_BASE_URL}shard-1.onnx`,
+	`${QWEN_SHARD_BASE_URL}shard-2.onnx`,
+	`${QWEN_SHARD_BASE_URL}shard-3.onnx`,
 ] as const;
 /** Direct URL for the tokenizer vocabulary and merge configuration. */
 const TOKENIZER_URL = `https://huggingface.co/${MODEL_ID}/resolve/main/tokenizer.json`;
@@ -50,6 +53,7 @@ const MAX_NEW_TOKENS = 160;
 /** The named tensors passed to and returned from the ONNX model. */
 type TensorMap = Record<string, OnnxRuntimeWeb.Tensor>;
 type ShardSession = OnnxRuntimeWeb.InferenceSession;
+type ModelLoadingPhase = 'downloading' | 'graphics-memory';
 
 const SHARD_BOUNDARIES = [
 	undefined,
@@ -79,7 +83,7 @@ const TYPED_ARRAY_BY_ONNX_TYPE: Record<string, (new (buffer: ArrayBuffer) => Onn
 	bool: Uint8Array,
 };
 
-OnnxRuntimeWeb.env.wasm.wasmPaths = '/assets/';
+OnnxRuntimeWeb.env.wasm.wasmPaths = `${import.meta.env.BASE_URL}assets/`;
 OnnxRuntimeWeb.env.logLevel = 'fatal';
 
 /** Per-task generation state kept in memory for as long as that task's shards run on this device. */
@@ -198,9 +202,9 @@ export class StageLlmQwen3_0_6bHelper {
 	 * @param shardIndexes Which shards this worker will be asked to run, taken from the
 	 * positions of the enabled language-model stages in their pipeline.
 	 */
-	static preload(shardIndexes: readonly number[]): Promise<void> {
+	static preload(shardIndexes: readonly number[], onLoadingPhase?: (phase: ModelLoadingPhase) => void): Promise<void> {
 		const runnable = shardIndexes.filter((shardIndex) => shardIndex >= 0 && shardIndex < StageLlmQwen3_0_6bHelper.shardCount);
-		return runnable.length === 0 ? Promise.resolve() : StageLlmQwen3_0_6bHelper.loadModel(runnable);
+		return runnable.length === 0 ? Promise.resolve() : StageLlmQwen3_0_6bHelper.loadModel(runnable, onLoadingPhase);
 	}
 
 	/** Creates and stores fresh generation state for a task's first round. */
@@ -213,17 +217,19 @@ export class StageLlmQwen3_0_6bHelper {
 	/**
 	 * Loads the tokenizer and creates the three ONNX Runtime Web shard sessions once per page.
 	 */
-	private static async loadModel(requestedShardIndexes: readonly number[]): Promise<void> {
+	private static async loadModel(requestedShardIndexes: readonly number[], onLoadingPhase?: (phase: ModelLoadingPhase) => void): Promise<void> {
 		const shardIndexes = [...new Set(requestedShardIndexes)];
 		if (shardIndexes.every((shardIndex) => StageLlmQwen3_0_6bHelper.shardSessions[shardIndex]) && StageLlmQwen3_0_6bHelper.tokenizer) return;
 		if (StageLlmQwen3_0_6bHelper.loadPromise) return StageLlmQwen3_0_6bHelper.loadPromise;
 
 		const hasWebGPU = 'gpu' in navigator;
+		onLoadingPhase?.('downloading');
 		StageLlmQwen3_0_6bHelper.loadPromise = Promise.all([
 			StageLlmQwen3_0_6bHelper.fetchTokenizerJson(TOKENIZER_URL, 'Tokenizer download'),
 			StageLlmQwen3_0_6bHelper.fetchTokenizerJson(TOKENIZER_CONFIG_URL, 'Tokenizer configuration download'),
 			...shardIndexes.map((shardIndex) => StageLlmQwen3_0_6bHelper.fetchModelBytes(SHARD_URLS[shardIndex])),
 		]).then(async ([tokenizerJson, tokenizerConfig, ...shardBytes]) => {
+			onLoadingPhase?.('graphics-memory');
 			StageLlmQwen3_0_6bHelper.tokenizer = new Tokenizer(tokenizerJson, tokenizerConfig);
 			for (const [shardOffset, bytes] of shardBytes.entries()) {
 				StageLlmQwen3_0_6bHelper.shardSessions[shardIndexes[shardOffset]] = await OnnxRuntimeWeb.InferenceSession.create(bytes, {

@@ -122,7 +122,6 @@ export class HttpRoutes {
 			return;
 		}
 
-		if (this.sendModelShard(response, pathname)) return;
 		if (HttpRoutes.sendOnnxRuntimeAsset(response, pathname)) return;
 
 		// A page route is looked up with any trailing slash removed, so "/monitor/" reaches the
@@ -192,38 +191,6 @@ export class HttpRoutes {
 		} catch {
 			return false;
 		}
-	}
-
-	/**
-	 * Serves one language-model shard file, for development only.
-	 *
-	 * The qwen3-0.6b shard files are large, gitignored, and generated once as an explicit setup
-	 * step (see packages/_onnx_experiments/tools/verify_qwen3_shards.mjs) into that package's
-	 * own public directory. Rather than duplicate ~860 MB into packages/gateway too, the
-	 * worker page fetches them straight from there, dev-server only, at the same URL the
-	 * existing onnxruntime_qwen3-0.6b-with-shards prototype already uses for itself.
-	 *
-	 * @param response The HTTP response to write the shard to.
-	 * @param pathname The requested path.
-	 * @returns Whether the path named a shard file, whether or not that file exists.
-	 */
-	private sendModelShard(response: Http.ServerResponse, pathname: string): boolean {
-		const shardMatch = /^\/onnxruntime_qwen3-0\.6b-with-shards\/shards\/shard-([123])\.onnx$/.exec(pathname);
-		if (shardMatch === null) return false;
-		const shardDirectory = Path.join(
-			Path.dirname(Url.fileURLToPath(import.meta.url)),
-			'../../../_onnx_experiments/public/onnxruntime_qwen3-0.6b-with-shards/shards',
-		);
-		const shardPath = Path.join(shardDirectory, `shard-${shardMatch[1]}.onnx`);
-		if (Fs.existsSync(shardPath) === false) {
-			response.statusCode = 404;
-			response.end(`Shard file not found at ${shardPath}. Generate the qwen3-0.6b shards into packages/_onnx_experiments first.`);
-			return true;
-		}
-		response.setHeader('access-control-allow-origin', '*');
-		response.setHeader('content-type', 'application/octet-stream');
-		response.end(Fs.readFileSync(shardPath));
-		return true;
 	}
 
 	/**

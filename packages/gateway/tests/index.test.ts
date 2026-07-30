@@ -691,11 +691,8 @@ Test('a request target naming another host is refused, and the server keeps answ
 	});
 });
 
-Test('browser model assets allow cross-origin fetches', async () => {
+Test('browser ONNX Runtime assets allow cross-origin fetches', async () => {
 	await withHttpRoutesServer(async ({ headersOf }) => {
-		const shardHeaders = await headersOf('/onnxruntime_qwen3-0.6b-with-shards/shards/shard-1.onnx');
-		Assert.equal(shardHeaders.get('access-control-allow-origin'), '*');
-
 		const runtimeHeaders = await headersOf('/ort-wasm-simd-threaded.jsep.mjs');
 		Assert.equal(runtimeHeaders.get('access-control-allow-origin'), '*');
 	});
