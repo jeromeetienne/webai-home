@@ -1,5 +1,5 @@
-import { appendFileSync, mkdirSync } from "node:fs";
-import { dirname } from "node:path";
+import Fs from 'node:fs';
+import Path from 'node:path';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -8,7 +8,7 @@ import { dirname } from "node:path";
 ///////////////////////////////////////////////////////////////////////////////
 
 /** Whether a logged message was received from, or sent to, the counterpart. */
-export type LogDirection = "received" | "sent";
+export type LogDirection = 'received' | 'sent';
 
 /**
  * The property names whose value is either the data a task carries or a credential, and is
@@ -18,10 +18,10 @@ export type LogDirection = "received" | "sent";
  * output. `text`, `inputIds`, `tensors`, and `dataBase64` are the parts of a language-model
  * stage payload. `token` is the authentication token sent in the `authenticate` message.
  */
-const redactedKeyNames = new Set(["input", "value", "result", "text", "inputIds", "tensors", "dataBase64", "token"]);
+const redactedKeyNames = new Set(['input', 'value', 'result', 'text', 'inputIds', 'tensors', 'dataBase64', 'token']);
 
 /** The marker written in place of a redacted value. */
-const redactedMarker = "[redacted]";
+const redactedMarker = '[redacted]';
 
 /**
  * How deep the redaction walk descends before it replaces the remaining structure wholesale.
@@ -32,15 +32,15 @@ const redactedMarker = "[redacted]";
 const maximumRedactionDepth = 12;
 
 /** The other side of a logged message. */
-export interface LogCounterpart {
+export type LogCounterpart = {
 	/** The counterpart's role ("consumer", "worker", "observer", "gateway", or "unknown" before it has registered). */
 	role: string;
 	/** The counterpart's device identifier, when one has been assigned. */
 	deviceId?: string;
-}
+};
 
 /** One line written to an actor's message log. */
-export interface LogEntry {
+export type LogEntry = {
 	/** The moment the message was received or sent, in ISO 8601 format with milliseconds. */
 	timestamp: string;
 	/** Whether the message was received from, or sent to, the counterpart. */
@@ -61,7 +61,7 @@ export interface LogEntry {
 	payloadBytes?: number;
 	/** Exact UTF-8 byte size of the message envelope and body when recorded. */
 	messageBytes?: number;
-}
+};
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -87,7 +87,7 @@ export class MessageLogger {
 	 */
 	constructor(logFilePath: string, private readonly maximumPayloadBytes = 16_384) {
 		this.logFilePath = logFilePath;
-		mkdirSync(dirname(logFilePath), { recursive: true });
+		Fs.mkdirSync(Path.dirname(logFilePath), { recursive: true });
 	}
 
 	/**
@@ -111,12 +111,12 @@ export class MessageLogger {
 		timestamp: string = new Date().toISOString(),
 		frame: { id?: string | undefined; inReplyTo?: string | undefined; v?: number | undefined } = {},
 	): void {
-		const message = typeof payload === "object" && payload !== null ? payload : { type: messageType, value: payload };
-		const payloadWithoutType = typeof payload === "object" && payload !== null && !Array.isArray(payload)
-			? Object.fromEntries(Object.entries(payload as Record<string, unknown>).filter(([key]) => key !== "type"))
+		const message = typeof payload === 'object' && payload !== null ? payload : { type: messageType, value: payload };
+		const payloadWithoutType = typeof payload === 'object' && payload !== null && Array.isArray(payload) === false
+			? Object.fromEntries(Object.entries(payload as Record<string, unknown>).filter(([key]) => key !== 'type'))
 			: payload;
-		const payloadBytes = Buffer.byteLength(JSON.stringify(payloadWithoutType), "utf8");
-		const messageBytes = Buffer.byteLength(JSON.stringify(message), "utf8");
+		const payloadBytes = Buffer.byteLength(JSON.stringify(payloadWithoutType), 'utf8');
+		const messageBytes = Buffer.byteLength(JSON.stringify(message), 'utf8');
 		const safePayload = payloadBytes > this.maximumPayloadBytes ? { type: messageType, redacted: true, payloadBytes } : MessageLogger.redactPayload(payload);
 		const entry: LogEntry = {
 			timestamp, direction, counterpart, messageType, payload: safePayload, payloadBytes, messageBytes,
@@ -124,7 +124,7 @@ export class MessageLogger {
 			...(frame.inReplyTo === undefined ? {} : { inReplyTo: frame.inReplyTo }),
 			...(frame.v === undefined ? {} : { protocolVersion: frame.v }),
 		};
-		appendFileSync(this.logFilePath, `${JSON.stringify(entry)}\n`, "utf-8");
+		Fs.appendFileSync(this.logFilePath, `${JSON.stringify(entry)}\n`, 'utf-8');
 	}
 
 	/**
@@ -147,7 +147,7 @@ export class MessageLogger {
 	static redactPayload(payload: unknown, depth = 0): unknown {
 		if (depth > maximumRedactionDepth) return redactedMarker;
 		if (Array.isArray(payload)) return payload.map((item) => MessageLogger.redactPayload(item, depth + 1));
-		if (typeof payload !== "object" || payload === null) return payload;
+		if (typeof payload !== 'object' || payload === null) return payload;
 
 		const record: Record<string, unknown> = {};
 		for (const [key, original] of Object.entries(payload as Record<string, unknown>)) {
@@ -155,8 +155,8 @@ export class MessageLogger {
 				record[key] = MessageLogger.redactPayload(original, depth + 1);
 				continue;
 			}
-			const taskType: unknown = typeof original === "object" && original !== null ? (original as Record<string, unknown>).taskType : undefined;
-			record[key] = typeof taskType === "string" ? { taskType, input: redactedMarker } : redactedMarker;
+			const taskType: unknown = typeof original === 'object' && original !== null ? (original as Record<string, unknown>).taskType : undefined;
+			record[key] = typeof taskType === 'string' ? { taskType, input: redactedMarker } : redactedMarker;
 		}
 		return record;
 	}

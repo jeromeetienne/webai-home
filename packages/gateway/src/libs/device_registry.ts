@@ -1,4 +1,10 @@
-import type { Device, StageName } from "@webai/protocol";
+import type { Device, StageName } from '@webai/protocol';
+
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+//	DeviceRegistry — holds the connected devices and finds a worker for a stage
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
 
 /**
  * What storing a device changed, so the caller can tell a new device and a change to a
@@ -8,16 +14,16 @@ import type { Device, StageName } from "@webai/protocol";
  * `lastSeenAt` on its own, which happens on every message a device sends.
  */
 export type DeviceRegistryChange = {
-	kind: "joined" | "stable_changed" | "activity_changed" | "unchanged";
+	kind: 'joined' | 'stable_changed' | 'activity_changed' | 'unchanged';
 	device: Device;
 	revision: number;
 };
 
 /** The device fields that describe the device itself, rather than how busy it is. */
-const stableFieldNames = ["name", "deviceRole", "connectedAt", "principal", "maxConcurrentAssignments"] as const;
+const stableFieldNames = ['name', 'deviceRole', 'connectedAt', 'principal', 'maxConcurrentAssignments'] as const;
 
 /** The device fields that change as work is assigned to a device and returned by it. */
-const activityFieldNames = ["workerState", "ready", "activeAssignments"] as const;
+const activityFieldNames = ['workerState', 'ready', 'activeAssignments'] as const;
 
 /** Maintains the devices connected to the gateway. */
 export class DeviceRegistry {
@@ -36,17 +42,17 @@ export class DeviceRegistry {
 	 */
 	add(device: Device): DeviceRegistryChange {
 		const previous = this.devices.get(device.deviceId);
-		if (previous === undefined) return { kind: "joined", device: this._store(device, ++this.revision), revision: this.revision };
+		if (previous === undefined) return { kind: 'joined', device: this._store(device, ++this.revision), revision: this.revision };
 
 		const isStableChanged = stableFieldNames.some((fieldName) => previous[fieldName] !== device[fieldName])
 			|| DeviceRegistry._isStageListChanged(previous.stageNames, device.stageNames);
 		const isActivityChanged = activityFieldNames.some((fieldName) => previous[fieldName] !== device[fieldName]);
 		if (isStableChanged === false && isActivityChanged === false) {
-			return { kind: "unchanged", device: this._store(device, previous.membershipRevision), revision: this.revision };
+			return { kind: 'unchanged', device: this._store(device, previous.membershipRevision), revision: this.revision };
 		}
 
 		const stored = this._store(device, ++this.revision);
-		return { kind: isStableChanged ? "stable_changed" : "activity_changed", device: stored, revision: this.revision };
+		return { kind: isStableChanged ? 'stable_changed' : 'activity_changed', device: stored, revision: this.revision };
 	}
 
 	/**
@@ -55,7 +61,7 @@ export class DeviceRegistry {
 	 * @param deviceId - The device identifier to remove.
 	 */
 	remove(deviceId: string): { deviceId: string; revision: number } | undefined {
-		if (!this.devices.delete(deviceId)) return undefined;
+		if (this.devices.delete(deviceId) === false) return undefined;
 		return { deviceId, revision: ++this.revision };
 	}
 
@@ -78,6 +84,7 @@ export class DeviceRegistry {
 		return [...this.devices.values()];
 	}
 
+	/** Returns the revision the device list is currently at, which rises on every change. */
 	membershipRevision(): number { return this.revision; }
 
 	/**
@@ -87,7 +94,7 @@ export class DeviceRegistry {
 	 * @param role - The device role to match.
 	 * @returns The matching device, or `undefined` when no device matches.
 	 */
-	findByName(name: string, role: Device["deviceRole"]): Device | undefined {
+	findByName(name: string, role: Device['deviceRole']): Device | undefined {
 		return this.list().find((device) => device.name === name && device.deviceRole === role);
 	}
 
@@ -101,11 +108,11 @@ export class DeviceRegistry {
 	findWorker(stage: StageName, excluded: string[] = []): Device | undefined {
 		return this.list().find(
 			(device) =>
-				device.deviceRole === "worker" &&
-				device.workerState !== "draining" && device.ready !== false &&
+				device.deviceRole === 'worker' &&
+				device.workerState !== 'draining' && device.ready !== false &&
 				(device.activeAssignments ?? 0) < (device.maxConcurrentAssignments ?? 1) &&
 				device.stageNames.includes(stage) &&
-				!excluded.includes(device.deviceId),
+				excluded.includes(device.deviceId) === false,
 		);
 	}
 

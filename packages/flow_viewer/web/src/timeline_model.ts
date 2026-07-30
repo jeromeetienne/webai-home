@@ -1,5 +1,5 @@
-import type { LogEntry } from "@webai/protocol/message_logger";
-import type { ActorNode, CategoryFilters, EventCategory, LaneColumn, LogSource, TimeRangeMs, TimelineEvent } from "./types.js";
+import type { LogEntry } from '@webai/protocol/message_logger';
+import type { ActorNode, CategoryFilters, EventCategory, LaneColumn, LogSource, TimeRangeMs, TimelineEvent } from './types.js';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -7,19 +7,19 @@ import type { ActorNode, CategoryFilters, EventCategory, LaneColumn, LogSource, 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
-interface RegisterPayload {
+type RegisterPayload = {
 	role?: string;
 	name?: string;
-}
+};
 
-interface DevicesPayload {
+type DevicesPayload = {
 	devices?: Array<{ deviceId?: string; name?: string; deviceRole?: string }>;
-}
+};
 
-interface TaskSubmitPayload {
+type TaskSubmitPayload = {
 	requestId?: string;
 	input?: { taskType?: string; input?: unknown } | string;
-}
+};
 
 /**
  * A recorded message that carries a task.
@@ -29,66 +29,66 @@ interface TaskSubmitPayload {
  * `update` instead, so both field names are read here and logs recorded before that
  * change still render.
  */
-interface TaskLikePayload {
+type TaskLikePayload = {
 	task?: TaskLikeFields;
 	update?: TaskLikeFields;
-}
+};
 
 /** The task fields the timeline reads, whichever field of a message carries them. */
-interface TaskLikeFields {
+type TaskLikeFields = {
 	taskId?: string;
 	state?: string;
 	error?: string;
 	pipelineId?: string;
 	pipelineVersion?: number;
 	revision?: number;
-}
+};
 
-interface StageAssignPayload {
+type StageAssignPayload = {
 	taskId?: string;
 	assignmentId?: string;
 	attempt?: number;
 	stage?: string;
-}
+};
 
-interface StageResultPayload {
+type StageResultPayload = {
 	taskId?: string;
 	assignmentId?: string;
 	attempt?: number;
 	stage?: string;
-}
+};
 
-interface StageResultAcceptedPayload {
+type StageResultAcceptedPayload = {
 	taskId?: string;
 	assignmentId?: string;
 	attempt?: number;
 	revision?: number;
 	status?: string;
-}
+};
 
-interface StageFailedPayload {
+type StageFailedPayload = {
 	taskId?: string;
 	assignmentId?: string;
 	attempt?: number;
 	stage?: string;
 	error?: string;
-}
+};
 
-interface AssignmentPayload {
+type AssignmentPayload = {
 	taskId?: string;
 	assignmentId?: string;
 	attempt?: number;
-}
+};
 
-interface ErrorPayload {
+type ErrorPayload = {
 	message?: string;
-}
+};
 
 /** The two texts written for one message: a full sentence for the event log list, and a short label for the animated packet. */
-interface EventDescription {
+type EventDescription = {
 	summary: string;
 	detail: string | undefined;
-}
+};
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -100,7 +100,7 @@ interface EventDescription {
 // a task result, or an authentication token, at any depth in a logged message.
 // Kept as a literal because importing it from `@webai/protocol/message_logger`
 // would pull that module's Node.js file-system imports into the browser bundle.
-const REDACTED_MARKER = "[redacted]";
+const REDACTED_MARKER = '[redacted]';
 
 // The animated packet's label is drawn centred on a dot travelling between the lane
 // columns, so both of its lines must stay short enough never to run past the edge of
@@ -108,34 +108,34 @@ const REDACTED_MARKER = "[redacted]";
 const MAX_PACKET_DETAIL_LENGTH = 28;
 // How many leading characters of an identifier are enough to recognise it at a glance.
 const SHORT_IDENTIFIER_LENGTH = 8;
-const IDENTIFIER_PREFIXES: readonly string[] = ["task-", "assignment-", "device-"];
+const IDENTIFIER_PREFIXES: readonly string[] = ['task-', 'assignment-', 'device-'];
 
-const NEUTRAL_PACKET_COLOR = "#64748b";
+const NEUTRAL_PACKET_COLOR = '#64748b';
 const TASK_COLOR_PALETTE: readonly string[] = [
-	"#38bdf8",
-	"#f97316",
-	"#22c55e",
-	"#e879f9",
-	"#facc15",
-	"#f43f5e",
-	"#a78bfa",
-	"#2dd4bf",
+	'#38bdf8',
+	'#f97316',
+	'#22c55e',
+	'#e879f9',
+	'#facc15',
+	'#f43f5e',
+	'#a78bfa',
+	'#2dd4bf',
 ];
 
 // Connection setup is not task traffic. Keeping authentication in chatter also
 // prevents pre-registration `unknown` counterparts from becoming actor nodes
 // when the viewer is using its default filters.
 const CHATTER_MESSAGE_TYPES: ReadonlySet<string> = new Set([
-	"authenticate",
-	"authenticated",
-	"register",
-	"registered",
-	"devices",
-	"device.joined",
-	"device.updated",
-	"device.left",
+	'authenticate',
+	'authenticated',
+	'register',
+	'registered',
+	'devices',
+	'device.joined',
+	'device.updated',
+	'device.left',
 ]);
-const SIGNALING_MESSAGE_TYPES: ReadonlySet<string> = new Set(["signal"]);
+const SIGNALING_MESSAGE_TYPES: ReadonlySet<string> = new Set(['signal']);
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -168,7 +168,7 @@ export class TimelineModel {
 			const selfActorId = `gateway:${source.id}`;
 			// Diagnostic reporting no longer travels on the scheduling connection at all, but a
 			// log recorded before that change still contains it, and it is not wire traffic.
-			const wireEntries: LogEntry[] = source.entries.filter((entry: LogEntry): boolean => entry.messageType !== "log.entry");
+			const wireEntries: LogEntry[] = source.entries.filter((entry: LogEntry): boolean => entry.messageType !== 'log.entry');
 			const answeredRequests: Map<number, number> = TimelineModel._resolveAnsweredRequests(wireEntries);
 			const submitTaskIds: Map<number, string> = TimelineModel._resolveSubmitTaskIds(wireEntries, answeredRequests);
 			const roleByDeviceId: Map<string, string> = TimelineModel._resolveDeviceRoles(wireEntries);
@@ -176,15 +176,15 @@ export class TimelineModel {
 			for (const [entryIndex, entry] of wireEntries.entries()) {
 				const timestampMs: number = Date.parse(entry.timestamp);
 
-				const counterpartRole: string = roleByDeviceId.get(entry.counterpart.deviceId ?? "") ?? entry.counterpart.role;
+				const counterpartRole: string = roleByDeviceId.get(entry.counterpart.deviceId ?? '') ?? entry.counterpart.role;
 				const counterpartActorId: string = TimelineModel._actorId(counterpartRole, entry.counterpart.deviceId);
 				TimelineModel._recordFirstSeen(firstSeenByActorId, counterpartActorId, timestampMs);
 				TimelineModel._recordFirstSeen(firstSeenByActorId, selfActorId, timestampMs);
-				if (entry.messageType === "register" && entry.counterpart.deviceId !== undefined) {
+				if (entry.messageType === 'register' && entry.counterpart.deviceId !== undefined) {
 					const registerPayload = entry.payload as RegisterPayload;
 					if (registerPayload.name !== undefined) nameByActorId.set(counterpartActorId, registerPayload.name);
 				}
-				if (entry.messageType === "devices") {
+				if (entry.messageType === 'devices') {
 					const devicesPayload = entry.payload as DevicesPayload;
 					for (const device of devicesPayload.devices ?? []) {
 						if (device.deviceId !== undefined && device.name !== undefined && device.deviceRole !== undefined) {
@@ -196,12 +196,12 @@ export class TimelineModel {
 				if (timestampMs < range.fromMs || timestampMs > range.toMs) continue;
 
 				const category: EventCategory = TimelineModel._categorize(entry.messageType);
-				if (category === "chatter" && !filters.showChatter) continue;
-				if (category === "signaling" && !filters.showSignaling) continue;
+				if (category === 'chatter' && filters.showChatter === false) continue;
+				if (category === 'signaling' && filters.showSignaling === false) continue;
 
 				const taskId: string | undefined = submitTaskIds.get(entryIndex) ?? TimelineModel._extractTaskId(entry);
-				const fromActorId: string = entry.direction === "received" ? counterpartActorId : selfActorId;
-				const toActorId: string = entry.direction === "received" ? selfActorId : counterpartActorId;
+				const fromActorId: string = entry.direction === 'received' ? counterpartActorId : selfActorId;
+				const toActorId: string = entry.direction === 'received' ? selfActorId : counterpartActorId;
 				const description: EventDescription = TimelineModel._describe(entry.messageType, entry.payload);
 				const answeredIndex: number | undefined = answeredRequests.get(entryIndex);
 
@@ -265,8 +265,8 @@ export class TimelineModel {
 		for (const entry of entries) {
 			const deviceId = entry.counterpart.deviceId;
 			const role = entry.counterpart.role;
-			if (deviceId !== undefined && role !== "unknown") roles.set(deviceId, role);
-			if (entry.messageType !== "devices") continue;
+			if (deviceId !== undefined && role !== 'unknown') roles.set(deviceId, role);
+			if (entry.messageType !== 'devices') continue;
 			const devices = (entry.payload as DevicesPayload).devices ?? [];
 			for (const device of devices) {
 				if (device.deviceId !== undefined && device.deviceRole !== undefined) roles.set(device.deviceId, device.deviceRole);
@@ -276,9 +276,9 @@ export class TimelineModel {
 	}
 
 	private static _categorize(messageType: string): EventCategory {
-		if (CHATTER_MESSAGE_TYPES.has(messageType)) return "chatter";
-		if (SIGNALING_MESSAGE_TYPES.has(messageType)) return "signaling";
-		return "task";
+		if (CHATTER_MESSAGE_TYPES.has(messageType)) return 'chatter';
+		if (SIGNALING_MESSAGE_TYPES.has(messageType)) return 'signaling';
+		return 'task';
 	}
 
 	/**
@@ -325,23 +325,23 @@ export class TimelineModel {
 
 		for (const [answerIndex, requestIndex] of answeredRequests) {
 			const answer: LogEntry = wireEntries[answerIndex]!;
-			if (answer.messageType !== "task.accepted") continue;
-			if (wireEntries[requestIndex]?.messageType !== "task.submit") continue;
+			if (answer.messageType !== 'task.accepted') continue;
+			if (wireEntries[requestIndex]?.messageType !== 'task.submit') continue;
 			const taskId: string | undefined = TimelineModel._taskLikeFields(answer.payload).taskId;
 			if (taskId !== undefined) resolved.set(requestIndex, taskId);
 		}
 
 		for (const [submitIndex, submitEntry] of wireEntries.entries()) {
-			if (submitEntry.messageType !== "task.submit" || submitEntry.direction !== "received") continue;
+			if (submitEntry.messageType !== 'task.submit' || submitEntry.direction !== 'received') continue;
 			if (resolved.has(submitIndex)) continue;
 
 			for (let candidateIndex = submitIndex + 1; candidateIndex < wireEntries.length; candidateIndex++) {
 				const candidate: LogEntry = wireEntries[candidateIndex]!;
 				const isMatchingReply: boolean =
-					candidate.messageType === "task.accepted" &&
-					candidate.direction === "sent" &&
+					candidate.messageType === 'task.accepted' &&
+					candidate.direction === 'sent' &&
 					candidate.counterpart.deviceId === submitEntry.counterpart.deviceId;
-				if (!isMatchingReply) continue;
+				if (isMatchingReply === false) continue;
 
 				const taskId: string | undefined = TimelineModel._taskLikeFields(candidate.payload).taskId;
 				if (taskId !== undefined) resolved.set(submitIndex, taskId);
@@ -365,15 +365,15 @@ export class TimelineModel {
 
 	private static _extractTaskId(entry: LogEntry): string | undefined {
 		switch (entry.messageType) {
-			case "task.accepted":
-			case "task.snapshot":
-			case "task.updated":
+			case 'task.accepted':
+			case 'task.snapshot':
+			case 'task.updated':
 				return TimelineModel._taskLikeFields(entry.payload).taskId;
-			case "stage.assign":
+			case 'stage.assign':
 				return (entry.payload as StageAssignPayload).taskId;
-			case "stage.result":
+			case 'stage.result':
 				return (entry.payload as StageResultPayload).taskId;
-			case "stage.failed":
+			case 'stage.failed':
 				return (entry.payload as StageFailedPayload).taskId;
 			default:
 				return undefined;
@@ -388,112 +388,112 @@ export class TimelineModel {
 		const shortDetail = (detail: string): string => TimelineModel._truncate(detail, MAX_PACKET_DETAIL_LENGTH);
 
 		switch (messageType) {
-			case "register": {
+			case 'register': {
 				const registerPayload = payload as RegisterPayload;
-				const name: string = registerPayload.name ?? "unnamed";
-				return { summary: `registers as ${registerPayload.role ?? "an unknown role"} (${name})`, detail: shortDetail(name) };
+				const name: string = registerPayload.name ?? 'unnamed';
+				return { summary: `registers as ${registerPayload.role ?? 'an unknown role'} (${name})`, detail: shortDetail(name) };
 			}
-			case "registered":
-				return { summary: "confirms registration", detail: undefined };
-			case "devices":
-				return { summary: "sends the current device list", detail: undefined };
-			case "task.submit": {
+			case 'registered':
+				return { summary: 'confirms registration', detail: undefined };
+			case 'devices':
+				return { summary: 'sends the current device list', detail: undefined };
+			case 'task.submit': {
 				const submitPayload = payload as TaskSubmitPayload;
-				const taskInput = typeof submitPayload.input === "object" && submitPayload.input !== null ? submitPayload.input : undefined;
+				const taskInput = typeof submitPayload.input === 'object' && submitPayload.input !== null ? submitPayload.input : undefined;
 				const submittedValue: unknown = taskInput === undefined ? submitPayload.input : taskInput.input;
-				const valueText: string = submittedValue === undefined ? "" : `: ${submittedValue === REDACTED_MARKER ? REDACTED_MARKER : JSON.stringify(submittedValue)}`;
-				const requestText: string = submitPayload.requestId === undefined ? "" : ` (request ${submitPayload.requestId})`;
+				const valueText: string = submittedValue === undefined ? '' : `: ${submittedValue === REDACTED_MARKER ? REDACTED_MARKER : JSON.stringify(submittedValue)}`;
+				const requestText: string = submitPayload.requestId === undefined ? '' : ` (request ${submitPayload.requestId})`;
 				return {
-					summary: `submits a ${taskInput?.taskType ?? "task"}${valueText}${requestText}`,
+					summary: `submits a ${taskInput?.taskType ?? 'task'}${valueText}${requestText}`,
 					detail: shortDetail(taskInput?.taskType ?? `request ${TimelineModel._shortIdentifier(submitPayload.requestId)}`),
 				};
 			}
-			case "task.accepted": {
+			case 'task.accepted': {
 				const taskFields = TimelineModel._taskLikeFields(payload);
-				const pipeline = taskFields.pipelineId === undefined ? "" : ` using ${taskFields.pipelineId}@${taskFields.pipelineVersion ?? "?"}`;
+				const pipeline = taskFields.pipelineId === undefined ? '' : ` using ${taskFields.pipelineId}@${taskFields.pipelineVersion ?? '?'}`;
 				return {
-					summary: `accepts task ${TimelineModel._shortIdentifier(taskFields.taskId)} (${taskFields.state ?? "queued"})${pipeline}`,
+					summary: `accepts task ${TimelineModel._shortIdentifier(taskFields.taskId)} (${taskFields.state ?? 'queued'})${pipeline}`,
 					detail: shortDetail(`task ${TimelineModel._shortIdentifier(taskFields.taskId)}`),
 				};
 			}
-			case "task.snapshot": {
+			case 'task.snapshot': {
 				const taskFields = TimelineModel._taskLikeFields(payload);
 				return {
-					summary: `sends the full state of task ${TimelineModel._shortIdentifier(taskFields.taskId)} (${taskFields.state ?? "unknown"})`,
+					summary: `sends the full state of task ${TimelineModel._shortIdentifier(taskFields.taskId)} (${taskFields.state ?? 'unknown'})`,
 					detail: shortDetail(`task ${TimelineModel._shortIdentifier(taskFields.taskId)}`),
 				};
 			}
-			case "task.updated": {
+			case 'task.updated': {
 				const taskFields = TimelineModel._taskLikeFields(payload);
-				const state = taskFields.state ?? "unknown";
-				const errorSuffix = taskFields.error !== undefined ? `: ${taskFields.error}` : "";
-				const revision = taskFields.revision === undefined ? "" : ` (revision ${taskFields.revision})`;
+				const state = taskFields.state ?? 'unknown';
+				const errorSuffix = taskFields.error !== undefined ? `: ${taskFields.error}` : '';
+				const revision = taskFields.revision === undefined ? '' : ` (revision ${taskFields.revision})`;
 				return {
 					summary: `updates task ${TimelineModel._shortIdentifier(taskFields.taskId)} to ${state}${revision}${errorSuffix}`,
 					detail: shortDetail(`now ${state}`),
 				};
 			}
-			case "stage.assign": {
+			case 'stage.assign': {
 				const stagePayload = payload as StageAssignPayload;
 				return {
-					summary: `assigns ${stagePayload.stage ?? "a stage"} for task ${TimelineModel._shortIdentifier(stagePayload.taskId)}${stagePayload.assignmentId === undefined ? "" : ` (assignment ${stagePayload.assignmentId}, attempt ${stagePayload.attempt ?? "?"})`}`,
-					detail: shortDetail(stagePayload.stage ?? "a stage"),
+					summary: `assigns ${stagePayload.stage ?? 'a stage'} for task ${TimelineModel._shortIdentifier(stagePayload.taskId)}${stagePayload.assignmentId === undefined ? '' : ` (assignment ${stagePayload.assignmentId}, attempt ${stagePayload.attempt ?? '?'})`}`,
+					detail: shortDetail(stagePayload.stage ?? 'a stage'),
 				};
 			}
-			case "stage.result": {
+			case 'stage.result': {
 				const stagePayload = payload as StageResultPayload;
 				return {
-					summary: `reports ${stagePayload.stage ?? "a stage"} finished for task ${TimelineModel._shortIdentifier(stagePayload.taskId)}${stagePayload.assignmentId === undefined ? "" : ` (assignment ${stagePayload.assignmentId}, attempt ${stagePayload.attempt ?? "?"})`}`,
-					detail: shortDetail(stagePayload.stage ?? "a stage"),
+					summary: `reports ${stagePayload.stage ?? 'a stage'} finished for task ${TimelineModel._shortIdentifier(stagePayload.taskId)}${stagePayload.assignmentId === undefined ? '' : ` (assignment ${stagePayload.assignmentId}, attempt ${stagePayload.attempt ?? '?'})`}`,
+					detail: shortDetail(stagePayload.stage ?? 'a stage'),
 				};
 			}
-			case "stage.result.accepted": {
+			case 'stage.result.accepted': {
 				const acceptedPayload = payload as StageResultAcceptedPayload;
-				const revision = acceptedPayload.revision === undefined ? "" : ` (revision ${acceptedPayload.revision})`;
+				const revision = acceptedPayload.revision === undefined ? '' : ` (revision ${acceptedPayload.revision})`;
 				return {
-					summary: `accepts the result of assignment ${acceptedPayload.assignmentId ?? "?"} for task ${TimelineModel._shortIdentifier(acceptedPayload.taskId)}, now ${acceptedPayload.status ?? "unknown"}${revision}`,
-					detail: shortDetail(`now ${acceptedPayload.status ?? "unknown"}`),
+					summary: `accepts the result of assignment ${acceptedPayload.assignmentId ?? '?'} for task ${TimelineModel._shortIdentifier(acceptedPayload.taskId)}, now ${acceptedPayload.status ?? 'unknown'}${revision}`,
+					detail: shortDetail(`now ${acceptedPayload.status ?? 'unknown'}`),
 				};
 			}
-			case "stage.accepted": {
+			case 'stage.accepted': {
 				const assignment = payload as AssignmentPayload;
 				return {
-					summary: `accepts assignment ${assignment.assignmentId ?? "?"} (attempt ${assignment.attempt ?? "?"}) for task ${TimelineModel._shortIdentifier(assignment.taskId)}`,
+					summary: `accepts assignment ${assignment.assignmentId ?? '?'} (attempt ${assignment.attempt ?? '?'}) for task ${TimelineModel._shortIdentifier(assignment.taskId)}`,
 					detail: shortDetail(`assignment ${TimelineModel._shortIdentifier(assignment.assignmentId)}`),
 				};
 			}
-			case "stage.relinquish": {
+			case 'stage.relinquish': {
 				const assignment = payload as AssignmentPayload;
 				return {
-					summary: `relinquishes assignment ${assignment.assignmentId ?? "?"} for task ${TimelineModel._shortIdentifier(assignment.taskId)}`,
+					summary: `relinquishes assignment ${assignment.assignmentId ?? '?'} for task ${TimelineModel._shortIdentifier(assignment.taskId)}`,
 					detail: shortDetail(`assignment ${TimelineModel._shortIdentifier(assignment.assignmentId)}`),
 				};
 			}
-			case "stage.cancel": {
+			case 'stage.cancel': {
 				const assignment = payload as AssignmentPayload;
 				return {
-					summary: `cancels assignment ${assignment.assignmentId ?? "?"} for task ${TimelineModel._shortIdentifier(assignment.taskId)}`,
+					summary: `cancels assignment ${assignment.assignmentId ?? '?'} for task ${TimelineModel._shortIdentifier(assignment.taskId)}`,
 					detail: shortDetail(`assignment ${TimelineModel._shortIdentifier(assignment.assignmentId)}`),
 				};
 			}
-			case "task.cancel": {
+			case 'task.cancel': {
 				const assignment = payload as AssignmentPayload;
 				return {
 					summary: `cancels task ${TimelineModel._shortIdentifier(assignment.taskId)}`,
 					detail: shortDetail(`task ${TimelineModel._shortIdentifier(assignment.taskId)}`),
 				};
 			}
-			case "stage.failed": {
+			case 'stage.failed': {
 				const stagePayload = payload as StageFailedPayload;
 				return {
-					summary: `reports ${stagePayload.stage ?? "a stage"} failed for task ${TimelineModel._shortIdentifier(stagePayload.taskId)}${stagePayload.assignmentId === undefined ? "" : ` (assignment ${stagePayload.assignmentId}, attempt ${stagePayload.attempt ?? "?"})`}: ${stagePayload.error ?? "no reason given"}`,
-					detail: shortDetail(stagePayload.stage ?? "a stage"),
+					summary: `reports ${stagePayload.stage ?? 'a stage'} failed for task ${TimelineModel._shortIdentifier(stagePayload.taskId)}${stagePayload.assignmentId === undefined ? '' : ` (assignment ${stagePayload.assignmentId}, attempt ${stagePayload.attempt ?? '?'})`}: ${stagePayload.error ?? 'no reason given'}`,
+					detail: shortDetail(stagePayload.stage ?? 'a stage'),
 				};
 			}
-			case "signal":
-				return { summary: "relays peer connection signaling data", detail: undefined };
-			case "error": {
-				const message: string = (payload as ErrorPayload).message ?? "no message given";
+			case 'signal':
+				return { summary: 'relays peer connection signaling data', detail: undefined };
+			case 'error': {
+				const message: string = (payload as ErrorPayload).message ?? 'no message given';
 				return { summary: `reports an error: ${message}`, detail: shortDetail(message) };
 			}
 			default:
@@ -503,7 +503,7 @@ export class TimelineModel {
 
 	/** Shortens an identifier to the leading characters that make it recognisable at a glance. */
 	private static _shortIdentifier(identifier: string | undefined): string {
-		if (identifier === undefined) return "?";
+		if (identifier === undefined) return '?';
 		const prefix: string | undefined = IDENTIFIER_PREFIXES.find((candidate: string): boolean => identifier.startsWith(candidate));
 		const withoutPrefix: string = prefix === undefined ? identifier : identifier.slice(prefix.length);
 		return withoutPrefix.slice(0, SHORT_IDENTIFIER_LENGTH);
@@ -530,30 +530,30 @@ export class TimelineModel {
 
 		const actors: ActorNode[] = [];
 		for (const actorId of visibleActorIds) {
-			const [kind, idPart] = actorId.split(":") as [string, string];
+			const [kind, idPart] = actorId.split(':') as [string, string];
 
-			if (kind === "gateway") {
+			if (kind === 'gateway') {
 				actors.push({
 					id: actorId,
-					role: "gateway",
+					role: 'gateway',
 					deviceId: undefined,
-					label: sourceLabelById.get(idPart) ?? "Gateway",
+					label: sourceLabelById.get(idPart) ?? 'Gateway',
 					sublabel: undefined,
-					column: "center",
+					column: 'center',
 					row: 0,
 					firstSeenMs: firstSeenByActorId.get(actorId) ?? 0,
 				});
 				continue;
 			}
 
-			const deviceId: string | undefined = idPart === "unregistered" ? undefined : idPart;
-			const column: LaneColumn = kind === "worker" ? "right" : "left";
+			const deviceId: string | undefined = idPart === 'unregistered' ? undefined : idPart;
+			const column: LaneColumn = kind === 'worker' ? 'right' : 'left';
 			actors.push({
 				id: actorId,
 				role: kind,
 				deviceId,
-				label: kind === "consumer" ? "Consumer" : kind === "worker" ? "Worker" : "Unregistered device",
-				sublabel: nameByActorId.get(actorId) ?? (deviceId !== undefined ? deviceId.replace("device-", "").slice(0, 8) : undefined),
+				label: kind === 'consumer' ? 'Consumer' : kind === 'worker' ? 'Worker' : 'Unregistered device',
+				sublabel: nameByActorId.get(actorId) ?? (deviceId !== undefined ? deviceId.replace('device-', '').slice(0, 8) : undefined),
 				column,
 				row: 0,
 				firstSeenMs: firstSeenByActorId.get(actorId) ?? 0,
@@ -565,7 +565,7 @@ export class TimelineModel {
 				.filter((actor: ActorNode): boolean => actor.column === column)
 				.sort((a: ActorNode, b: ActorNode): number => a.firstSeenMs - b.firstSeenMs);
 
-		const columns: LaneColumn[] = ["left", "center", "right"];
+		const columns: LaneColumn[] = ['left', 'center', 'right'];
 		const orderedActors: ActorNode[] = [];
 		for (const column of columns) {
 			const columnActors: ActorNode[] = byColumn(column);

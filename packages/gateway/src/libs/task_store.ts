@@ -1,11 +1,23 @@
 // npm imports
-import type { AssignmentRetryReason, StageAssignment, StageName, StagePayload, StageResult, Task, TaskInput } from "@webai/protocol";
-import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import type { AssignmentRetryReason, StageAssignment, StageName, StagePayload, StageResult, Task, TaskInput } from '@webai/protocol';
+import Fs from 'node:fs';
+
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+//	TaskStore — holds every task and its stage assignments, and keeps them on disk
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
 
 /** Stores task state for the lifetime of the gateway process. */
 export class TaskStore {
 	private readonly tasks = new Map<string, Task>();
 	private readonly taskIdByConsumerRequest = new Map<string, string>();
+	/**
+	 * @param now Where the current time is read from. Tests pass their own.
+	 * @param submissionTimeoutMs How long a queued task may wait before it is failed.
+	 * @param leaseMs How long an assignment lease lasts, unless its stage states otherwise.
+	 * @param stateFilePath Where durable state is kept. Left out, nothing is written to disk.
+	 */
 	constructor(private readonly now: () => Date = () => new Date(), private readonly submissionTimeoutMs = 30_000, private readonly leaseMs = 15_000, private readonly stateFilePath?: string) {
 		this.restore();
 	}
@@ -16,7 +28,7 @@ export class TaskStore {
 	 * @param input - The validated input submitted for the task.
 	 * @returns The newly created task.
 	 */
-	create(input: TaskInput, consumerDeviceId = "consumer-unknown", requestId: string = crypto.randomUUID(), consumerPrincipal?: string, pipeline?: Pick<Task, "pipelineId" | "pipelineVersion" | "pipelineStages" | "pipelineRepeatsUntilDone">): Task {
+	create(input: TaskInput, consumerDeviceId = 'consumer-unknown', requestId: string = crypto.randomUUID(), consumerPrincipal?: string, pipeline?: Pick<Task, 'pipelineId' | 'pipelineVersion' | 'pipelineStages' | 'pipelineRepeatsUntilDone'>): Task {
 		const now = this.now().toISOString();
 		const task: Task = {
 			taskId: `task-${crypto.randomUUID()}`,
@@ -25,7 +37,7 @@ export class TaskStore {
 			...(consumerPrincipal === undefined ? {} : { consumerPrincipal }),
 			...(pipeline ?? {}),
 			input,
-			state: "queued",
+			state: 'queued',
 			completedStages: [],
 			assignmentAttempts: [],
 			currentStageAttempts: 0,
@@ -41,6 +53,13 @@ export class TaskStore {
 		return task;
 	}
 
+	/**
+	 * Finds the task a consumer already created with one request identifier.
+	 *
+	 * @param consumerDeviceId The consumer that submitted it.
+	 * @param requestId The identifier that consumer gave its submission.
+	 * @returns The existing task, or `undefined` when that request is new.
+	 */
 	findByRequest(consumerDeviceId: string, requestId: string): Task | undefined {
 		const taskId = this.taskIdByConsumerRequest.get(this.requestKey(consumerDeviceId, requestId));
 		return taskId === undefined ? undefined : this.tasks.get(taskId);
@@ -55,7 +74,7 @@ export class TaskStore {
 	 */
 	assign(taskId: string, workerDeviceId: string, stage: StageName, value: StagePayload, retryReason?: AssignmentRetryReason, leaseMs: number = this.leaseMs): Task {
 		const task = this.get(taskId);
-		if (!task) throw new Error(`Task ${taskId} was not found`);
+		if (task === undefined) throw new Error(`Task ${taskId} was not found`);
 		const assignment: StageAssignment = {
 			workerDeviceId,
 			assignmentId: `assignment-${crypto.randomUUID()}`,
@@ -66,20 +85,27 @@ export class TaskStore {
 			...(retryReason === undefined ? {} : { retryReason }),
 		};
 		return this.update(taskId, {
-			state: "assigned",
+			state: 'assigned',
 			assignment,
 			assignmentAttempts: [...task.assignmentAttempts, assignment],
 			currentStageAttempts: assignment.attempt,
-			events: [...task.events, { type: retryReason === undefined ? "assignment_created" : "assignment_retried", timestamp: this.now().toISOString(), reason: retryReason, assignmentId: assignment.assignmentId, attempt: assignment.attempt }],
+			events: [...task.events, { type: retryReason === undefined ? 'assignment_created' : 'assignment_retried', timestamp: this.now().toISOString(), reason: retryReason, assignmentId: assignment.assignmentId, attempt: assignment.attempt }],
 		});
 	}
 
+	/**
+	 * Records that the assigned worker has accepted its current assignment.
+	 *
+	 * @param taskId The task whose assignment was accepted.
+	 * @returns The updated task, now running.
+	 * @throws If the task has no current assignment.
+	 */
 	acceptAssignment(taskId: string): Task {
 		const task = this.required(taskId);
-		if (!task.assignment) throw new Error(`Task ${taskId} has no active assignment`);
+		if (task.assignment === undefined) throw new Error(`Task ${taskId} has no active assignment`);
 		const acceptedAt = this.now().toISOString();
 		const assignment = { ...task.assignment, acceptedAt };
-		return this.update(taskId, { state: "running", assignment, assignmentAttempts: task.assignmentAttempts.map((item) => item.assignmentId === assignment.assignmentId ? assignment : item), events: [...task.events, { type: "assignment_accepted", timestamp: acceptedAt, assignmentId: assignment.assignmentId, attempt: assignment.attempt }] });
+		return this.update(taskId, { state: 'running', assignment, assignmentAttempts: task.assignmentAttempts.map((item) => item.assignmentId === assignment.assignmentId ? assignment : item), events: [...task.events, { type: 'assignment_accepted', timestamp: acceptedAt, assignmentId: assignment.assignmentId, attempt: assignment.attempt }] });
 	}
 
 	/**
@@ -109,9 +135,16 @@ export class TaskStore {
 		return leaseUntil;
 	}
 
+	/**
+	 * Cancels a task and records why.
+	 *
+	 * @param taskId The task to cancel.
+	 * @param reason Why it was cancelled.
+	 * @returns The cancelled task.
+	 */
 	cancel(taskId: string, reason: string): Task {
 		const task = this.required(taskId);
-		return this.update(taskId, { state: "cancelled", error: reason, assignment: undefined, events: [...task.events, { type: "task_cancelled", timestamp: this.now().toISOString(), reason }] });
+		return this.update(taskId, { state: 'cancelled', error: reason, assignment: undefined, events: [...task.events, { type: 'task_cancelled', timestamp: this.now().toISOString(), reason }] });
 	}
 
 	/**
@@ -124,6 +157,7 @@ export class TaskStore {
 		return this.tasks.get(taskId);
 	}
 
+	/** Returns every stored task. */
 	list(): Task[] {
 		return [...this.tasks.values()];
 	}
@@ -138,7 +172,7 @@ export class TaskStore {
 	 */
 	update(taskId: string, update: Partial<Task>): Task {
 		const task = this.tasks.get(taskId);
-		if (!task) {
+		if (task === undefined) {
 			throw new Error(`Task ${taskId} was not found`);
 		}
 		const next = {
@@ -167,7 +201,7 @@ export class TaskStore {
 	 */
 	addStage(taskId: string, stage: StageResult, assignmentId?: string): Task {
 		const task = this.tasks.get(taskId);
-		if (!task) {
+		if (task === undefined) {
 			throw new Error(`Task ${taskId} was not found`);
 		}
 		const workerDeviceId = task.assignment?.workerDeviceId;
@@ -186,23 +220,23 @@ export class TaskStore {
 
 	private required(taskId: string): Task {
 		const task = this.get(taskId);
-		if (!task) throw new Error(`Task ${taskId} was not found`);
+		if (task === undefined) throw new Error(`Task ${taskId} was not found`);
 		return task;
 	}
 
 	/** Restores the versioned, local durable state before the gateway accepts traffic. */
 	private restore(): void {
-		if (!this.stateFilePath || !existsSync(this.stateFilePath)) return;
-		const document = JSON.parse(readFileSync(this.stateFilePath, "utf8")) as { schemaVersion: number; tasks: Task[] };
-		if (document.schemaVersion !== 1 || !Array.isArray(document.tasks)) throw new Error(`Unsupported task state schema in ${this.stateFilePath}`);
+		if (this.stateFilePath === undefined || this.stateFilePath === '' || Fs.existsSync(this.stateFilePath) === false) return;
+		const document = JSON.parse(Fs.readFileSync(this.stateFilePath, 'utf8')) as { schemaVersion: number; tasks: Task[] };
+		if (document.schemaVersion !== 1 || Array.isArray(document.tasks) === false) throw new Error(`Unsupported task state schema in ${this.stateFilePath}`);
 		for (const task of document.tasks) {
 			const restored = { ...task, currentStageAttempts: task.currentStageAttempts ?? task.assignment?.attempt ?? 0 };
 			// A task written by a gateway that built its stage sequence internally carries no
 			// pipeline, so it can never be advanced now that the sequence comes from the task's
 			// own pipeline. Failing it makes that visible instead of leaving it stuck for ever.
 			if (TaskStore._isUnadvanceable(restored)) {
-				restored.state = "failed";
-				restored.error = "NO_PIPELINE_ON_RESTORED_TASK";
+				restored.state = 'failed';
+				restored.error = 'NO_PIPELINE_ON_RESTORED_TASK';
 				restored.assignment = undefined;
 			}
 			this.tasks.set(restored.taskId, restored);
@@ -217,16 +251,16 @@ export class TaskStore {
 	 * @returns `true` when the task is unfinished but carries no pipeline to advance through.
 	 */
 	private static _isUnadvanceable(task: Task): boolean {
-		const isFinished = task.state === "completed" || task.state === "failed" || task.state === "cancelled";
+		const isFinished = task.state === 'completed' || task.state === 'failed' || task.state === 'cancelled';
 		return isFinished === false && (task.pipelineStages === undefined || task.pipelineStages.length === 0);
 	}
 
 	/** Writes through a temporary file so a process interruption cannot leave partial JSON. */
 	private persist(): void {
-		if (!this.stateFilePath) return;
+		if (this.stateFilePath === undefined || this.stateFilePath === '') return;
 		const temporaryPath = `${this.stateFilePath}.tmp`;
-		writeFileSync(temporaryPath, JSON.stringify({ schemaVersion: 1, tasks: this.list() }), "utf8");
-		renameSync(temporaryPath, this.stateFilePath);
+		Fs.writeFileSync(temporaryPath, JSON.stringify({ schemaVersion: 1, tasks: this.list() }), 'utf8');
+		Fs.renameSync(temporaryPath, this.stateFilePath);
 	}
 
 	/**
@@ -253,7 +287,7 @@ export class TaskStore {
 
 		const isCycleFinished = completedCount > 0 && completedCount % stageSequence.length === 0;
 		const lastValue = task.completedStages.at(-1)?.value;
-		const isDone = isCycleFinished && typeof lastValue === "object" && lastValue?.done === true;
+		const isDone = isCycleFinished && typeof lastValue === 'object' && lastValue?.done === true;
 		if (isDone) return undefined;
 		return stageSequence[completedCount % stageSequence.length];
 	}

@@ -1,13 +1,13 @@
-import { LogEntryParser } from "./log_entry_parser.js";
-import { TimelineModel } from "./timeline_model.js";
-import { TimelineView } from "./timeline_view.js";
-import { PlaybackController } from "./playback_controller.js";
-import type { PlaybackSegment } from "./playback_controller.js";
-import { EventLogPanel } from "./event_log_panel.js";
-import type { CategoryFilters, LogSource, SessionPayload, TimeRangeMs, TimelineEvent } from "./types.js";
-import { calculateStatistics, formatBytes, formatLatency, type StatisticsReport, type StatisticsTotals } from "./statistics.js";
-import SAMPLE_LOG_TEXT from "../../fixtures/sample-gateway-log.log_entry.jsonl?raw";
-import { setupThemeToggle } from "./theme.js";
+import { LogEntryParser } from './log_entry_parser.js';
+import { TimelineModel } from './timeline_model.js';
+import { TimelineView } from './timeline_view.js';
+import { PlaybackController } from './playback_controller.js';
+import type { PlaybackSegment } from './playback_controller.js';
+import { EventLogPanel } from './event_log_panel.js';
+import type { CategoryFilters, LogSource, SessionPayload, TimeRangeMs, TimelineEvent } from './types.js';
+import { Statistics, type StatisticsReport, type StatisticsTotals } from './statistics.js';
+import SAMPLE_LOG_TEXT from '../../fixtures/sample-gateway-log.log_entry.jsonl?raw';
+import { ThemeToggle } from './theme_toggle.js';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -15,8 +15,8 @@ import { setupThemeToggle } from "./theme.js";
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
-const SESSION_API_PATH = "/api/session.json";
-const SPEED_STORAGE_KEY = "webai-flow-viewer-speed";
+const SESSION_API_PATH = '/api/session.json';
+const SPEED_STORAGE_KEY = 'webai-flow-viewer-speed';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -31,7 +31,7 @@ const SPEED_STORAGE_KEY = "webai-flow-viewer-speed";
  * playback remains paused until the user starts it. Dropping a `.log_entry.jsonl` file onto the page
  * remains available as a manual fallback for ad hoc use.
  */
-class FlowViewerApp {
+export class FlowViewerApp {
 	private readonly dropZoneEl: HTMLElement;
 	private readonly fileInputEl: HTMLInputElement;
 	private readonly statsReadoutEl: HTMLElement;
@@ -67,36 +67,37 @@ class FlowViewerApp {
 	private fullRangeMs: TimeRangeMs | undefined;
 	private isScrubbing: boolean;
 
+	/** Finds every element the page is built around, and wires up its controls. */
 	constructor() {
-		this.dropZoneEl = FlowViewerApp._getElement("#drop-zone");
-		this.fileInputEl = FlowViewerApp._getElement<HTMLInputElement>("#log-file-input");
-		this.statsReadoutEl = FlowViewerApp._getElement("#stats-readout");
-		this.rangeBarEl = FlowViewerApp._getElement("#range-bar");
-		this.rangeFromEl = FlowViewerApp._getElement<HTMLInputElement>("#range-from");
-		this.rangeToEl = FlowViewerApp._getElement<HTMLInputElement>("#range-to");
-		this.statisticsPanelEl = FlowViewerApp._getElement("#statistics-panel");
-		this.statisticsCardsEl = FlowViewerApp._getElement("#statistics-cards");
-		this.statisticsNoteEl = FlowViewerApp._getElement("#statistics-note");
-		this.statisticsTableBodyEl = FlowViewerApp._getElement("#statistics-table-body");
-		this.showChatterEl = FlowViewerApp._getElement<HTMLInputElement>("#show-chatter");
-		this.showSignalingEl = FlowViewerApp._getElement<HTMLInputElement>("#show-signaling");
-		this.vizMainEl = FlowViewerApp._getElement("#viz-main");
-		this.playbackBarEl = FlowViewerApp._getElement("#playback-bar");
-		this.keyboardHelpTriggerEl = FlowViewerApp._getElement<HTMLButtonElement>("#keyboard-help-trigger");
-		this.keyboardHelpModalEl = FlowViewerApp._getElement("#keyboard-help-modal");
-		this.eventDetailsModalEl = FlowViewerApp._getElement("#event-details-modal");
-		this.eventDetailsBodyEl = FlowViewerApp._getElement("#event-details-body");
-		this.copyEventButtonEl = FlowViewerApp._getElement<HTMLButtonElement>("#copy-event-button");
-		this.playPauseButtonEl = FlowViewerApp._getElement<HTMLButtonElement>("#play-pause-button");
-		this.stopButtonEl = FlowViewerApp._getElement<HTMLButtonElement>("#stop-button");
-		this.speedSelectEl = FlowViewerApp._getElement<HTMLSelectElement>("#speed-select");
-		this.packetDurationSelectEl = FlowViewerApp._getElement<HTMLSelectElement>("#packet-duration-select");
-		this.loopPlaybackEl = FlowViewerApp._getElement<HTMLInputElement>("#loop-playback");
-		this.scrubberEl = FlowViewerApp._getElement<HTMLInputElement>("#scrubber");
-		this.timeReadoutEl = FlowViewerApp._getElement("#time-readout");
+		this.dropZoneEl = FlowViewerApp._getElement('#drop-zone');
+		this.fileInputEl = FlowViewerApp._getElement<HTMLInputElement>('#log-file-input');
+		this.statsReadoutEl = FlowViewerApp._getElement('#stats-readout');
+		this.rangeBarEl = FlowViewerApp._getElement('#range-bar');
+		this.rangeFromEl = FlowViewerApp._getElement<HTMLInputElement>('#range-from');
+		this.rangeToEl = FlowViewerApp._getElement<HTMLInputElement>('#range-to');
+		this.statisticsPanelEl = FlowViewerApp._getElement('#statistics-panel');
+		this.statisticsCardsEl = FlowViewerApp._getElement('#statistics-cards');
+		this.statisticsNoteEl = FlowViewerApp._getElement('#statistics-note');
+		this.statisticsTableBodyEl = FlowViewerApp._getElement('#statistics-table-body');
+		this.showChatterEl = FlowViewerApp._getElement<HTMLInputElement>('#show-chatter');
+		this.showSignalingEl = FlowViewerApp._getElement<HTMLInputElement>('#show-signaling');
+		this.vizMainEl = FlowViewerApp._getElement('#viz-main');
+		this.playbackBarEl = FlowViewerApp._getElement('#playback-bar');
+		this.keyboardHelpTriggerEl = FlowViewerApp._getElement<HTMLButtonElement>('#keyboard-help-trigger');
+		this.keyboardHelpModalEl = FlowViewerApp._getElement('#keyboard-help-modal');
+		this.eventDetailsModalEl = FlowViewerApp._getElement('#event-details-modal');
+		this.eventDetailsBodyEl = FlowViewerApp._getElement('#event-details-body');
+		this.copyEventButtonEl = FlowViewerApp._getElement<HTMLButtonElement>('#copy-event-button');
+		this.playPauseButtonEl = FlowViewerApp._getElement<HTMLButtonElement>('#play-pause-button');
+		this.stopButtonEl = FlowViewerApp._getElement<HTMLButtonElement>('#stop-button');
+		this.speedSelectEl = FlowViewerApp._getElement<HTMLSelectElement>('#speed-select');
+		this.packetDurationSelectEl = FlowViewerApp._getElement<HTMLSelectElement>('#packet-duration-select');
+		this.loopPlaybackEl = FlowViewerApp._getElement<HTMLInputElement>('#loop-playback');
+		this.scrubberEl = FlowViewerApp._getElement<HTMLInputElement>('#scrubber');
+		this.timeReadoutEl = FlowViewerApp._getElement('#time-readout');
 
-		this.view = new TimelineView(FlowViewerApp._getElement<SVGSVGElement>("#timeline-svg"), (event: TimelineEvent): void => this._showEventDetails(event));
-		this.eventLogPanel = new EventLogPanel(FlowViewerApp._getElement("#event-log-list"), (event: TimelineEvent): void => this.controller.seekToEvent(event));
+		this.view = new TimelineView(FlowViewerApp._getElement<SVGSVGElement>('#timeline-svg'), (event: TimelineEvent): void => this._showEventDetails(event));
+		this.eventLogPanel = new EventLogPanel(FlowViewerApp._getElement('#event-log-list'), (event: TimelineEvent): void => this.controller.seekToEvent(event));
 		this.controller = new PlaybackController({
 			onSeek: (eventsUpToNow: TimelineEvent[]): void => this.eventLogPanel.showEventsUpTo(eventsUpToNow),
 			onTimeUpdate: (visualTimeMs: number, logTimeMs: number, activeSegment: PlaybackSegment | undefined, packetProgress: number): void => {
@@ -118,79 +119,79 @@ class FlowViewerApp {
 
 	/** Wires up every DOM event listener and attempts to load a CLI-prepared session. Call once after construction. */
 	start(): void {
-		setupThemeToggle();
-		this.fileInputEl.addEventListener("change", (): void => {
+		ThemeToggle.setup();
+		this.fileInputEl.addEventListener('change', (): void => {
 			const file: File | undefined = this.fileInputEl.files?.[0];
 			if (file !== undefined) void this._handleDroppedFile(file);
 		});
 
-		this.dropZoneEl.addEventListener("dragover", (domEvent: DragEvent): void => {
+		this.dropZoneEl.addEventListener('dragover', (domEvent: DragEvent): void => {
 			domEvent.preventDefault();
-			this.dropZoneEl.classList.add("drag-over");
+			this.dropZoneEl.classList.add('drag-over');
 		});
-		this.dropZoneEl.addEventListener("dragleave", (): void => this.dropZoneEl.classList.remove("drag-over"));
-		this.dropZoneEl.addEventListener("drop", (domEvent: DragEvent): void => {
+		this.dropZoneEl.addEventListener('dragleave', (): void => this.dropZoneEl.classList.remove('drag-over'));
+		this.dropZoneEl.addEventListener('drop', (domEvent: DragEvent): void => {
 			domEvent.preventDefault();
-			this.dropZoneEl.classList.remove("drag-over");
+			this.dropZoneEl.classList.remove('drag-over');
 			const file: File | undefined = domEvent.dataTransfer?.files?.[0];
 			if (file !== undefined) void this._handleDroppedFile(file);
 		});
 
-		this.rangeFromEl.addEventListener("change", (): void => this._rebuildModel());
-		this.rangeToEl.addEventListener("change", (): void => this._rebuildModel());
-		this.showChatterEl.addEventListener("change", (): void => this._rebuildModel());
-		this.showSignalingEl.addEventListener("change", (): void => this._rebuildModel());
+		this.rangeFromEl.addEventListener('change', (): void => this._rebuildModel());
+		this.rangeToEl.addEventListener('change', (): void => this._rebuildModel());
+		this.showChatterEl.addEventListener('change', (): void => this._rebuildModel());
+		this.showSignalingEl.addEventListener('change', (): void => this._rebuildModel());
 
-		this.playPauseButtonEl.addEventListener("click", (): void => this.controller.togglePlay());
-		this.stopButtonEl.addEventListener("click", (): void => this.controller.stop());
-		this.speedSelectEl.addEventListener("change", (): void => {
+		this.playPauseButtonEl.addEventListener('click', (): void => this.controller.togglePlay());
+		this.stopButtonEl.addEventListener('click', (): void => this.controller.stop());
+		this.speedSelectEl.addEventListener('change', (): void => {
 			const speed: number = Number(this.speedSelectEl.value);
 			this.controller.setSpeed(speed);
 			this._saveSpeed(speed);
 		});
-		this.packetDurationSelectEl.addEventListener("change", (): void => {
+		this.packetDurationSelectEl.addEventListener('change', (): void => {
 			this.controller.setPacketDuration(Number(this.packetDurationSelectEl.value));
 			this._updateScrubberRange();
 		});
-		this.loopPlaybackEl.addEventListener("change", (): void => this.controller.setLoop(this.loopPlaybackEl.checked));
-		this.copyEventButtonEl.addEventListener("click", (): void => void this._copyEventDetails());
-		document.addEventListener("keydown", (event: KeyboardEvent): void => {
+		this.loopPlaybackEl.addEventListener('change', (): void => this.controller.setLoop(this.loopPlaybackEl.checked));
+		this.copyEventButtonEl.addEventListener('click', (): void => void this._copyEventDetails());
+		document.addEventListener('keydown', (event: KeyboardEvent): void => {
 			if (FlowViewerApp._isFormControl(event.target)) return;
-			if (event.key === "?") {
+			if (event.key === '?') {
 				event.preventDefault();
-				if (this.keyboardHelpModalEl.classList.contains("show")) {
+				if (this.keyboardHelpModalEl.classList.contains('show')) {
 					this.keyboardHelpModalEl.querySelector<HTMLButtonElement>("[data-bs-dismiss='modal']")?.click();
 				} else {
 					this.keyboardHelpTriggerEl.click();
 				}
 				return;
 			}
-			const speedKeyIndex: number = ["Digit1", "Digit2", "Digit3", "Digit4", "Digit5", "Digit6", "Digit7"].indexOf(event.code);
+			const speedKeyIndex: number = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7'].indexOf(event.code);
 			if (speedKeyIndex !== -1) {
 				event.preventDefault();
 				this._selectSpeedOption(speedKeyIndex);
 				return;
 			}
-			if (event.code === "ArrowLeft") {
+			if (event.code === 'ArrowLeft') {
 				event.preventDefault();
 				this.controller.seekBy(-5000);
 				return;
 			}
-			if (event.code === "ArrowRight") {
+			if (event.code === 'ArrowRight') {
 				event.preventDefault();
 				this.controller.seekBy(5000);
 				return;
 			}
-			if (event.code !== "Space") return;
+			if (event.code !== 'Space') return;
 			event.preventDefault();
 			this.controller.togglePlay();
 		});
 
-		this.scrubberEl.addEventListener("pointerdown", (): void => {
+		this.scrubberEl.addEventListener('pointerdown', (): void => {
 			this.isScrubbing = true;
 		});
-		this.scrubberEl.addEventListener("input", (): void => this.controller.seekTo(Number(this.scrubberEl.value)));
-		this.scrubberEl.addEventListener("pointerup", (): void => {
+		this.scrubberEl.addEventListener('input', (): void => this.controller.seekTo(Number(this.scrubberEl.value)));
+		this.scrubberEl.addEventListener('pointerup', (): void => {
 			this.isScrubbing = false;
 		});
 
@@ -217,7 +218,7 @@ class FlowViewerApp {
 			this._loadBundledSampleLog();
 			return;
 		}
-		if (!response.ok) {
+		if (response.ok === false) {
 			this._loadBundledSampleLog();
 			return;
 		}
@@ -253,7 +254,7 @@ class FlowViewerApp {
 	/** Loads the bundled example when the page is opened directly without a CLI session. */
 	private _loadBundledSampleLog(): void {
 		const { entries, lineErrors } = LogEntryParser.parseJsonl(SAMPLE_LOG_TEXT);
-		this.sources = [{ id: "bundled-sample", label: "Sample gateway log", entries }];
+		this.sources = [{ id: 'bundled-sample', label: 'Sample gateway log', entries }];
 		this.fullRangeMs = TimelineModel.computeFullRangeMs(this.sources);
 		if (this.fullRangeMs === undefined) return;
 
@@ -263,32 +264,32 @@ class FlowViewerApp {
 		this.rangeBarEl.hidden = false;
 		this.vizMainEl.hidden = false;
 		this.playbackBarEl.hidden = false;
-		this.statsReadoutEl.textContent = `Sample gateway log: ${entries.length} messages loaded${lineErrors.length > 0 ? ` (${lineErrors.length} line(s) skipped)` : ""}`;
+		this.statsReadoutEl.textContent = `Sample gateway log: ${entries.length} messages loaded${lineErrors.length > 0 ? ` (${lineErrors.length} line(s) skipped)` : ''}`;
 		this._rebuildModel();
 	}
 
 	private _updatePlayPauseButton(isPlaying: boolean): void {
-		const iconEl: HTMLElement | null = this.playPauseButtonEl.querySelector("i");
-		if (iconEl !== null) iconEl.className = isPlaying ? "bi bi-pause-fill" : "bi bi-play-fill";
-		const label: string = isPlaying ? "Pause" : "Play";
-		this.playPauseButtonEl.setAttribute("aria-label", label);
+		const iconEl: HTMLElement | null = this.playPauseButtonEl.querySelector('i');
+		if (iconEl !== null) iconEl.className = isPlaying ? 'bi bi-pause-fill' : 'bi bi-play-fill';
+		const label: string = isPlaying ? 'Pause' : 'Play';
+		this.playPauseButtonEl.setAttribute('aria-label', label);
 		this.playPauseButtonEl.title = label;
 	}
 
 	private _showEventDetails(event: TimelineEvent): void {
 		this.eventDetailsBodyEl.textContent = JSON.stringify(event.logEntry, null, 2);
-		this.copyEventButtonEl.textContent = "Copy";
+		this.copyEventButtonEl.textContent = 'Copy';
 		const bootstrap = (window as Window & { bootstrap?: { Modal: { getOrCreateInstance(element: Element): { show(): void } } } }).bootstrap;
 		bootstrap?.Modal.getOrCreateInstance(this.eventDetailsModalEl).show();
 	}
 
 	private async _copyEventDetails(): Promise<void> {
 		try {
-			await navigator.clipboard.writeText(this.eventDetailsBodyEl.textContent ?? "");
-			this.copyEventButtonEl.textContent = "Copied";
-			window.setTimeout((): void => { this.copyEventButtonEl.textContent = "Copy"; }, 1500);
+			await navigator.clipboard.writeText(this.eventDetailsBodyEl.textContent ?? '');
+			this.copyEventButtonEl.textContent = 'Copied';
+			window.setTimeout((): void => { this.copyEventButtonEl.textContent = 'Copy'; }, 1500);
 		} catch {
-			this.copyEventButtonEl.textContent = "Copy failed";
+			this.copyEventButtonEl.textContent = 'Copy failed';
 		}
 	}
 
@@ -313,7 +314,7 @@ class FlowViewerApp {
 		const text: string = await file.text();
 		const { entries, lineErrors } = LogEntryParser.parseJsonl(text);
 
-		this.sources = [{ id: "dropped-file", label: file.name, entries }];
+		this.sources = [{ id: 'dropped-file', label: file.name, entries }];
 		this.fullRangeMs = TimelineModel.computeFullRangeMs(this.sources);
 
 		if (this.fullRangeMs === undefined) {
@@ -321,10 +322,10 @@ class FlowViewerApp {
 			return;
 		}
 
-		this.rangeFromEl.removeAttribute("min");
-		this.rangeFromEl.removeAttribute("max");
-		this.rangeToEl.removeAttribute("min");
-		this.rangeToEl.removeAttribute("max");
+		this.rangeFromEl.removeAttribute('min');
+		this.rangeFromEl.removeAttribute('max');
+		this.rangeToEl.removeAttribute('min');
+		this.rangeToEl.removeAttribute('max');
 		this.rangeFromEl.value = FlowViewerApp._toDatetimeLocalValue(this.fullRangeMs.fromMs);
 		this.rangeToEl.value = FlowViewerApp._toDatetimeLocalValue(this.fullRangeMs.toMs);
 
@@ -332,7 +333,7 @@ class FlowViewerApp {
 		this.vizMainEl.hidden = false;
 		this.playbackBarEl.hidden = false;
 
-		const errorSuffix: string = lineErrors.length > 0 ? ` (${lineErrors.length} line(s) skipped)` : "";
+		const errorSuffix: string = lineErrors.length > 0 ? ` (${lineErrors.length} line(s) skipped)` : '';
 		this.statsReadoutEl.textContent = `${file.name}: ${entries.length} messages loaded${errorSuffix}`;
 
 		this._rebuildModel();
@@ -353,14 +354,14 @@ class FlowViewerApp {
 		const { actors, events } = TimelineModel.build(this.sources, rangeMs, filters);
 
 		this.view.render(actors, events);
-		this._renderStatistics(calculateStatistics(this.sources, events, rangeMs));
+		this._renderStatistics(Statistics.calculateStatistics(this.sources, events, rangeMs));
 		this.eventLogPanel.clear();
 		this.controller.setTimeline(events, rangeMs);
 		this._updateScrubberRange();
 
 		const taskCount: number = new Set(events.map((event: TimelineEvent): string | undefined => event.taskId).filter((taskId): taskId is string => taskId !== undefined)).size;
-		const gatewayCount: number = actors.filter((actor): boolean => actor.column === "center").length;
-		const workerCount: number = actors.filter((actor): boolean => actor.column === "right").length;
+		const gatewayCount: number = actors.filter((actor): boolean => actor.column === 'center').length;
+		const workerCount: number = actors.filter((actor): boolean => actor.column === 'right').length;
 		this.statsReadoutEl.textContent = `${events.length} messages in range · ${taskCount} task(s) · ${gatewayCount} gateway run(s) · ${workerCount} worker(s)`;
 	}
 
@@ -368,40 +369,40 @@ class FlowViewerApp {
 		const total = report.total;
 		this.statisticsNoteEl.textContent = `${total.measuredMessages} measured · ${total.estimatedMessages} estimated (older log entries)`;
 		const cards: Array<[string, string]> = [
-			["Messages", String(total.messageCount)], ["Total bandwidth", formatBytes(total.messageBytes)],
-			["Payload", formatBytes(total.payloadBytes)], ["Duplicate data", formatBytes(total.duplicateBytes)],
-			["Average latency", formatLatency(total)],
+			['Messages', String(total.messageCount)], ['Total bandwidth', Statistics.formatBytes(total.messageBytes)],
+			['Payload', Statistics.formatBytes(total.payloadBytes)], ['Duplicate data', Statistics.formatBytes(total.duplicateBytes)],
+			['Average latency', Statistics.formatLatency(total)],
 		];
 		this.statisticsCardsEl.replaceChildren(...cards.map(([label, value]) => {
-			const card = document.createElement("div"); card.className = "statistics-card";
+			const card = document.createElement('div'); card.className = 'statistics-card';
 			card.innerHTML = `<span class="statistics-card-label">${label}</span><span class="statistics-card-value">${value}</span>`;
 			return card;
 		}));
 		this.statisticsTableBodyEl.replaceChildren();
-		this._appendStatisticsRows("Task", report.byTask);
-		this._appendStatisticsRows("Route", report.byRoute);
-		this._appendStatisticsRows("Worker", report.byWorker);
-		this._appendStatisticsRows("Stage", report.byStage);
-		this._appendStatisticsRows("Message type", report.byMessageType);
+		this._appendStatisticsRows('Task', report.byTask);
+		this._appendStatisticsRows('Route', report.byRoute);
+		this._appendStatisticsRows('Worker', report.byWorker);
+		this._appendStatisticsRows('Stage', report.byStage);
+		this._appendStatisticsRows('Message type', report.byMessageType);
 	}
 
 	private _appendStatisticsRows(group: string, values: Map<string, StatisticsTotals>): void {
 		for (const [name, totals] of values) {
-			const row = document.createElement("tr");
+			const row = document.createElement('tr');
 			const overhead = Math.max(0, totals.messageBytes - totals.payloadBytes);
-			row.innerHTML = `<td>${group}: ${name}</td><td>${totals.messageCount}</td><td>${formatBytes(totals.payloadBytes)}</td><td>${formatBytes(totals.messageBytes)}</td><td>${formatBytes(totals.duplicateBytes)}</td><td>${formatBytes(totals.usefulBytes)} / ${formatBytes(overhead)}</td><td>${formatLatency(totals)}</td>`;
+			row.innerHTML = `<td>${group}: ${name}</td><td>${totals.messageCount}</td><td>${Statistics.formatBytes(totals.payloadBytes)}</td><td>${Statistics.formatBytes(totals.messageBytes)}</td><td>${Statistics.formatBytes(totals.duplicateBytes)}</td><td>${Statistics.formatBytes(totals.usefulBytes)} / ${Statistics.formatBytes(overhead)}</td><td>${Statistics.formatLatency(totals)}</td>`;
 			this.statisticsTableBodyEl.appendChild(row);
 		}
 	}
 
 	private _onTimeUpdate(visualTimeMs: number, logTimeMs: number): void {
-		if (!this.isScrubbing) this.scrubberEl.value = String(visualTimeMs);
+		if (this.isScrubbing === false) this.scrubberEl.value = String(visualTimeMs);
 		this._updateScrubberProgress();
 		this.timeReadoutEl.textContent = new Date(logTimeMs).toLocaleTimeString(undefined, { hour12: false });
 	}
 
 	private _updateScrubberRange(): void {
-		this.scrubberEl.min = "0";
+		this.scrubberEl.min = '0';
 		this.scrubberEl.max = String(this.controller.getVisualDuration());
 		if (Number(this.scrubberEl.value) > this.controller.getVisualDuration()) this.scrubberEl.value = String(this.controller.getVisualDuration());
 		this._updateScrubberProgress();
@@ -412,13 +413,13 @@ class FlowViewerApp {
 		const max: number = Number(this.scrubberEl.max);
 		const value: number = Number(this.scrubberEl.value);
 		const progress: number = max > min ? Math.min(100, Math.max(0, ((value - min) / (max - min)) * 100)) : 0;
-		this.scrubberEl.style.setProperty("--range-progress", `${progress}%`);
+		this.scrubberEl.style.setProperty('--range-progress', `${progress}%`);
 	}
 
 	private _selectSpeed(speed: number): void {
 		const hasMatchingOption: boolean = Array.from(this.speedSelectEl.options).some((option: HTMLOptionElement): boolean => Number(option.value) === speed);
-		if (!hasMatchingOption) {
-			const optionEl: HTMLOptionElement = document.createElement("option");
+		if (hasMatchingOption === false) {
+			const optionEl: HTMLOptionElement = document.createElement('option');
 			optionEl.value = String(speed);
 			optionEl.textContent = `${speed}×`;
 			this.speedSelectEl.appendChild(optionEl);
@@ -443,12 +444,12 @@ class FlowViewerApp {
 	}
 
 	private static _isFormControl(target: EventTarget | null): boolean {
-		return target instanceof HTMLElement && ["INPUT", "SELECT", "TEXTAREA", "BUTTON"].includes(target.tagName);
+		return target instanceof HTMLElement && ['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON'].includes(target.tagName);
 	}
 
 	private static _toDatetimeLocalValue(epochMs: number): string {
 		const date: Date = new Date(epochMs);
-		const pad = (value: number, length = 2): string => String(value).padStart(length, "0");
+		const pad = (value: number, length = 2): string => String(value).padStart(length, '0');
 		return (
 			`${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` +
 			`T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.${pad(date.getMilliseconds(), 3)}`

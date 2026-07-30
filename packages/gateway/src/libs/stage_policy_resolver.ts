@@ -1,5 +1,5 @@
-import type { PipelineStage, StageName, Task } from "@webai/protocol";
-import type { PipelineRegistry } from "./pipeline_registry.js";
+import type { PipelineStage, StageName, Task } from '@webai/protocol';
+import type { PipelineRegistry } from './pipeline_registry.js';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////

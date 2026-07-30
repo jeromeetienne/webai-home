@@ -1,5 +1,5 @@
-import { TimelineModel } from "./timeline_model.js";
-import type { ActorNode, ActorPosition, TimelineEvent } from "./types.js";
+import { TimelineModel } from './timeline_model.js';
+import type { ActorNode, ActorPosition, TimelineEvent } from './types.js';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -7,7 +7,7 @@ import type { ActorNode, ActorPosition, TimelineEvent } from "./types.js";
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
-const SVG_NS = "http://www.w3.org/2000/svg";
+const SVG_NS = 'http://www.w3.org/2000/svg';
 const COLUMN_X: Record<string, number> = { left: 90, center: 400, right: 710 };
 const ROW_HEIGHT = 100;
 const TOP_MARGIN = 60;
@@ -37,9 +37,13 @@ export class TimelineView {
 	private readonly onEventClick: (event: TimelineEvent) => void;
 	private positionsByActorId: Map<string, ActorPosition>;
 
+	/**
+	 * @param svgEl The drawing the diagram is built in.
+	 * @param onEventClick What to call when the reader clicks one event.
+	 */
 	constructor(svgEl: SVGSVGElement, onEventClick: (event: TimelineEvent) => void) {
 		this.svgEl = svgEl;
-		this.packetLayerEl = document.createElementNS(SVG_NS, "g");
+		this.packetLayerEl = document.createElementNS(SVG_NS, 'g');
 		this.onEventClick = onEventClick;
 		this.positionsByActorId = new Map();
 	}
@@ -51,11 +55,11 @@ export class TimelineView {
 
 		const rowCount = Math.max(1, ...actors.map((actor: ActorNode): number => actor.row + 1));
 		const height = Math.max(MIN_HEIGHT, TOP_MARGIN + rowCount * ROW_HEIGHT + 40);
-		this.svgEl.setAttribute("viewBox", `0 0 800 ${height}`);
+		this.svgEl.setAttribute('viewBox', `0 0 800 ${height}`);
 
-		this._drawLaneTitle("Consumers", COLUMN_X["left"]!);
-		this._drawLaneTitle("Gateways", COLUMN_X["center"]!);
-		this._drawLaneTitle("Workers", COLUMN_X["right"]!);
+		this._drawLaneTitle('Consumers', COLUMN_X['left']!);
+		this._drawLaneTitle('Gateways', COLUMN_X['center']!);
+		this._drawLaneTitle('Workers', COLUMN_X['right']!);
 
 		for (const actor of actors) {
 			const y: number = TOP_MARGIN + actor.row * ROW_HEIGHT + ROW_HEIGHT / 2;
@@ -87,42 +91,42 @@ export class TimelineView {
 		if (from === undefined || to === undefined) return;
 
 		const color: string = TimelineModel.colorForTaskId(event.taskId);
-		const groupEl: SVGGElement = document.createElementNS(SVG_NS, "g");
+		const groupEl: SVGGElement = document.createElementNS(SVG_NS, 'g');
 
-		const dotEl: SVGCircleElement = document.createElementNS(SVG_NS, "circle");
-		dotEl.setAttribute("r", "6");
-		dotEl.setAttribute("fill", color);
-		dotEl.setAttribute("class", "event-packet");
-		dotEl.setAttribute("tabindex", "0");
-		dotEl.setAttribute("role", "button");
-		dotEl.setAttribute("aria-label", `Show ${event.messageType} event`);
-		dotEl.addEventListener("click", (domEvent: MouseEvent): void => {
+		const dotEl: SVGCircleElement = document.createElementNS(SVG_NS, 'circle');
+		dotEl.setAttribute('r', '6');
+		dotEl.setAttribute('fill', color);
+		dotEl.setAttribute('class', 'event-packet');
+		dotEl.setAttribute('tabindex', '0');
+		dotEl.setAttribute('role', 'button');
+		dotEl.setAttribute('aria-label', `Show ${event.messageType} event`);
+		dotEl.addEventListener('click', (domEvent: MouseEvent): void => {
 			domEvent.stopPropagation();
 			this.onEventClick(event);
 		});
-		dotEl.addEventListener("keydown", (domEvent: KeyboardEvent): void => {
-			if (domEvent.key !== "Enter" && domEvent.key !== " ") return;
+		dotEl.addEventListener('keydown', (domEvent: KeyboardEvent): void => {
+			if (domEvent.key !== 'Enter' && domEvent.key !== ' ') return;
 			domEvent.preventDefault();
 			domEvent.stopPropagation();
 			this.onEventClick(event);
 		});
 		groupEl.appendChild(dotEl);
 
-		const labelEl: SVGTextElement = document.createElementNS(SVG_NS, "text");
-		labelEl.setAttribute("class", "packet-label");
-		labelEl.setAttribute("text-anchor", "middle");
-		labelEl.setAttribute("y", String(event.detail === undefined ? -LABEL_BASELINE_OFFSET : -LABEL_BASELINE_OFFSET - LABEL_LINE_HEIGHT));
+		const labelEl: SVGTextElement = document.createElementNS(SVG_NS, 'text');
+		labelEl.setAttribute('class', 'packet-label');
+		labelEl.setAttribute('text-anchor', 'middle');
+		labelEl.setAttribute('y', String(event.detail === undefined ? -LABEL_BASELINE_OFFSET : -LABEL_BASELINE_OFFSET - LABEL_LINE_HEIGHT));
 
-		const messageTypeEl: SVGTSpanElement = document.createElementNS(SVG_NS, "tspan");
-		messageTypeEl.setAttribute("x", "0");
+		const messageTypeEl: SVGTSpanElement = document.createElementNS(SVG_NS, 'tspan');
+		messageTypeEl.setAttribute('x', '0');
 		messageTypeEl.textContent = event.messageType;
 		labelEl.appendChild(messageTypeEl);
 
 		if (event.detail !== undefined) {
-			const detailEl: SVGTSpanElement = document.createElementNS(SVG_NS, "tspan");
-			detailEl.setAttribute("class", "packet-detail");
-			detailEl.setAttribute("x", "0");
-			detailEl.setAttribute("dy", String(LABEL_LINE_HEIGHT));
+			const detailEl: SVGTSpanElement = document.createElementNS(SVG_NS, 'tspan');
+			detailEl.setAttribute('class', 'packet-detail');
+			detailEl.setAttribute('x', '0');
+			detailEl.setAttribute('dy', String(LABEL_LINE_HEIGHT));
 			detailEl.textContent = event.detail;
 			labelEl.appendChild(detailEl);
 		}
@@ -132,8 +136,8 @@ export class TimelineView {
 		const x: number = from.x + (to.x - from.x) * clampedProgress;
 		const y: number = from.y + (to.y - from.y) * clampedProgress;
 		const opacity: number = clampedProgress < 0.1 ? clampedProgress / 0.1 : clampedProgress > 0.9 ? (1 - clampedProgress) / 0.1 : 1;
-		groupEl.setAttribute("transform", `translate(${x} ${y})`);
-		groupEl.setAttribute("opacity", String(opacity));
+		groupEl.setAttribute('transform', `translate(${x} ${y})`);
+		groupEl.setAttribute('opacity', String(opacity));
 		this.packetLayerEl.appendChild(groupEl);
 	}
 
@@ -147,7 +151,7 @@ export class TimelineView {
 		const seenPairKeys: Set<string> = new Set();
 		const pairs: Array<{ fromId: string; toId: string }> = [];
 		for (const event of events) {
-			const pairKey: string = [event.fromActorId, event.toActorId].sort().join("|");
+			const pairKey: string = [event.fromActorId, event.toActorId].sort().join('|');
 			if (seenPairKeys.has(pairKey)) continue;
 			seenPairKeys.add(pairKey);
 			pairs.push({ fromId: event.fromActorId, toId: event.toActorId });
@@ -156,55 +160,55 @@ export class TimelineView {
 	}
 
 	private _drawLaneTitle(text: string, x: number): void {
-		const titleEl: SVGTextElement = document.createElementNS(SVG_NS, "text");
-		titleEl.setAttribute("class", "lane-title");
-		titleEl.setAttribute("x", String(x));
-		titleEl.setAttribute("y", "24");
-		titleEl.setAttribute("text-anchor", "middle");
+		const titleEl: SVGTextElement = document.createElementNS(SVG_NS, 'text');
+		titleEl.setAttribute('class', 'lane-title');
+		titleEl.setAttribute('x', String(x));
+		titleEl.setAttribute('y', '24');
+		titleEl.setAttribute('text-anchor', 'middle');
 		titleEl.textContent = text;
 		this.svgEl.appendChild(titleEl);
 	}
 
 	private _drawGuideLine(from: ActorPosition, to: ActorPosition): void {
-		const lineEl: SVGLineElement = document.createElementNS(SVG_NS, "line");
-		lineEl.setAttribute("class", "guide-line");
-		lineEl.setAttribute("x1", String(from.x));
-		lineEl.setAttribute("y1", String(from.y));
-		lineEl.setAttribute("x2", String(to.x));
-		lineEl.setAttribute("y2", String(to.y));
+		const lineEl: SVGLineElement = document.createElementNS(SVG_NS, 'line');
+		lineEl.setAttribute('class', 'guide-line');
+		lineEl.setAttribute('x1', String(from.x));
+		lineEl.setAttribute('y1', String(from.y));
+		lineEl.setAttribute('x2', String(to.x));
+		lineEl.setAttribute('y2', String(to.y));
 		this.svgEl.appendChild(lineEl);
 	}
 
 	private _drawActorNode(actor: ActorNode, x: number, y: number): void {
-		const circleEl: SVGCircleElement = document.createElementNS(SVG_NS, "circle");
-		circleEl.setAttribute("cx", String(x));
-		circleEl.setAttribute("cy", String(y));
-		circleEl.setAttribute("r", String(NODE_RADIUS));
-		circleEl.setAttribute("fill", actor.column === "center" ? "#0d9fe8" : "#dce6f5");
-		circleEl.setAttribute("stroke", actor.column === "center" ? "#0877c9" : "#9fb0c8");
-		circleEl.setAttribute("stroke-width", "1.5");
+		const circleEl: SVGCircleElement = document.createElementNS(SVG_NS, 'circle');
+		circleEl.setAttribute('cx', String(x));
+		circleEl.setAttribute('cy', String(y));
+		circleEl.setAttribute('r', String(NODE_RADIUS));
+		circleEl.setAttribute('fill', actor.column === 'center' ? '#0d9fe8' : '#dce6f5');
+		circleEl.setAttribute('stroke', actor.column === 'center' ? '#0877c9' : '#9fb0c8');
+		circleEl.setAttribute('stroke-width', '1.5');
 		this.svgEl.appendChild(circleEl);
 
-		const labelEl: SVGTextElement = document.createElementNS(SVG_NS, "text");
-		labelEl.setAttribute("class", "actor-label");
-		labelEl.setAttribute("x", String(x));
-		labelEl.setAttribute("y", String(y - NODE_RADIUS - 8));
-		labelEl.setAttribute("text-anchor", "middle");
+		const labelEl: SVGTextElement = document.createElementNS(SVG_NS, 'text');
+		labelEl.setAttribute('class', 'actor-label');
+		labelEl.setAttribute('x', String(x));
+		labelEl.setAttribute('y', String(y - NODE_RADIUS - 8));
+		labelEl.setAttribute('text-anchor', 'middle');
 		labelEl.textContent = actor.label;
 		this.svgEl.appendChild(labelEl);
 
 		if (actor.sublabel !== undefined) {
-			const sublabelEl: SVGTextElement = document.createElementNS(SVG_NS, "text");
-			sublabelEl.setAttribute("class", "actor-sublabel");
-			sublabelEl.setAttribute("x", String(x));
-			sublabelEl.setAttribute("y", String(y + NODE_RADIUS + 16));
-			sublabelEl.setAttribute("text-anchor", "middle");
+			const sublabelEl: SVGTextElement = document.createElementNS(SVG_NS, 'text');
+			sublabelEl.setAttribute('class', 'actor-sublabel');
+			sublabelEl.setAttribute('x', String(x));
+			sublabelEl.setAttribute('y', String(y + NODE_RADIUS + 16));
+			sublabelEl.setAttribute('text-anchor', 'middle');
 			sublabelEl.textContent = actor.sublabel;
-			if (actor.deviceId !== undefined && actor.sublabel !== actor.deviceId.replace("device-", "").slice(0, 8)) {
-				sublabelEl.setAttribute("data-bs-toggle", "tooltip");
-				sublabelEl.setAttribute("data-bs-title", actor.deviceId);
-				sublabelEl.setAttribute("data-bs-placement", "top");
-				sublabelEl.setAttribute("data-bs-container", "body");
+			if (actor.deviceId !== undefined && actor.sublabel !== actor.deviceId.replace('device-', '').slice(0, 8)) {
+				sublabelEl.setAttribute('data-bs-toggle', 'tooltip');
+				sublabelEl.setAttribute('data-bs-title', actor.deviceId);
+				sublabelEl.setAttribute('data-bs-placement', 'top');
+				sublabelEl.setAttribute('data-bs-container', 'body');
 			}
 			this.svgEl.appendChild(sublabelEl);
 		}

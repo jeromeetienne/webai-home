@@ -1,4 +1,4 @@
-import { StagePayloadFactory, type LlmStagePayload } from "@webai/protocol";
+import { StagePayloadFactory, type LlmStagePayload } from '@webai/protocol';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -15,15 +15,15 @@ import { StagePayloadFactory, type LlmStagePayload } from "@webai/protocol";
  * person using the page has just interacted with it. `available` means a session can be
  * created straight away.
  */
-type BuiltInModelAvailability = "unavailable" | "downloadable" | "downloading" | "available";
+type BuiltInModelAvailability = 'unavailable' | 'downloadable' | 'downloading' | 'available';
 
 /** One generation held open by the browser's built-in language model. */
-interface BuiltInModelSession {
+type BuiltInModelSession = {
 	/** Asks for an answer and returns it in pieces as they are produced. */
 	promptStreaming(prompt: string): ReadableStream<string>;
 	/** Releases the session and the memory the browser holds for it. */
 	destroy(): void;
-}
+};
 
 /**
  * How a download of the built-in model reports its progress.
@@ -31,15 +31,15 @@ interface BuiltInModelSession {
  * The browser passes an event target, but only this one event is used here, so only this one
  * way of listening for it is declared.
  */
-interface BuiltInModelDownloadMonitor {
-	addEventListener(type: "downloadprogress", listener: (event: { loaded: number }) => void): void;
-}
+type BuiltInModelDownloadMonitor = {
+	addEventListener(type: 'downloadprogress', listener: (event: { loaded: number }) => void): void;
+};
 
 /** The browser object that reports on, and creates sessions with, the built-in language model. */
-interface BuiltInModelFactory {
+type BuiltInModelFactory = {
 	availability(): Promise<BuiltInModelAvailability>;
 	create(options?: { monitor?: (monitor: BuiltInModelDownloadMonitor) => void }): Promise<BuiltInModelSession>;
-}
+};
 
 /**
  * Whether this browser can run the stage, and what has to happen first when it cannot yet.
@@ -49,12 +49,12 @@ interface BuiltInModelFactory {
  * has to ask for that press before this browser can offer the stage.
  */
 export type BuiltInModelReadiness =
-	| { status: "ready" }
-	| { status: "user_gesture_required"; message: string }
-	| { status: "unavailable"; message: string };
+	| { status: 'ready' }
+	| { status: 'user_gesture_required'; message: string }
+	| { status: 'unavailable'; message: string };
 
 /** One answer this browser is producing, kept in memory for as long as its task runs here. */
-interface TaskGenerationState {
+type TaskGenerationState = {
 	/** The session the answer is being generated in. */
 	session: BuiltInModelSession;
 	/** The reader that delivers the answer one piece at a time. */
@@ -63,7 +63,7 @@ interface TaskGenerationState {
 	text: string;
 	/** How many pieces have been read, which bounds how many times the stage may repeat. */
 	pieceCount: number;
-}
+};
 
 /**
  * The largest number of pieces one answer may be read in.
@@ -93,7 +93,7 @@ export class StageLlmGemmaNanoChromeHelper {
 	 * The computation this worker browser implements, named the way a pipeline stage names
 	 * its computation.
 	 */
-	static readonly computation = "llm_gemma_nano_chrome_full";
+	static readonly computation = 'llm_gemma_nano_chrome_full';
 
 	/**
 	 * Reports whether this helper implements a computation.
@@ -118,14 +118,14 @@ export class StageLlmGemmaNanoChromeHelper {
 	 */
 	static async readiness(): Promise<BuiltInModelReadiness> {
 		const factory = StageLlmGemmaNanoChromeHelper.factory();
-		if (factory === undefined) return { status: "unavailable", message: "This browser has no built-in language model. Chrome 138 or a later version is needed, on a desktop computer that meets its requirements." };
+		if (factory === undefined) return { status: 'unavailable', message: 'This browser has no built-in language model. Chrome 138 or a later version is needed, on a desktop computer that meets its requirements.' };
 		const availability = await factory.availability();
-		if (availability === "unavailable") {
-			if (StageLlmGemmaNanoChromeHelper.isDeniedToThisPage()) return { status: "unavailable", message: "This page is not allowed to use the browser's built-in language model. A page shown inside a frame from a different address is not allowed to by default, and the page around it has to pass the permission on by setting allow=\"language-model\" on the frame." };
-			return { status: "unavailable", message: "This browser has a built-in language model but will not run it on this device. Its storage, memory, or graphics requirements are usually the reason." };
+		if (availability === 'unavailable') {
+			if (StageLlmGemmaNanoChromeHelper.isDeniedToThisPage()) return { status: 'unavailable', message: "This page is not allowed to use the browser's built-in language model. A page shown inside a frame from a different address is not allowed to by default, and the page around it has to pass the permission on by setting allow=\"language-model\" on the frame." };
+			return { status: 'unavailable', message: 'This browser has a built-in language model but will not run it on this device. Its storage, memory, or graphics requirements are usually the reason.' };
 		}
-		if (availability === "available") return { status: "ready" };
-		return { status: "user_gesture_required", message: "The browser has not downloaded its built-in language model yet, and it only starts that download when the person using the page asks for it." };
+		if (availability === 'available') return { status: 'ready' };
+		return { status: 'user_gesture_required', message: 'The browser has not downloaded its built-in language model yet, and it only starts that download when the person using the page asks for it.' };
 	}
 
 	/**
@@ -141,9 +141,9 @@ export class StageLlmGemmaNanoChromeHelper {
 	 */
 	static async download(onProgress: (fraction: number) => void): Promise<BuiltInModelReadiness> {
 		const factory = StageLlmGemmaNanoChromeHelper.factory();
-		if (factory === undefined) return { status: "unavailable", message: "This browser has no built-in language model." };
+		if (factory === undefined) return { status: 'unavailable', message: 'This browser has no built-in language model.' };
 		const session = await factory.create({
-			monitor: (monitor) => monitor.addEventListener("downloadprogress", (event) => onProgress(event.loaded)),
+			monitor: (monitor) => monitor.addEventListener('downloadprogress', (event) => onProgress(event.loaded)),
 		});
 		session.destroy();
 		return StageLlmGemmaNanoChromeHelper.readiness();
@@ -161,8 +161,8 @@ export class StageLlmGemmaNanoChromeHelper {
 	static async compute(taskId: string, payload: LlmStagePayload): Promise<LlmStagePayload> {
 		const state = payload.isContinuation === true
 			? StageLlmGemmaNanoChromeHelper.stateByTaskId.get(taskId)
-			: await StageLlmGemmaNanoChromeHelper.startTask(taskId, payload.text ?? "");
-		if (state === undefined) throw new Error("This browser is not holding the answer this stage continues, so the rest of it cannot be read here.");
+			: await StageLlmGemmaNanoChromeHelper.startTask(taskId, payload.text ?? '');
+		if (state === undefined) throw new Error('This browser is not holding the answer this stage continues, so the rest of it cannot be read here.');
 
 		const piece = await state.reader.read();
 		if (piece.done === true) {
@@ -207,15 +207,15 @@ export class StageLlmGemmaNanoChromeHelper {
 	 * @throws If the prompt is empty or this browser has no built-in language model.
 	 */
 	private static async startTask(taskId: string, prompt: string): Promise<TaskGenerationState> {
-		if (prompt.trim() === "") throw new Error("A prompt is needed to start an answer.");
+		if (prompt.trim() === '') throw new Error('A prompt is needed to start an answer.');
 		StageLlmGemmaNanoChromeHelper.clearTask(taskId);
 		const factory = StageLlmGemmaNanoChromeHelper.factory();
-		if (factory === undefined) throw new Error("This browser has no built-in language model.");
+		if (factory === undefined) throw new Error('This browser has no built-in language model.');
 		const session = await factory.create();
 		const state: TaskGenerationState = {
 			session,
 			reader: session.promptStreaming(prompt).getReader(),
-			text: "",
+			text: '',
 			pieceCount: 0,
 		};
 		StageLlmGemmaNanoChromeHelper.stateByTaskId.set(taskId, state);
@@ -241,6 +241,6 @@ export class StageLlmGemmaNanoChromeHelper {
 	private static isDeniedToThisPage(): boolean {
 		const featurePolicy = (document as { featurePolicy?: { allowsFeature(feature: string): boolean } }).featurePolicy;
 		if (featurePolicy === undefined) return false;
-		return featurePolicy.allowsFeature("language-model") === false;
+		return featurePolicy.allowsFeature('language-model') === false;
 	}
 }

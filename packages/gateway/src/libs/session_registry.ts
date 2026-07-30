@@ -1,4 +1,4 @@
-import Crypto from "node:crypto";
+import Crypto from 'node:crypto';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -7,12 +7,12 @@ import Crypto from "node:crypto";
 ///////////////////////////////////////////////////////////////////////////////
 
 /** An authenticated session held by one connection. */
-export interface Session {
+export type Session = {
 	/** Who authenticated, used as the key for the per-principal active-task limit. */
 	principal: string;
 	/** When this session stops being valid, in milliseconds since the epoch. */
 	expiresAt: number;
-}
+};
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -60,7 +60,7 @@ export class SessionRegistry {
 	 * @returns The principal for that credential.
 	 */
 	static principalFor(token: string): string {
-		const digest = Crypto.createHash("sha256").update(token, "utf8").digest("hex");
+		const digest = Crypto.createHash('sha256').update(token, 'utf8').digest('hex');
 		return `principal-${digest.slice(0, 16)}`;
 	}
 

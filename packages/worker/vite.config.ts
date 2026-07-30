@@ -1,6 +1,6 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
-import { defineConfig } from "vite";
+import Fs from 'node:fs';
+import Path from 'node:path';
+import { defineConfig } from 'vite';
 
 /**
  * `stage_llm_qwen3_0_6b_helper.ts` sets `env.wasm.wasmPaths = "/assets/"`, a literal string prefix.
@@ -18,59 +18,59 @@ import { defineConfig } from "vite";
  * `.mjs`, which is loaded via a plain, non-analyzable dynamic `import()`); emitting it again
  * here would collide with that automatically-emitted file of the same name.
  */
-const ortDistDir = resolve(import.meta.dirname, "node_modules/onnxruntime-web/dist");
-const ortDevServedFiles = ["ort-wasm-simd-threaded.jsep.mjs", "ort-wasm-simd-threaded.jsep.wasm"];
-const ortBuildEmittedFile = "ort-wasm-simd-threaded.jsep.mjs";
-const gatewayFaviconPath = resolve(import.meta.dirname, "../gateway/web/images/favicons/webai-at-home-logo.svg");
+const ortDistDir = Path.resolve(import.meta.dirname, 'node_modules/onnxruntime-web/dist');
+const ortDevServedFiles = ['ort-wasm-simd-threaded.jsep.mjs', 'ort-wasm-simd-threaded.jsep.wasm'];
+const ortBuildEmittedFile = 'ort-wasm-simd-threaded.jsep.mjs';
+const gatewayFaviconPath = Path.resolve(import.meta.dirname, '../gateway/web/images/favicons/webai-at-home-logo.svg');
 
 export default defineConfig({
-	root: resolve(import.meta.dirname, "web"),
-	base: "/",
+	root: Path.resolve(import.meta.dirname, 'web'),
+	base: '/',
 	plugins: [
 		{
-			name: "serve-gateway-favicon",
+			name: 'serve-gateway-favicon',
 			configureServer(server) {
 				server.middlewares.use((request, response, next) => {
-					if (request.url?.split("?")[0] !== "/images/favicons/webai-at-home-logo.svg") {
+					if (request.url?.split('?')[0] !== '/images/favicons/webai-at-home-logo.svg') {
 						next();
 						return;
 					}
-					response.setHeader("Content-Type", "image/svg+xml");
-					response.end(readFileSync(gatewayFaviconPath));
+					response.setHeader('Content-Type', 'image/svg+xml');
+					response.end(Fs.readFileSync(gatewayFaviconPath));
 				});
 			},
 			generateBundle() {
-				this.emitFile({ type: "asset", fileName: "images/favicons/webai-at-home-logo.svg", source: readFileSync(gatewayFaviconPath) });
+				this.emitFile({ type: 'asset', fileName: 'images/favicons/webai-at-home-logo.svg', source: Fs.readFileSync(gatewayFaviconPath) });
 			},
 		},
 		{
-			name: "serve-onnxruntime-web-assets",
+			name: 'serve-onnxruntime-web-assets',
 			configureServer(server) {
 				server.middlewares.use((request, response, next) => {
-					const fileName = request.url?.split("?")[0]?.replace(/^\/assets\//, "");
-					if (fileName === undefined || !ortDevServedFiles.includes(fileName)) {
+					const fileName = request.url?.split('?')[0]?.replace(/^\/assets\//, '');
+					if (fileName === undefined || ortDevServedFiles.includes(fileName) === false) {
 						next();
 						return;
 					}
-					response.setHeader("Content-Type", fileName.endsWith(".wasm") ? "application/wasm" : "text/javascript");
-					response.end(readFileSync(resolve(ortDistDir, fileName)));
+					response.setHeader('Content-Type', fileName.endsWith('.wasm') ? 'application/wasm' : 'text/javascript');
+					response.end(Fs.readFileSync(Path.resolve(ortDistDir, fileName)));
 				});
 			},
 			generateBundle() {
 				this.emitFile({
-					type: "asset",
+					type: 'asset',
 					fileName: `assets/${ortBuildEmittedFile}`,
-					source: readFileSync(resolve(ortDistDir, ortBuildEmittedFile)),
+					source: Fs.readFileSync(Path.resolve(ortDistDir, ortBuildEmittedFile)),
 				});
 			},
 		},
 	],
 	build: {
-		outDir: resolve(import.meta.dirname, "dist"),
+		outDir: Path.resolve(import.meta.dirname, 'dist'),
 		emptyOutDir: true,
 		rollupOptions: {
 			output: {
-				assetFileNames: (assetInfo) => assetInfo.name?.endsWith(".wasm") ? "assets/[name][extname]" : "assets/[name]-[hash][extname]",
+				assetFileNames: (assetInfo) => assetInfo.name?.endsWith('.wasm') ? 'assets/[name][extname]' : 'assets/[name]-[hash][extname]',
 			},
 		},
 	},

@@ -1,13 +1,29 @@
-import { PipelineSpecificationSchema, type PipelineSpecification, type StageName, type TaskInput } from "@webai/protocol";
+import { PipelineSpecificationSchema, type PipelineSpecification, type StageName, type TaskInput } from '@webai/protocol';
+
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+//	PipelineRegistry — holds the pipeline definitions a task may be run against
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
 
 /** Holds validated pipeline definitions. Versions are immutable once a task selects one. */
 export class PipelineRegistry {
   private readonly specifications = new Map<string, PipelineSpecification>();
 
+  /**
+   * @param specifications The pipelines to register at startup.
+   */
   constructor(specifications: PipelineSpecification[]) {
     for (const specification of specifications) this.add(specification);
   }
 
+  /**
+   * Validates a pipeline specification and registers it.
+   *
+   * @param value The specification to validate.
+   * @returns The registered specification.
+   * @throws If it does not validate, or that pipeline and version is already registered.
+   */
   add(value: unknown): PipelineSpecification {
     const specification = PipelineSpecificationSchema.parse(value);
     const key = this.key(specification.pipelineId, specification.version);
@@ -16,16 +32,32 @@ export class PipelineRegistry {
     return specification;
   }
 
+  /**
+   * Chooses the pipeline to run a submitted task through.
+   *
+   * @param input The submitted task input, whose kind the pipeline must serve.
+   * @param pipelineId A particular pipeline to insist on, when the consumer named one.
+   * @param pipelineVersion A particular version to insist on, when the consumer named one.
+   * @returns The highest matching version that is still in use, or `undefined` when none matches.
+   */
   select(input: TaskInput, pipelineId?: string, pipelineVersion?: number): PipelineSpecification | undefined {
     const candidates = [...this.specifications.values()]
-      .filter((specification) => specification.taskType === input.taskType && !specification.retired)
+      .filter((specification) => specification.taskType === input.taskType && specification.retired !== true)
       .filter((specification) => pipelineId === undefined || specification.pipelineId === pipelineId)
       .filter((specification) => pipelineVersion === undefined || specification.version === pipelineVersion)
       .sort((left, right) => right.version - left.version);
     return candidates[0];
   }
 
+  /**
+   * Looks up one exact pipeline version.
+   *
+   * @param pipelineId The pipeline to look up.
+   * @param version The version to look up.
+   * @returns The specification, or `undefined` when it is not registered.
+   */
   get(pipelineId: string, version: number): PipelineSpecification | undefined { return this.specifications.get(this.key(pipelineId, version)); }
+  /** Returns every registered specification, retired ones included. */
   list(): PipelineSpecification[] { return [...this.specifications.values()]; }
 
   /**
@@ -63,10 +95,10 @@ export class PipelineRegistry {
  */
 export const builtinPipelineSpecifications: PipelineSpecification[] = [
   {
-    pipelineId: "dev_formula", version: 1, taskType: "task_type_dev_formula",
+    pipelineId: 'dev_formula', version: 1, taskType: 'task_type_dev_formula',
     stages: [
-      { name: "stage_dev_formula_multiply", computation: "dev_formula_multiply", inputSchemaId: "number@1", outputSchemaId: "number@1", encoding: "inline-json" },
-      { name: "stage_dev_formula_add", computation: "dev_formula_add", inputSchemaId: "number@1", outputSchemaId: "number@1", encoding: "inline-json" },
+      { name: 'stage_dev_formula_multiply', computation: 'dev_formula_multiply', inputSchemaId: 'number@1', outputSchemaId: 'number@1', encoding: 'inline-json' },
+      { name: 'stage_dev_formula_add', computation: 'dev_formula_add', inputSchemaId: 'number@1', outputSchemaId: 'number@1', encoding: 'inline-json' },
     ],
   },
   {
@@ -75,11 +107,11 @@ export const builtinPipelineSpecifications: PipelineSpecification[] = [
     // the worker keeps its key-value cache in memory between rounds instead of sending it
     // over the connection; that is what prefersSameWorkerOnRetry protects when an attempt is
     // retried.
-    pipelineId: "llm_qwen3_0_6b_sharded", version: 1, taskType: "task_type_llm_qwen3_0_6b_sharded", repeatsUntilDone: true,
+    pipelineId: 'llm_qwen3_0_6b_sharded', version: 1, taskType: 'task_type_llm_qwen3_0_6b_sharded', repeatsUntilDone: true,
     stages: [
-      { name: "stage_llm_qwen3_0_6b_shard1of3", computation: "llm_qwen3_0_6b_shard", inputSchemaId: "llm@1", outputSchemaId: "llm@1", encoding: "inline-json", prefersSameWorkerOnRetry: true },
-      { name: "stage_llm_qwen3_0_6b_shard2of3", computation: "llm_qwen3_0_6b_shard", inputSchemaId: "llm@1", outputSchemaId: "llm@1", encoding: "inline-json", prefersSameWorkerOnRetry: true },
-      { name: "stage_llm_qwen3_0_6b_shard3of3", computation: "llm_qwen3_0_6b_shard", inputSchemaId: "llm@1", outputSchemaId: "llm@1", encoding: "inline-json", prefersSameWorkerOnRetry: true },
+      { name: 'stage_llm_qwen3_0_6b_shard1of3', computation: 'llm_qwen3_0_6b_shard', inputSchemaId: 'llm@1', outputSchemaId: 'llm@1', encoding: 'inline-json', prefersSameWorkerOnRetry: true },
+      { name: 'stage_llm_qwen3_0_6b_shard2of3', computation: 'llm_qwen3_0_6b_shard', inputSchemaId: 'llm@1', outputSchemaId: 'llm@1', encoding: 'inline-json', prefersSameWorkerOnRetry: true },
+      { name: 'stage_llm_qwen3_0_6b_shard3of3', computation: 'llm_qwen3_0_6b_shard', inputSchemaId: 'llm@1', outputSchemaId: 'llm@1', encoding: 'inline-json', prefersSameWorkerOnRetry: true },
     ],
   },
   {
@@ -90,9 +122,9 @@ export const builtinPipelineSpecifications: PipelineSpecification[] = [
     // the stage prefers that same device when an attempt is retried. The lease is longer
     // than the gateway default because creating the model session on a device that has just
     // downloaded the model can take far longer than reading one piece of the answer.
-    pipelineId: "llm_gemma_nano_chrome_full", version: 1, taskType: "task_type_llm_gemma_nano_chrome_full", repeatsUntilDone: true,
+    pipelineId: 'llm_gemma_nano_chrome_full', version: 1, taskType: 'task_type_llm_gemma_nano_chrome_full', repeatsUntilDone: true,
     stages: [
-      { name: "stage_llm_gemma_nano_chrome_full", computation: "llm_gemma_nano_chrome_full", inputSchemaId: "llm@1", outputSchemaId: "llm@1", encoding: "inline-json", leaseMs: 60_000, prefersSameWorkerOnRetry: true },
+      { name: 'stage_llm_gemma_nano_chrome_full', computation: 'llm_gemma_nano_chrome_full', inputSchemaId: 'llm@1', outputSchemaId: 'llm@1', encoding: 'inline-json', leaseMs: 60_000, prefersSameWorkerOnRetry: true },
     ],
   },
 ];
