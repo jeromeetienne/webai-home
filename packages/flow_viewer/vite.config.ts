@@ -2,10 +2,10 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { defineConfig } from "vite";
 
-const gatewayFaviconPath = resolve(import.meta.dirname, "../gateway/public/images/favicons/webai-at-home-logo.svg");
+const gatewayFaviconPath = resolve(import.meta.dirname, "../gateway/web/images/favicons/webai-at-home-logo.svg");
 
 export default defineConfig({
-	root: resolve(import.meta.dirname, "public"),
+	root: resolve(import.meta.dirname, "web"),
 	plugins: [
 		{
 			name: "serve-gateway-favicon",
@@ -27,7 +27,7 @@ export default defineConfig({
 	build: {
 		rollupOptions: {
 			input: {
-				main: resolve(import.meta.dirname, "public/index.html"),
+				main: resolve(import.meta.dirname, "web/index.html"),
 			},
 		},
 	},

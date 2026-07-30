@@ -4,8 +4,8 @@ import NodeUrl from "node:url";
 import NodeHttp from "node:http";
 import NodeChildProcess from "node:child_process";
 import * as Commander from "commander";
-import { LogEntryParser } from "../public/src/log_entry_parser.js";
-import type { InitialUiState, LogSource, SessionPayload } from "../public/src/types.js";
+import { LogEntryParser } from "../web/src/log_entry_parser.js";
+import type { InitialUiState, LogSource, SessionPayload } from "../web/src/types.js";
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -147,9 +147,9 @@ export class MainHelper {
 	}
 
 	private static async _serve(session: SessionPayload, requestedPort: number): Promise<string> {
-		const publicDirectory: string = NodeUrl.fileURLToPath(new URL("../public", import.meta.url));
+		const webDirectory: string = NodeUrl.fileURLToPath(new URL("../web", import.meta.url));
 		const viteDevServer = await (await import("vite")).createServer({
-			root: publicDirectory,
+			root: webDirectory,
 			server: { middlewareMode: true, hmr: false },
 			appType: "spa",
 		});

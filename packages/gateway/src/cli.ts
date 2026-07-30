@@ -850,12 +850,12 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage, req
 }
 
 const isProduction = process.env.NODE_ENV === "production";
-const publicDirectory = join(dirname(fileURLToPath(import.meta.url)), "../public");
-const buildDirectory = join(publicDirectory, "dist");
+const webDirectory = join(dirname(fileURLToPath(import.meta.url)), "../web");
+const buildDirectory = join(webDirectory, "dist");
 const viteDevServer = isProduction
 	? undefined
 	: await (await import("vite")).createServer({
-		root: publicDirectory,
+		root: webDirectory,
 		server: { middlewareMode: true },
 		appType: "custom",
 	});
@@ -885,7 +885,7 @@ const assetContentTypeByExtension: Record<string, string> = {
 async function sendPage(response: ServerResponse, pathname: string, sourcePath: string): Promise<void> {
 	response.setHeader("content-type", "text/html; charset=utf-8");
 	if (viteDevServer) {
-		const html = readFileSync(join(publicDirectory, sourcePath), "utf-8");
+		const html = readFileSync(join(webDirectory, sourcePath), "utf-8");
 		response.end(await viteDevServer.transformIndexHtml(pathname, html));
 		return;
 	}

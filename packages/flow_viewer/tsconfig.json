@@ -24,7 +24,7 @@
         "noEmit": true
     },
     "include": [
-        "public/src",
+        "web/src",
         "src"
     ]
 }

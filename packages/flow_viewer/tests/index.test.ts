@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
-import { calculateStatistics } from "../public/src/statistics.js";
-import { TimelineModel } from "../public/src/timeline_model.js";
-import { LogEntryParser } from "../public/src/log_entry_parser.js";
+import { calculateStatistics } from "../web/src/statistics.js";
+import { TimelineModel } from "../web/src/timeline_model.js";
+import { LogEntryParser } from "../web/src/log_entry_parser.js";
 import type { LogEntry } from "@webai/protocol/message_logger";
-import type { TimelineEvent } from "../public/src/types.js";
+import type { TimelineEvent } from "../web/src/types.js";
 
 const entry = (timestamp: string, direction: "received" | "sent", messageType: string, payload: unknown, bytes: number): LogEntry => ({
 	timestamp, direction, counterpart: { role: "worker", deviceId: "worker-1" }, messageType, payload, payloadBytes: bytes, messageBytes: bytes + 10,

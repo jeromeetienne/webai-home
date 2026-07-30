@@ -20,7 +20,7 @@ npm run dev --workspace @webai/gateway -- --port 9000
 
 ## Pages and endpoints
 
-Each HTML page and its assets are stored in its own directory under `public/`. Browser TypeScript files use `src/main.ts`, and stylesheets use `css/main.css`.
+Each HTML page and its assets are stored in its own directory under `web/`. Browser TypeScript files use `src/main.ts`, and stylesheets use `css/main.css`.
 
 - `/` or `/home` — gateway landing page.
 - `/monitor` — live gateway monitor showing connected devices, tasks, stages, and recent events.
