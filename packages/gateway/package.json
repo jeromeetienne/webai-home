@@ -5,7 +5,7 @@
   "scripts": {
     "build": "vite build && tsc -p tsconfig.build.json",
     "start": "NODE_ENV=production node dist/cli.js",
-    "typecheck": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json && tsc -p web/tsconfig.json",
     "dev": "tsx watch src/cli.ts",
     "test": "node --import tsx --test tests/index.test.ts"
   },
