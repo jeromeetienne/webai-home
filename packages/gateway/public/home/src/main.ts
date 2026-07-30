@@ -1,3 +1,3 @@
-import { setupThemeToggle } from "../../../../shared/theme.js";
+import { setupThemeToggle } from "../../src/theme.js";
 
 setupThemeToggle();

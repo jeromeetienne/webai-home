@@ -9,7 +9,7 @@ import { StageLlmGemmaNanoChromeHelper } from "./stage_llm_gemma_nano_chrome_hel
 import { centralGatewayAuthToken, centralGatewayWebSocketUrl } from "./gateway_config";
 import { DiagnosticsReporter } from "./diagnostics_reporter";
 import { SessionRenewal } from "@webai/protocol/session_renewal";
-import { setupThemeToggle } from "../../../shared/theme.js";
+import { setupThemeToggle } from "./theme.js";
 
 /**
  * Reads the stages the page URL restricts this worker browser to.

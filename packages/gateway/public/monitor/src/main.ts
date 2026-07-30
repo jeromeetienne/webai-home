@@ -2,7 +2,7 @@ export { };
 import type { Device, DeviceActivity, DeviceRole, TaskInput, TaskSnapshot, TaskUpdate } from "@webai/protocol";
 import { Envelope } from "@webai/protocol/envelope";
 import { SessionRenewal } from "@webai/protocol/session_renewal";
-import { setupThemeToggle } from "../../../../shared/theme.js";
+import { setupThemeToggle } from "../../src/theme.js";
 import { splitDevices, stageStatistics } from "../../../src/dashboard.js";
 
 type DeviceSummary = {

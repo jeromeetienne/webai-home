@@ -7,7 +7,7 @@ import { EventLogPanel } from "./event_log_panel.js";
 import type { CategoryFilters, LogSource, SessionPayload, TimeRangeMs, TimelineEvent } from "./types.js";
 import { calculateStatistics, formatBytes, formatLatency, type StatisticsReport, type StatisticsTotals } from "./statistics.js";
 import SAMPLE_LOG_TEXT from "../../fixtures/sample-gateway-log.log_entry.jsonl?raw";
-import { setupThemeToggle } from "../../../shared/theme.js";
+import { setupThemeToggle } from "./theme.js";
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
