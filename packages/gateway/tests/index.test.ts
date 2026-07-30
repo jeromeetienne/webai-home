@@ -18,9 +18,11 @@ import { PipelineRegistry, builtinPipelineSpecifications } from '../src/libs/pip
 import { StagePolicyResolver } from '../src/libs/stage_policy_resolver.js';
 import { DiagnosticsRateLimiter } from '../src/libs/diagnostics_rate_limiter.js';
 import { SessionRegistry } from '../src/libs/session_registry.js';
+import { TaskScheduler } from '../src/libs/task_scheduler.js';
+import { ClientMessageHandler } from '../src/libs/client_message_handler.js';
 import { WorkerPlacement } from '../src/libs/worker_placement.js';
 import { Dashboard } from '../src/dashboard.js';
-import type { StageName, TaskInput } from '@webai/protocol';
+import type { ClientMessage, GatewayMessage, StageName, TaskInput } from '@webai/protocol';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -684,4 +686,270 @@ Test('a request target naming another host is refused, and the server keeps answ
 		Assert.equal(await statusOf('/health'), 200);
 		Assert.equal(await statusOf('/monitor'), 200);
 	});
+});
+
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+//	Client Message Dispatch
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+/**
+ * A fake WebSocket good enough for `ConnectionHub.send`: it reports itself open, and records
+ * every frame written to it instead of touching a real network connection.
+ */
+type FakeSocket = { readyState: number; OPEN: number; sent: GatewayEnvelopeLike[]; send: (data: string) => void };
+
+/** The shape `ConnectionHub.send` writes, read back out of a fake socket's recorded frames. */
+type GatewayEnvelopeLike = { body: GatewayMessage };
+
+/** Builds the `task.submit` input for the two-stage `dev_formula` pipeline these tests drive. */
+const devFormulaInput = (value: number): TaskInput => ({ taskType: 'task_type_dev_formula', input: value });
+
+const newFakeSocket = (): FakeSocket => {
+	const socket: FakeSocket = { readyState: 1, OPEN: 1, sent: [], send: (data: string): void => { socket.sent.push(JSON.parse(data)); } };
+	return socket;
+};
+
+/**
+ * Builds a `ClientMessageHandler` wired to real collaborators, the way the gateway itself
+ * assembles them, so a test drives the same dispatch and authorisation rules a live connection
+ * would meet.
+ */
+const buildClientMessageHandlerHarness = () => {
+	const authToken = 'test-token';
+	const logsDirectory = Fs.mkdtempSync(Path.join(Os.tmpdir(), 'gateway-dispatch-'));
+	const deviceRegistry = new DeviceRegistry();
+	const messageLogger = new MessageLogger(Path.join(logsDirectory, 'gateway.log_entry.jsonl'));
+	const hub = new ConnectionHub(deviceRegistry, messageLogger, logsDirectory);
+	const taskStore = new TaskStore();
+	const pipelineRegistry = new PipelineRegistry(builtinPipelineSpecifications);
+	const sessionRegistry = new SessionRegistry();
+	const stagePolicyResolver = new StagePolicyResolver(pipelineRegistry, 15_000);
+	const announcer = new DeviceAnnouncer(deviceRegistry, hub, 0);
+	const scheduler = new TaskScheduler(taskStore, deviceRegistry, stagePolicyResolver, hub, announcer, 3);
+	const handler = new ClientMessageHandler(hub, deviceRegistry, taskStore, pipelineRegistry, sessionRegistry, stagePolicyResolver, scheduler, announcer, authToken, 2);
+
+	const sockets = new Map<string, FakeSocket>();
+	let frameCounter = 0;
+
+	/**
+	 * Sends one message as a named device, registering its fake socket with the hub on first
+	 * use the same way accepting a real connection would.
+	 *
+	 * @returns The gateway messages sent back to this device during this one call.
+	 */
+	const drive = (deviceId: string, message: ClientMessage): GatewayMessage[] => {
+		let socket = sockets.get(deviceId);
+		if (socket === undefined) {
+			socket = newFakeSocket();
+			sockets.set(deviceId, socket);
+			hub.socketMap.set(deviceId, socket as unknown as Parameters<typeof handler.handle>[0]);
+		}
+		const before = socket.sent.length;
+		handler.handle(socket as unknown as Parameters<typeof handler.handle>[0], deviceId, message, `frame-${++frameCounter}`);
+		return socket.sent.slice(before).map((frame) => frame.body);
+	};
+
+	/** Authenticates a device, the way any connection must before sending anything else. */
+	const authenticate = (deviceId: string, token = authToken): GatewayMessage[] => drive(deviceId, { type: 'authenticate', token });
+
+	/** Authenticates and registers a worker, ready by default. */
+	const registerWorker = (deviceId: string, name: string, stageNames: StageName[] = ['stage_dev_formula_multiply', 'stage_dev_formula_add']): GatewayMessage[] => {
+		authenticate(deviceId);
+		return drive(deviceId, { type: 'register', role: 'worker', name, stageNames });
+	};
+
+	/** Authenticates and registers a consumer. */
+	const registerConsumer = (deviceId: string, name: string): GatewayMessage[] => {
+		authenticate(deviceId);
+		return drive(deviceId, { type: 'register', role: 'consumer', name });
+	};
+
+	/**
+	 * Every gateway message ever sent to one device's socket, including a push the scheduler
+	 * wrote on its own initiative rather than in answer to something that device sent.
+	 */
+	const allSentTo = (deviceId: string): GatewayMessage[] => (sockets.get(deviceId)?.sent ?? []).map((frame) => frame.body);
+
+	return { drive, authenticate, registerWorker, registerConsumer, allSentTo, authToken, taskStore, deviceRegistry, sessionRegistry };
+};
+
+Test('every message needs an active session first, before any rule specific to that message type is even reached', () => {
+	const { drive } = buildClientMessageHandlerHarness();
+
+	// An unauthenticated connection is refused for AUTHENTICATION_REQUIRED, not for whatever
+	// that message type would normally check first — here CONSUMER_REQUIRED, since the sender
+	// is registered as nothing at all yet.
+	const [reply] = drive('device-a', { type: 'task.submit', requestId: 'request-1', input: devFormulaInput(5) });
+	Assert.equal(reply?.type, 'error');
+	Assert.equal((reply as { code: string }).code, 'AUTHENTICATION_REQUIRED');
+
+	// The rule applies just as much to the messages a connection may send before registering.
+	const [observeReply] = drive('device-b', { type: 'observe' });
+	Assert.equal(observeReply?.type, 'error');
+	Assert.equal((observeReply as { code: string }).code, 'AUTHENTICATION_REQUIRED');
+});
+
+Test('an authenticated but unregistered connection is refused NOT_REGISTERED for anything outside the before-registration group', () => {
+	const { drive, authenticate } = buildClientMessageHandlerHarness();
+	authenticate('device-a');
+
+	const [reply] = drive('device-a', { type: 'task.submit', requestId: 'request-1', input: devFormulaInput(5) });
+	Assert.equal(reply?.type, 'error');
+	Assert.equal((reply as { code: string }).code, 'NOT_REGISTERED');
+
+	// The before-registration group itself needs only authentication, not registration.
+	const [pipelinesReply] = drive('device-a', { type: 'pipelines.get' });
+	Assert.equal(pipelinesReply?.type, 'pipelines');
+});
+
+Test('only a registered consumer may submit a task', () => {
+	const { drive, registerWorker } = buildClientMessageHandlerHarness();
+	registerWorker('worker-1', 'worker-one');
+
+	const [reply] = drive('worker-1', { type: 'task.submit', requestId: 'request-1', input: devFormulaInput(5) });
+	Assert.deepEqual(reply, { type: 'error', code: 'CONSUMER_REQUIRED', message: 'Only consumer browser tabs may submit tasks', requestId: 'request-1' });
+});
+
+Test('resubmitting the same requestId with the same input replays the original acceptance, and a changed input is refused', () => {
+	const { drive, registerConsumer } = buildClientMessageHandlerHarness();
+	registerConsumer('consumer-1', 'consumer-one');
+
+	const [firstReply] = drive('consumer-1', { type: 'task.submit', requestId: 'request-1', input: devFormulaInput(5) });
+	Assert.equal(firstReply?.type, 'task.accepted');
+	const taskId = (firstReply as { task: { taskId: string } }).task.taskId;
+
+	const [replayReply] = drive('consumer-1', { type: 'task.submit', requestId: 'request-1', input: devFormulaInput(5) });
+	Assert.equal(replayReply?.type, 'task.accepted');
+	Assert.equal((replayReply as { task: { taskId: string } }).task.taskId, taskId);
+
+	const [conflictReply] = drive('consumer-1', { type: 'task.submit', requestId: 'request-1', input: devFormulaInput(6) });
+	Assert.equal(conflictReply?.type, 'error');
+	Assert.equal((conflictReply as { code: string }).code, 'REQUEST_ID_CONFLICT');
+});
+
+Test('a principal is refused once its active tasks reach the configured limit', () => {
+	const { drive, registerConsumer } = buildClientMessageHandlerHarness();
+	registerConsumer('consumer-1', 'consumer-one');
+
+	const [firstReply] = drive('consumer-1', { type: 'task.submit', requestId: 'request-1', input: devFormulaInput(5) });
+	Assert.equal(firstReply?.type, 'task.accepted');
+	const [secondReply] = drive('consumer-1', { type: 'task.submit', requestId: 'request-2', input: devFormulaInput(5) });
+	Assert.equal(secondReply?.type, 'task.accepted');
+
+	// The harness is built with a limit of two active tasks per principal.
+	const [thirdReply] = drive('consumer-1', { type: 'task.submit', requestId: 'request-3', input: devFormulaInput(5) });
+	Assert.equal(thirdReply?.type, 'error');
+	Assert.equal((thirdReply as { code: string }).code, 'RATE_LIMITED');
+});
+
+for (const message of [
+	{ type: 'worker.state' as const, state: 'ready' as const },
+	{ type: 'stage.heartbeat' as const, taskId: 'task-x', assignmentId: 'assignment-x', attempt: 1 },
+	{ type: 'stage.accepted' as const, taskId: 'task-x', assignmentId: 'assignment-x', attempt: 1 },
+	{ type: 'stage.relinquish' as const, taskId: 'task-x', assignmentId: 'assignment-x', attempt: 1 },
+	{ type: 'stage.result' as const, taskId: 'task-x', assignmentId: 'assignment-x', attempt: 1, stage: 'stage_dev_formula_add' as const, value: 1 },
+	{ type: 'stage.failed' as const, taskId: 'task-x', assignmentId: 'assignment-x', attempt: 1, stage: 'stage_dev_formula_add' as const, error: 'boom' },
+] satisfies ClientMessage[]) {
+	Test(`a registered consumer may not send "${message.type}", which every worker-only stage message refuses`, () => {
+		const { drive, registerConsumer } = buildClientMessageHandlerHarness();
+		registerConsumer('consumer-1', 'consumer-one');
+
+		const [reply] = drive('consumer-1', message);
+		Assert.equal(reply?.type, 'error');
+		Assert.equal((reply as { code: string }).code, 'WORKER_REQUIRED');
+	});
+}
+
+Test('a worker cannot extend, accept, or return a result for an assignment it does not currently hold', () => {
+	const { drive, registerWorker } = buildClientMessageHandlerHarness();
+	registerWorker('worker-1', 'worker-one');
+
+	const [heartbeatReply] = drive('worker-1', { type: 'stage.heartbeat', taskId: 'task-x', assignmentId: 'assignment-x', attempt: 1 });
+	Assert.equal(heartbeatReply?.type, 'stage.cancel');
+	Assert.equal((heartbeatReply as { reason: string }).reason, 'assignment_superseded');
+
+	const [acceptedReply] = drive('worker-1', { type: 'stage.accepted', taskId: 'task-x', assignmentId: 'assignment-x', attempt: 1 });
+	Assert.deepEqual(acceptedReply, { type: 'error', code: 'STALE_ASSIGNMENT', message: 'The stage assignment is no longer current', taskId: 'task-x' });
+
+	const [resultReply] = drive('worker-1', { type: 'stage.result', taskId: 'task-x', assignmentId: 'assignment-x', attempt: 1, stage: 'stage_dev_formula_add', value: 1 });
+	Assert.deepEqual(resultReply, { type: 'error', code: 'TASK_NOT_FOUND', message: 'Task was not found', taskId: 'task-x' });
+});
+
+Test('a submitted task is assigned to a matching worker, and runs both stages to completion through the message handler alone', () => {
+	const { drive, registerWorker, registerConsumer, allSentTo } = buildClientMessageHandlerHarness();
+	registerWorker('worker-1', 'worker-one');
+	registerConsumer('consumer-1', 'consumer-one');
+
+	const [submitReply] = drive('consumer-1', { type: 'task.submit', requestId: 'request-1', input: devFormulaInput(5) });
+	Assert.equal(submitReply?.type, 'task.accepted');
+	const taskId = (submitReply as { task: { taskId: string } }).task.taskId;
+
+	// Assigning the first stage is a side effect of task.submit: the worker is pushed a
+	// "stage.assign" for it unprompted, rather than asking for one.
+	const firstAssignment = allSentTo('worker-1').find((sent): sent is Extract<GatewayMessage, { type: 'stage.assign' }> => sent.type === 'stage.assign');
+	Assert.equal(firstAssignment?.taskId, taskId);
+	Assert.equal(firstAssignment?.stage, 'stage_dev_formula_multiply');
+
+	// Accepting draws no direct reply: task updates go only to the consumer and any observers,
+	// never to the worker holding the assignment.
+	const acceptedReplies = drive('worker-1', { type: 'stage.accepted', taskId, assignmentId: firstAssignment!.assignmentId, attempt: firstAssignment!.attempt });
+	Assert.deepEqual(acceptedReplies, []);
+
+	// Completing the first stage carries two messages back to this same worker: the next
+	// stage's assignment, pushed as a side effect before the reply that follows it.
+	const firstResultMessages = drive('worker-1', { type: 'stage.result', taskId, assignmentId: firstAssignment!.assignmentId, attempt: firstAssignment!.attempt, stage: 'stage_dev_formula_multiply', value: 10 });
+	const firstResultReply = firstResultMessages.find((sent) => sent.type === 'stage.result.accepted');
+	Assert.equal((firstResultReply as { status: string } | undefined)?.status, 'assigned');
+
+	// The second stage keeps no state on the worker, so the scheduler is free to place it
+	// anywhere; with only one worker connected, it comes back to the same one.
+	const secondAssignment = firstResultMessages.find((sent): sent is Extract<GatewayMessage, { type: 'stage.assign' }> => sent.type === 'stage.assign');
+	Assert.equal(secondAssignment?.stage, 'stage_dev_formula_add');
+	Assert.notEqual(secondAssignment?.assignmentId, firstAssignment?.assignmentId);
+
+	drive('worker-1', { type: 'stage.accepted', taskId, assignmentId: secondAssignment!.assignmentId, attempt: secondAssignment!.attempt });
+	const [secondResultReply] = drive('worker-1', { type: 'stage.result', taskId, assignmentId: secondAssignment!.assignmentId, attempt: secondAssignment!.attempt, stage: 'stage_dev_formula_add', value: 17 });
+	Assert.deepEqual(secondResultReply, { type: 'stage.result.accepted', taskId, assignmentId: secondAssignment!.assignmentId, attempt: secondAssignment!.attempt, revision: (secondResultReply as { revision: number }).revision, status: 'completed' });
+
+	const [taskReply] = drive('consumer-1', { type: 'task.get', taskId });
+	Assert.equal(taskReply?.type, 'task.snapshot');
+	Assert.equal((taskReply as { task: { state: string; result: unknown } }).task.state, 'completed');
+	Assert.equal((taskReply as { task: { state: string; result: unknown } }).task.result, 17);
+});
+
+Test('a task may only be cancelled by the consumer that owns it', () => {
+	const { drive, registerConsumer } = buildClientMessageHandlerHarness();
+	registerConsumer('consumer-1', 'consumer-one');
+	registerConsumer('consumer-2', 'consumer-two');
+
+	const [submitReply] = drive('consumer-1', { type: 'task.submit', requestId: 'request-1', input: devFormulaInput(5) });
+	const taskId = (submitReply as { task: { taskId: string } }).task.taskId;
+
+	const [strangerReply] = drive('consumer-2', { type: 'task.cancel', taskId, reason: 'no longer needed' });
+	Assert.deepEqual(strangerReply, { type: 'error', code: 'TASK_OWNER_MISMATCH', message: 'Only the task owner may cancel this task', taskId });
+
+	const [ownerReply] = drive('consumer-1', { type: 'task.cancel', taskId, reason: 'no longer needed' });
+	Assert.equal(ownerReply?.type, 'task.updated');
+	Assert.equal((ownerReply as { update: { state: string } }).update.state, 'cancelled');
+});
+
+Test('a consumer may read its own task, but not a task belonging to someone else without an observer grant', () => {
+	const { drive, registerConsumer } = buildClientMessageHandlerHarness();
+	registerConsumer('consumer-1', 'consumer-one');
+	registerConsumer('consumer-2', 'consumer-two');
+
+	const [submitReply] = drive('consumer-1', { type: 'task.submit', requestId: 'request-1', input: devFormulaInput(5) });
+	const taskId = (submitReply as { task: { taskId: string } }).task.taskId;
+
+	const [ownerReply] = drive('consumer-1', { type: 'task.get', taskId });
+	Assert.equal(ownerReply?.type, 'task.snapshot');
+
+	const [strangerReply] = drive('consumer-2', { type: 'task.get', taskId });
+	Assert.deepEqual(strangerReply, { type: 'error', code: 'AUTHORISATION', message: 'This connection is not allowed to read the task', retryable: false, taskId });
+
+	drive('consumer-1', { type: 'task.observer.grant', taskId, consumerDeviceId: 'consumer-2' });
+	const [afterGrantReply] = drive('consumer-2', { type: 'task.get', taskId });
+	Assert.equal(afterGrantReply?.type, 'task.snapshot');
 });
