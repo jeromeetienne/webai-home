@@ -25,6 +25,7 @@
     },
     "include": [
         "web/src",
-        "src"
+        "src",
+        "tests"
     ]
 }
