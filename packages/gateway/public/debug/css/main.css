@@ -3,7 +3,6 @@ html[data-theme="dark"] body {
     color: #e9eef7;
 }
 
-html[data-theme="dark"] .bg-white,
 html[data-theme="dark"] .card {
     background-color: #232d3b !important;
 }

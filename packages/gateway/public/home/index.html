@@ -3,93 +3,57 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>WebAI Gateway</title>
+    <title>WebAI@Home Gateway</title>
     <link rel="icon" href="/images/favicons/webai-at-home-logo.svg" type="image/svg+xml">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
     <link rel="stylesheet" href="/home/css/main.css">
 </head>
-<body>
-    <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm">
+<body class="bg-light">
+    <nav class="navbar navbar-dark bg-primary shadow-sm">
         <div class="container d-flex justify-content-between align-items-center gap-3">
-            <a class="navbar-brand fw-semibold" href="/">WebAI@Home / <span class="text-white-50">Gateway</span></a>
-            <div class="gateway-status d-flex align-items-center gap-2 text-end">
-                <span class="small text-white-50">Gateway status</span>
-                <span class="badge rounded-pill text-bg-warning" id="status-badge">Connecting</span>
-                <span class="visually-hidden" id="status">Connecting to the central gateway…</span>
+            <a class="navbar-brand fw-semibold" href="/home">WebAI@Home / <span class="text-white-50">Gateway</span></a>
+            <div class="d-flex align-items-center gap-2">
+                <a class="btn btn-outline-light btn-sm" href="https://github.com/webai-at-home/webai-at-home" target="_blank" rel="noreferrer">
+                    <i class="bi bi-github me-1" aria-hidden="true"></i>GitHub
+                </a>
                 <button class="btn btn-outline-light btn-sm" type="button" id="theme-toggle">Use dark theme</button>
             </div>
         </div>
     </nav>
 
     <main class="container py-5">
-        <div class="row g-4">
-            <div class="col-lg-6">
-                <details class="card border-0 shadow-sm h-100" data-foldable-key="connected-workers">
-                    <summary class="card-header bg-white border-0 pt-4 px-4">
-                        <div class="d-flex justify-content-between align-items-center">
-                            <h2 class="h5 mb-0">Connected workers</h2>
-                            <span class="badge text-bg-light border"><span id="worker-count">0</span> connected</span>
-                        </div>
-                    </summary>
-                    <div class="card-body px-4">
-                        <div id="workers"><p class="text-secondary mb-0">Waiting for worker browser tabs.</p></div>
-                    </div>
-                </details>
-            </div>
-            <div class="col-lg-6">
-                <details class="card border-0 shadow-sm h-100" data-foldable-key="connected-consumers">
-                    <summary class="card-header bg-white border-0 pt-4 px-4">
-                        <div class="d-flex justify-content-between align-items-center">
-                            <h2 class="h5 mb-0">Connected consumers</h2>
-                            <span class="badge text-bg-light border"><span id="consumer-count">0</span> connected</span>
-                        </div>
-                    </summary>
-                    <div class="card-body px-4">
-                        <div id="consumers"><p class="text-secondary mb-0">No consumers are connected.</p></div>
-                    </div>
-                </details>
-            </div>
-            <div class="col-lg-7">
-                <section class="card border-0 shadow-sm h-100">
-                    <div class="card-header bg-white border-0 pt-4 px-4">
-                        <h2 class="h5 mb-0">Latest task update</h2>
-                    </div>
-                    <div class="card-body px-4">
-                        <div class="bg-light border rounded-3 p-3 mb-0" id="tasks">No tasks yet.</div>
-                    </div>
-                </section>
-            </div>
-        </div>
-
-        <details class="card border-0 shadow-sm mt-4" data-foldable-key="enabled-stages">
-            <summary class="card-header bg-white border-0 pt-4 px-4">
-                <div class="d-flex justify-content-between align-items-center">
-                    <h2 class="h5 mb-0">Enabled stages</h2>
-                    <span class="badge text-bg-light border"><span id="stage-count">0</span> total</span>
+        <section class="p-5 mb-5 bg-white rounded-4 shadow-sm">
+            <div class="col-lg-8">
+                <p class="text-primary fw-semibold text-uppercase small mb-2">WebAI@Home</p>
+                <h1 class="display-5 fw-bold">Gateway</h1>
+                <p class="lead text-secondary">Coordinate browser workers and follow distributed tasks from one place.</p>
+                <div class="d-flex flex-wrap gap-2">
+                    <a class="btn btn-primary" href="/monitor">Open monitor</a>
+                    <a class="btn btn-outline-primary" href="/debug">Open debug pages</a>
                 </div>
-            </summary>
-            <div class="card-body px-4">
-                <p class="small text-secondary" id="stage-description">Percentages use all advertised worker stage capabilities as the denominator.</p>
-                <div id="stages"><p class="text-secondary mb-0">No worker stages are enabled.</p></div>
-            </div>
-        </details>
-
-        <section class="card border-0 shadow-sm mt-4">
-            <div class="card-header bg-white border-0 pt-4 px-4">
-                <h2 class="h5 mb-0">Recent gateway events</h2>
-            </div>
-            <div class="card-body px-4">
-                <div id="events"><p class="text-secondary mb-0">No events yet.</p></div>
             </div>
         </section>
 
-        <footer class="d-flex flex-wrap gap-3 mt-5 small">
-            <a class="link-secondary" href="/debug_iframe">Open iframe debug page</a>
-            <a class="link-secondary" href="/debug_iframe_formula">Open formula iframe debug page</a>
-            <a class="link-secondary" href="/debug_iframe_llm">Open language-model iframe debug page</a>
-            <a class="link-secondary" href="/health">View gateway health</a>
-        </footer>
+        <div class="row g-4">
+            <div class="col-md-6">
+                <a class="card h-100 border-0 shadow-sm text-decoration-none" href="/monitor">
+                    <div class="card-body p-4">
+                        <h2 class="h5 text-dark">Monitor</h2>
+                        <p class="text-secondary mb-0">See connected workers, consumers, tasks, stages, and recent gateway events.</p>
+                    </div>
+                </a>
+            </div>
+            <div class="col-md-6">
+                <a class="card h-100 border-0 shadow-sm text-decoration-none" href="/debug">
+                    <div class="card-body p-4">
+                        <h2 class="h5 text-dark">Debug</h2>
+                        <p class="text-secondary mb-0">Run the formula and language-model worker browser scenarios.</p>
+                    </div>
+                </a>
+            </div>
+        </div>
+
     </main>
     <script type="module" src="/home/src/main.ts"></script>
 </body>

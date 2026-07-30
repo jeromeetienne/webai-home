@@ -7,6 +7,8 @@ export default defineConfig({
 		rollupOptions: {
 			input: {
 				home: resolve(import.meta.dirname, "public/home/index.html"),
+				monitor: resolve(import.meta.dirname, "public/monitor/index.html"),
+				debug: resolve(import.meta.dirname, "public/debug/index.html"),
 				debugIframe: resolve(import.meta.dirname, "public/debug_iframe/index.html"),
 				debugIframeFormula: resolve(import.meta.dirname, "public/debug_iframe_formula/index.html"),
 				debugIframeLlm: resolve(import.meta.dirname, "public/debug_iframe_llm/index.html"),

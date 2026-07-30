@@ -22,7 +22,9 @@ npm run dev --workspace @webai/gateway -- --port 9000
 
 Each HTML page and its assets are stored in its own directory under `public/`. Browser TypeScript files use `src/main.ts`, and stylesheets use `css/main.css`.
 
-- `/` or `/home` — gateway home page.
+- `/` or `/home` — gateway landing page.
+- `/monitor` — live gateway monitor showing connected devices, tasks, stages, and recent events.
+- `/debug` — index of the current gateway debug pages.
 - `/debug_iframe` — page that displays the gateway home page and the standalone worker page in frames.
 - `/debug_iframe_formula` — formula-specific debug page with separate multiply and add worker frames.
 - `/debug_iframe_llm` — language-model debug page with one worker frame for each shard.
