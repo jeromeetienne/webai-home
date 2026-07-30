@@ -12,25 +12,25 @@ import { Envelope } from "../src/envelope.js";
 import { SessionRenewal } from "../src/session_renewal.js";
 
 test("accepts valid task input", () => {
-  assert.deepEqual(TaskInput.parse({ taskType: "task_type_formula", input: 12.5 }), { taskType: "task_type_formula", input: 12.5 });
-  assert.deepEqual(TaskInput.parse({ taskType: "task_type_llm", input: "hello" }), { taskType: "task_type_llm", input: "hello" });
+  assert.deepEqual(TaskInput.parse({ taskType: "task_type_dev_formula", input: 12.5 }), { taskType: "task_type_dev_formula", input: 12.5 });
+  assert.deepEqual(TaskInput.parse({ taskType: "task_type_llm_qwen3_0_6b_sharded", input: "hello" }), { taskType: "task_type_llm_qwen3_0_6b_sharded", input: "hello" });
 });
 
 test("rejects non-finite task input", () => {
-  assert.equal(TaskInput.safeParse({ taskType: "task_type_formula", input: Number.NaN }).success, false);
-  assert.equal(TaskInput.safeParse({ taskType: "task_type_formula", input: Infinity }).success, false);
+  assert.equal(TaskInput.safeParse({ taskType: "task_type_dev_formula", input: Number.NaN }).success, false);
+  assert.equal(TaskInput.safeParse({ taskType: "task_type_dev_formula", input: Infinity }).success, false);
 });
 
 test("rejects task input that does not match its task type", () => {
-  assert.equal(TaskInput.safeParse({ taskType: "task_type_llm", input: 5 }).success, false);
-  assert.equal(TaskInput.safeParse({ taskType: "task_type_formula", input: "5" }).success, false);
+  assert.equal(TaskInput.safeParse({ taskType: "task_type_llm_qwen3_0_6b_sharded", input: 5 }).success, false);
+  assert.equal(TaskInput.safeParse({ taskType: "task_type_dev_formula", input: "5" }).success, false);
 });
 
 test("restricts task states, and checks the shape of a stage name without listing them", () => {
   assert.equal(TaskState.safeParse("completed").success, true);
   assert.equal(TaskState.safeParse("unknown").success, false);
-  assert.equal(StageName.safeParse("stage_formula_multiply").success, true);
-  assert.equal(StageName.safeParse("stage_llm_qwen3_0_6b_shard1on3").success, true);
+  assert.equal(StageName.safeParse("stage_dev_formula_multiply").success, true);
+  assert.equal(StageName.safeParse("stage_llm_qwen3_0_6b_shard1of3").success, true);
   // A stage name this package has never heard of is accepted, because which stage names
   // exist is decided at run time by the pipelines the gateway has loaded.
   assert.equal(StageName.safeParse("stage_invented_by_a_pipeline_file").success, true);
@@ -53,10 +53,10 @@ test("StagePayloadFactory builds each stage payload shape", () => {
 });
 
 test("validates every inbound client message shape", () => {
-  assert.equal(ClientMessageSchema.safeParse({ type: "task.submit", requestId: "request-1", input: { taskType: "task_type_formula", input: 5 } }).success, true);
-  assert.equal(ClientMessageSchema.safeParse({ type: "stage.result", taskId: "task-1", assignmentId: "assignment-1", attempt: 1, stage: "stage_formula_multiply", value: 10 }).success, true);
-  assert.equal(ClientMessageSchema.safeParse({ type: "task.submit", input: { taskType: "task_type_formula", input: 5 } }).success, false);
-  assert.equal(ClientMessageSchema.safeParse({ type: "stage.result", taskId: "task-1", stage: "stage_formula_multiply", value: 10 }).success, false);
+  assert.equal(ClientMessageSchema.safeParse({ type: "task.submit", requestId: "request-1", input: { taskType: "task_type_dev_formula", input: 5 } }).success, true);
+  assert.equal(ClientMessageSchema.safeParse({ type: "stage.result", taskId: "task-1", assignmentId: "assignment-1", attempt: 1, stage: "stage_dev_formula_multiply", value: 10 }).success, true);
+  assert.equal(ClientMessageSchema.safeParse({ type: "task.submit", input: { taskType: "task_type_dev_formula", input: 5 } }).success, false);
+  assert.equal(ClientMessageSchema.safeParse({ type: "stage.result", taskId: "task-1", stage: "stage_dev_formula_multiply", value: 10 }).success, false);
   assert.equal(ClientMessageSchema.safeParse({ type: "register", role: "consumer", name: "consumer", unexpected: true }).success, false);
   assert.equal(ClientMessageSchema.safeParse({ type: "task.history", taskId: "task-1" }).success, true);
   assert.equal(ClientMessageSchema.safeParse({ type: "task.history" }).success, false);
@@ -68,14 +68,14 @@ test("redacts task inputs and stage values but keeps the task type", () => {
   const logger = new MessageLogger(logFilePath);
   const counterpart = { role: "consumer", deviceId: "device-1" };
 
-  logger.log("received", counterpart, "task.submit", { type: "task.submit", requestId: "request-1", input: { taskType: "task_type_llm", input: "What is the capital of France?" } });
-  logger.log("sent", counterpart, "stage.assign", { type: "stage.assign", taskId: "task-1", stage: "stage_formula_multiply", value: 5 });
+  logger.log("received", counterpart, "task.submit", { type: "task.submit", requestId: "request-1", input: { taskType: "task_type_llm_qwen3_0_6b_sharded", input: "What is the capital of France?" } });
+  logger.log("sent", counterpart, "stage.assign", { type: "stage.assign", taskId: "task-1", stage: "stage_dev_formula_multiply", value: 5 });
 
   const entries = readFileSync(logFilePath, "utf8").trim().split("\n").map((line) => JSON.parse(line) as LogEntry);
   rmSync(directoryPath, { recursive: true, force: true });
 
-  assert.deepEqual(entries[0].payload, { type: "task.submit", requestId: "request-1", input: { taskType: "task_type_llm", input: "[redacted]" } });
-  assert.deepEqual(entries[1].payload, { type: "stage.assign", taskId: "task-1", stage: "stage_formula_multiply", value: "[redacted]" });
+  assert.deepEqual(entries[0].payload, { type: "task.submit", requestId: "request-1", input: { taskType: "task_type_llm_qwen3_0_6b_sharded", input: "[redacted]" } });
+  assert.deepEqual(entries[1].payload, { type: "stage.assign", taskId: "task-1", stage: "stage_dev_formula_multiply", value: "[redacted]" });
 });
 
 test("redacts the task result, the values inside completed stages, and a relayed message", () => {
@@ -87,9 +87,9 @@ test("redacts the task result, the values inside completed stages, and a relayed
 
   const snapshot = MessageLogger.redactPayload({
     type: "task.snapshot",
-    task: { taskId: "task-1", completedStages: [{ name: "stage_llm_qwen3_0_6b_shard1on3", value: { text: "SECRET STAGE" } }] },
+    task: { taskId: "task-1", completedStages: [{ name: "stage_llm_qwen3_0_6b_shard1of3", value: { text: "SECRET STAGE" } }] },
   }) as { task: { completedStages: { name: string; value: unknown }[] } };
-  assert.deepEqual(snapshot.task.completedStages, [{ name: "stage_llm_qwen3_0_6b_shard1on3", value: "[redacted]" }]);
+  assert.deepEqual(snapshot.task.completedStages, [{ name: "stage_llm_qwen3_0_6b_shard1of3", value: "[redacted]" }]);
 
   // Redaction still reaches a value nested inside another message, which is the shape a
   // gateway message carrying a task takes.
@@ -116,7 +116,7 @@ test("accepts a lease heartbeat and the stage settings that control leasing", ()
   assert.equal(ClientMessageSchema.safeParse({ type: "stage.heartbeat", taskId: "task-1", assignmentId: "assignment-1" }).success, false);
   assert.equal(ClientMessageSchema.safeParse({ type: "stage.heartbeat", taskId: "task-1", assignmentId: "assignment-1", attempt: 0 }).success, false);
 
-  const stage = { name: "stage_formula_multiply", computation: "formula_multiply", inputSchemaId: "number@1", outputSchemaId: "number@1", encoding: "inline-json" } as const;
+  const stage = { name: "stage_dev_formula_multiply", computation: "dev_formula_multiply", inputSchemaId: "number@1", outputSchemaId: "number@1", encoding: "inline-json" } as const;
   assert.equal(PipelineStageSchema.safeParse({ ...stage, leaseMs: 60_000, prefersSameWorkerOnRetry: true }).success, true);
   // A stage that states neither setting is valid, and takes the gateway's --lease-ms default.
   assert.equal(PipelineStageSchema.safeParse(stage).success, true);
@@ -125,9 +125,9 @@ test("accepts a lease heartbeat and the stage settings that control leasing", ()
 });
 
 test("rejects malformed and oversized identity-bearing task messages", () => {
-  assert.equal(ClientMessageSchema.safeParse({ type: "task.submit", requestId: "", input: { taskType: "task_type_formula", input: 5 } }).success, false);
-  assert.equal(ClientMessageSchema.safeParse({ type: "stage.result", taskId: "task-1", assignmentId: "assignment-1", attempt: 0, stage: "stage_formula_multiply", value: 10 }).success, false);
-  assert.equal(ClientMessageSchema.safeParse({ type: "stage.failed", taskId: "task-1", assignmentId: "assignment-1", attempt: 1, stage: "stage_formula_multiply", error: "x".repeat(10_001) }).success, false);
+  assert.equal(ClientMessageSchema.safeParse({ type: "task.submit", requestId: "", input: { taskType: "task_type_dev_formula", input: 5 } }).success, false);
+  assert.equal(ClientMessageSchema.safeParse({ type: "stage.result", taskId: "task-1", assignmentId: "assignment-1", attempt: 0, stage: "stage_dev_formula_multiply", value: 10 }).success, false);
+  assert.equal(ClientMessageSchema.safeParse({ type: "stage.failed", taskId: "task-1", assignmentId: "assignment-1", attempt: 1, stage: "stage_dev_formula_multiply", error: "x".repeat(10_001) }).success, false);
 });
 
 /**
@@ -143,7 +143,7 @@ function buildLlmTask(shardCount: number): Task {
     workerDeviceId: "device-worker",
     assignmentId: `assignment-${index}`,
     attempt: 1,
-    stage: "stage_llm_qwen3_0_6b_shard1on3" as const,
+    stage: "stage_llm_qwen3_0_6b_shard1of3" as const,
     value: tensorPayload,
     leaseUntil: "2026-01-01T00:00:15.000Z",
   }));
@@ -158,7 +158,7 @@ function buildLlmTask(shardCount: number): Task {
     requestId: "request-1",
     consumerDeviceId: "device-consumer",
     consumerPrincipal: "principal-1",
-    input: { taskType: "task_type_llm", input: "What is the capital of France?" },
+    input: { taskType: "task_type_llm_qwen3_0_6b_sharded", input: "What is the capital of France?" },
     state: "running",
     completedStages: assignmentAttempts.map((assignment) => ({ name: assignment.stage, value: tensorPayload })),
     createdAt: "2026-01-01T00:00:00.000Z",
@@ -196,7 +196,7 @@ test("no stage value appears in a task update, and none appears twice", () => {
   assert.equal(serialised.includes("AAAA"), false);
   assert.equal("value" in (update.assignment ?? {}), false);
   assert.equal(update.completedStageCount, 5);
-  assert.equal(update.currentStage, "stage_llm_qwen3_0_6b_shard1on3");
+  assert.equal(update.currentStage, "stage_llm_qwen3_0_6b_shard1of3");
 });
 
 test("the task snapshot drops the attempt history and truncates the change log", () => {
@@ -212,17 +212,17 @@ test("the task snapshot drops the attempt history and truncates the change log",
 });
 
 test("a pipeline stage names the computation a worker must run, and a pipeline may repeat", () => {
-  const stage = { name: "stage_anything", computation: "formula_multiply", inputSchemaId: "number@1", outputSchemaId: "number@1", encoding: "inline-json" } as const;
+  const stage = { name: "stage_anything", computation: "dev_formula_multiply", inputSchemaId: "number@1", outputSchemaId: "number@1", encoding: "inline-json" } as const;
   // The stage name is free; the computation is what a worker matches on.
   assert.equal(PipelineStageSchema.safeParse(stage).success, true);
   assert.equal(PipelineStageSchema.safeParse({ ...stage, computation: undefined }).success, false);
   assert.equal(PipelineStageSchema.safeParse({ ...stage, computation: "Formula Multiply" }).success, false);
 
   assert.equal(PipelineSpecificationSchema.safeParse({
-    pipelineId: "invented", version: 1, taskType: "task_type_formula", repeatsUntilDone: true, stages: [stage],
+    pipelineId: "invented", version: 1, taskType: "task_type_dev_formula", repeatsUntilDone: true, stages: [stage],
   }).success, true);
   assert.equal(PipelineSpecificationSchema.safeParse({
-    pipelineId: "invented", version: 1, taskType: "task_type_formula", stages: [stage, stage],
+    pipelineId: "invented", version: 1, taskType: "task_type_dev_formula", stages: [stage, stage],
   }).success, false);
 });
 

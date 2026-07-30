@@ -18,20 +18,20 @@ export type TaskState = z.infer<typeof TaskState>;
 export const StageName = z.string().min(1).max(100).regex(/^[a-z][a-z0-9_]*$/, "A stage name must start with a lower-case letter and contain only lower-case letters, digits, and underscores");
 export type StageName = z.infer<typeof StageName>;
 
-export const TaskType = z.enum(["task_type_formula", "task_type_llm"]);
+export const TaskType = z.enum(["task_type_dev_formula", "task_type_llm_qwen3_0_6b_sharded"]);
 export type TaskType = z.infer<typeof TaskType>;
 
 export const TaskInput = z.discriminatedUnion("taskType", [
-  z.object({ taskType: z.literal("task_type_formula"), input: z.number().finite() }),
-  z.object({ taskType: z.literal("task_type_llm"), input: z.string() }),
+  z.object({ taskType: z.literal("task_type_dev_formula"), input: z.number().finite() }),
+  z.object({ taskType: z.literal("task_type_llm_qwen3_0_6b_sharded"), input: z.string() }),
 ]);
 export type TaskInput = z.infer<typeof TaskInput>;
 
 export const PipelineStageSchema = z.object({
   name: StageName,
   /**
-   * Which computation a worker must run for this stage, such as `formula_multiply` or
-   * `llm_shard`.
+   * Which computation a worker must run for this stage, such as `dev_formula_multiply` or
+   * `llm_qwen3_0_6b_shard`.
    *
    * The stage name identifies a step of one pipeline; the computation identifies the code
    * that carries the step out. Separating the two is what lets a new pipeline reuse a

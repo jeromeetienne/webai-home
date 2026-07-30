@@ -52,9 +52,9 @@ test("registers and submits through the shared client", () => {
 	const registerFrame = sentFrame(1);
 	assert.deepEqual(registerFrame.body, { type: "register", role: "consumer", name: "formula-consumer" });
 	socket.onmessage?.({ data: gatewayFrame({ type: "registered", deviceId: "device-1" }, registerFrame.id) });
-	client.submit({ taskType: "task_type_formula", input: 5 }, "request-formula-1");
+	client.submit({ taskType: "task_type_dev_formula", input: 5 }, "request-formula-1");
 	const submitFrame = sentFrame(2);
-	assert.deepEqual(submitFrame.body, { type: "task.submit", requestId: "request-formula-1", input: { taskType: "task_type_formula", input: 5 } });
+	assert.deepEqual(submitFrame.body, { type: "task.submit", requestId: "request-formula-1", input: { taskType: "task_type_dev_formula", input: 5 } });
 	// Each frame carries its own identifier, so two requests of the same kind can be told apart.
 	assert.notEqual(authenticateFrame.id, registerFrame.id);
 	assert.notEqual(registerFrame.id, submitFrame.id);

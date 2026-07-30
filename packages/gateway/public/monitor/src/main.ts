@@ -100,7 +100,7 @@ const taskSummary = (panel: TaskPanelState): string => {
 	const state = panel.update?.state ?? panel.snapshot?.state ?? "unknown";
 	const taskInput = panel.snapshot?.input;
 	if (taskInput === undefined) return `Task · ${state} · input: not known to this connection`;
-	return `${taskInput.taskType === "task_type_formula" ? "Formula" : "Language model"} · ${state} · input: ${String(taskInput.input).slice(0, 80)}`;
+	return `${taskInput.taskType === "task_type_dev_formula" ? "Development formula" : "Qwen3-0.6B sharded language model"} · ${state} · input: ${String(taskInput.input).slice(0, 80)}`;
 };
 
 const getElement = (selector: string): HTMLElement => {

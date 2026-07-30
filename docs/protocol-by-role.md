@@ -64,7 +64,7 @@ The client sends one of these initial messages:
   "type": "register",
   "role": "worker",
   "name": "browser-worker-a",
-  "stageNames": ["stage_formula_multiply", "stage_formula_add"]
+  "stageNames": ["stage_dev_formula_multiply", "stage_dev_formula_add"]
 }
 ```
 
@@ -226,8 +226,8 @@ A pipeline is a validated record listing the stages a task runs, in order. The g
 
 Three separate things are involved, and keeping them apart is what allows a pipeline to be added without releasing the gateway, the worker, and the consumer together:
 
-- The **stage name** identifies one step of one pipeline, such as `stage_formula_multiply`. The shared protocol package checks only the shape of a stage name — lower-case letters, digits, and underscores, starting with a letter, up to 100 characters. It does not list which stage names exist. The pipeline registry in the gateway is the authority on that.
-- The **computation** identifies the code that carries the step out, such as `formula_multiply` or `llm_shard`. Every stage names one, and every `stage.assign` carries it, so a worker never has to recognise a stage name to know what to run. A new pipeline can give a new stage name a computation that workers already ship.
+- The **stage name** identifies one step of one pipeline, such as `stage_dev_formula_multiply`. The shared protocol package checks only the shape of a stage name — lower-case letters, digits, and underscores, starting with a letter, up to 100 characters. It does not list which stage names exist. The pipeline registry in the gateway is the authority on that.
+- The **computation** identifies the code that carries the step out, such as `dev_formula_multiply` or `llm_qwen3_0_6b_shard`. Every stage names one, and every `stage.assign` carries it, so a worker never has to recognise a stage name to know what to run. A new pipeline can give a new stage name a computation that workers already ship.
 - The **task type** still decides which pipelines a task may select, and remains a closed list of the two kinds of task input the protocol validates.
 
 A worker asks for `pipelines.get` before it registers, and advertises every stage whose computation it implements. A worker that advertises a stage no loaded pipeline defines is refused at registration with the error code `VALIDATION`, whose details list both the stage names it asked for and the stage names that exist, so a mistyped name is reported rather than silently never receiving work.
@@ -267,9 +267,9 @@ The formula task sequence is:
 
 ```text
 consumer --task.submit--> gateway
-gateway --stage.assign(stage_formula_multiply)--> worker A
+gateway --stage.assign(stage_dev_formula_multiply)--> worker A
 worker A --stage.result(number)--> gateway
-gateway --stage.assign(stage_formula_add)--> worker B
+gateway --stage.assign(stage_dev_formula_add)--> worker B
 worker B --stage.result(number)--> gateway
 gateway --task.updated(completed)--> consumer
 ```
@@ -281,15 +281,15 @@ The current formula stages multiply the input by `2` and then add `7`.
 The language-model task sequence cycles through three shards:
 
 ```text
-stage_llm_qwen3_0_6b_shard1on3 -> stage_llm_qwen3_0_6b_shard2on3 -> stage_llm_qwen3_0_6b_shard3on3
-                               -> stage_llm_qwen3_0_6b_shard1on3 -> ...
+stage_llm_qwen3_0_6b_shard1of3 -> stage_llm_qwen3_0_6b_shard2of3 -> stage_llm_qwen3_0_6b_shard3of3
+                               -> stage_llm_qwen3_0_6b_shard1of3 -> ...
 ```
 
 The first assignment carries the prompt in `LlmStagePayload.text`. Intermediate
 assignments carry encoded boundary tensors, token identifiers, and the token
 position. The final shard returns generated text and sets `done: true` when
 generation is complete. When `done` is false, the final shard returns the next
-token and the gateway starts another cycle at `stage_llm_qwen3_0_6b_shard1on3`.
+token and the gateway starts another cycle at `stage_llm_qwen3_0_6b_shard1of3`.
 
 An encoded tensor contains `dims`, `type`, and base64-encoded data. The current
 JSON tensor encoding is a probe format and is not a final compatibility

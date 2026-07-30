@@ -1,5 +1,5 @@
 /** Formula-stage capabilities and computation for a worker browser. */
-export class StageFormulaHelper {
+export class StageDevFormulaHelper {
 	/**
 	 * The computations this worker browser implements, named the way a pipeline stage names
 	 * its computation.
@@ -8,7 +8,7 @@ export class StageFormulaHelper {
 	 * through the gateway's `--pipeline-file` option may introduce a new stage name that
 	 * reuses one of these computations without this browser being changed or rebuilt.
 	 */
-	static readonly computations: string[] = ["formula_multiply", "formula_add"];
+	static readonly computations: string[] = ["dev_formula_multiply", "dev_formula_add"];
 
 	/**
 	 * Reports whether this helper implements a computation.
@@ -17,7 +17,7 @@ export class StageFormulaHelper {
 	 * @returns `true` when this helper can run it.
 	 */
 	static implementsComputation(computation: string): boolean {
-		return StageFormulaHelper.computations.includes(computation);
+		return StageDevFormulaHelper.computations.includes(computation);
 	}
 
 	/**
@@ -29,8 +29,8 @@ export class StageFormulaHelper {
 	 * @throws If the computation is not one this browser implements.
 	 */
 	static compute(computation: string, value: number): number {
-		if (computation === "formula_multiply") return value * 2;
-		if (computation === "formula_add") return value + 7;
+		if (computation === "dev_formula_multiply") return value * 2;
+		if (computation === "dev_formula_add") return value + 7;
 		throw new Error(`This browser does not implement the computation ${computation}.`);
 	}
 }

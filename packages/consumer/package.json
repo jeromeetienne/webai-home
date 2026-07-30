@@ -4,8 +4,8 @@
   "type": "module",
   "scripts": {
     "clean:logs": "tsx src/clean_logs.ts",
-    "sample:formula": "node --import tsx src/cli.ts --type formula --name formula-consumer 5 | jq",
-    "sample:llm": "node --import tsx src/cli.ts --type llm --name llm-consumer 'What is the capital of France?' | jq",
+    "sample:dev_formula": "node --import tsx src/cli.ts --type dev_formula --name dev-formula-consumer 5 | jq",
+    "sample:llm_qwen3_0_6b_sharded": "node --import tsx src/cli.ts --type llm_qwen3_0_6b_sharded --name llm-qwen3-0-6b-sharded-consumer 'What is the capital of France?' | jq",
     "build": "vite build && tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json",
     "dev": "tsx src/cli.ts",

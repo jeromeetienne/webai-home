@@ -52,23 +52,23 @@ test("renders request and assignment identities from the issue 37 formula fixtur
 test("summarises a task.submit whose input was redacted by the message logger", () => {
 	const entries: LogEntry[] = [
 		{ timestamp: "2026-01-01T00:00:00.000Z", direction: "received", counterpart: { role: "consumer", deviceId: "device-1" }, messageType: "task.submit", payload: { type: "task.submit", requestId: "request-1", input: "[redacted]" } },
-		{ timestamp: "2026-01-01T00:00:01.000Z", direction: "received", counterpart: { role: "consumer", deviceId: "device-1" }, messageType: "task.submit", payload: { type: "task.submit", requestId: "request-2", input: { taskType: "task_type_llm", input: "[redacted]" } } },
+		{ timestamp: "2026-01-01T00:00:01.000Z", direction: "received", counterpart: { role: "consumer", deviceId: "device-1" }, messageType: "task.submit", payload: { type: "task.submit", requestId: "request-2", input: { taskType: "task_type_llm_qwen3_0_6b_sharded", input: "[redacted]" } } },
 	];
 	const model = TimelineModel.build([{ id: "run", label: "Run", entries }], { fromMs: 0, toMs: Number.MAX_SAFE_INTEGER }, { showChatter: true, showSignaling: true });
 	assert.equal(model.events.some((item) => item.summary.includes("undefined")), false);
 	assert.equal(model.events[0].summary, "submits a task: [redacted] (request request-1)");
-	assert.equal(model.events[1].summary, "submits a task_type_llm: [redacted] (request request-2)");
+	assert.equal(model.events[1].summary, "submits a task_type_llm_qwen3_0_6b_sharded: [redacted] (request request-2)");
 });
 
 test("labels each animated packet with a short detail that fits inside the diagram", () => {
 	const entries: LogEntry[] = [
 		{ timestamp: "2026-01-01T00:00:00.000Z", direction: "received", counterpart: { role: "consumer", deviceId: "device-1" }, messageType: "task.submit", payload: { type: "task.submit", requestId: "101d72ba-6a97-4d74-b5c9-beba0c603132", input: "[redacted]" } },
-		{ timestamp: "2026-01-01T00:00:01.000Z", direction: "sent", counterpart: { role: "worker", deviceId: "device-2" }, messageType: "stage.assign", payload: { type: "stage.assign", taskId: "task-936a3880-2bad-47e9-b776-4ec985895d50", assignmentId: "assignment-50badfe0-1084-4d48-91b5-6cb2369fe601", attempt: 1, stage: "stage_formula_multiply", value: "[redacted]" } },
+		{ timestamp: "2026-01-01T00:00:01.000Z", direction: "sent", counterpart: { role: "worker", deviceId: "device-2" }, messageType: "stage.assign", payload: { type: "stage.assign", taskId: "task-936a3880-2bad-47e9-b776-4ec985895d50", assignmentId: "assignment-50badfe0-1084-4d48-91b5-6cb2369fe601", attempt: 1, stage: "stage_dev_formula_multiply", value: "[redacted]" } },
 		{ timestamp: "2026-01-01T00:00:02.000Z", direction: "sent", counterpart: { role: "consumer", deviceId: "device-1" }, messageType: "task.updated", payload: { type: "task.updated", task: { taskId: "task-936a3880-2bad-47e9-b776-4ec985895d50", state: "running", revision: 4 } } },
 		{ timestamp: "2026-01-01T00:00:03.000Z", direction: "sent", counterpart: { role: "consumer", deviceId: "device-1" }, messageType: "error", payload: { type: "error", message: "the worker relinquished the assignment before the lease expired" } },
 	];
 	const model = TimelineModel.build([{ id: "run", label: "Run", entries }], { fromMs: 0, toMs: Number.MAX_SAFE_INTEGER }, { showChatter: true, showSignaling: true });
-	assert.deepEqual(model.events.map((item) => item.detail), ["request 101d72ba", "stage_formula_multiply", "now running", "the worker relinquished the…"]);
+	assert.deepEqual(model.events.map((item) => item.detail), ["request 101d72ba", "stage_dev_formula_multiply", "now running", "the worker relinquished the…"]);
 	assert.equal(model.events.every((item) => (item.detail ?? "").length <= 28), true);
 });
 

@@ -3,7 +3,7 @@ export { };
 
 import { StageName, type StageName as StageNameType, type StagePayload, type ClientMessage } from "@webai/protocol";
 import { Envelope } from "@webai/protocol/envelope";
-import { StageFormulaHelper } from "./stage_formula_helper";
+import { StageDevFormulaHelper } from "./stage_dev_formula_helper";
 import { StageLlmQwen3_0_6bHelper } from "./stage_llm_qwen3_0_6b_helper";
 import { centralGatewayAuthToken, centralGatewayWebSocketUrl } from "./gateway_config";
 import { DiagnosticsReporter } from "./diagnostics_reporter";
@@ -41,7 +41,7 @@ export const requestedStageNamesFromUrl = (search: string): StageNameType[] => {
  * @returns `true` when one of this browser's helpers implements it.
  */
 const implementsComputation = (computation: string): boolean =>
-	StageFormulaHelper.implementsComputation(computation) || StageLlmQwen3_0_6bHelper.implementsComputation(computation);
+	StageDevFormulaHelper.implementsComputation(computation) || StageLlmQwen3_0_6bHelper.implementsComputation(computation);
 
 /**
  * Chooses the stages this browser offers to the gateway, from the pipelines the gateway has
@@ -88,7 +88,7 @@ type GatewayMessage = {
 	value?: StagePayload;
 	/** When the assignment lease runs out, unless the worker extends it with `stage.heartbeat`. */
 	leaseUntil?: string;
-	/** Which computation the assigned stage needs, such as `formula_multiply` or `llm_shard`. */
+	/** Which computation the assigned stage needs, such as `dev_formula_multiply` or `llm_qwen3_0_6b_shard`. */
 	computation?: string;
 	/** The assigned stage's position in its pipeline, counted from zero. */
 	stageIndex?: number;
@@ -463,7 +463,7 @@ const stopLeaseHeartbeat = (assignmentId?: string): void => {
 			/** Computes the result for the assigned stage and sends it back once ready. */
 			const computeResult: Promise<StagePayload> = isLlmStage
 				? StageLlmQwen3_0_6bHelper.compute(message.stageIndex ?? 0, taskId, value as Exclude<StagePayload, number>)
-				: Promise.resolve(StageFormulaHelper.compute(computation, value as number));
+				: Promise.resolve(StageDevFormulaHelper.compute(computation, value as number));
 			computeResult
 				.then((value) => {
 					stopLeaseHeartbeat(assignmentId);

@@ -36,10 +36,10 @@ export function parseLlmInput(value: string | undefined): string {
 	return value;
 }
 
-export function createTaskInput(type: "formula" | "llm", value: string | undefined): TaskInput {
-	return type === "formula"
-		? { taskType: "task_type_formula", input: parseFormulaInput(value) }
-		: { taskType: "task_type_llm", input: parseLlmInput(value) };
+export function createTaskInput(type: "dev_formula" | "llm_qwen3_0_6b_sharded", value: string | undefined): TaskInput {
+	return type === "dev_formula"
+		? { taskType: "task_type_dev_formula", input: parseFormulaInput(value) }
+		: { taskType: "task_type_llm_qwen3_0_6b_sharded", input: parseLlmInput(value) };
 }
 
 export class ConsumerClient {

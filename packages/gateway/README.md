@@ -26,8 +26,8 @@ Each HTML page and its assets are stored in its own directory under `public/`. B
 - `/monitor` — live gateway monitor showing connected devices, tasks, stages, and recent events.
 - `/debug` — index of the current gateway debug pages.
 - `/debug_iframe` — page that displays the gateway home page and the standalone worker page in frames.
-- `/debug_iframe_formula` — formula-specific debug page with separate multiply and add worker frames.
-- `/debug_iframe_llm` — language-model debug page with one worker frame for each shard.
+- `/debug_iframe_dev_formula` — formula-specific debug page with separate multiply and add worker frames.
+- `/debug_iframe_llm_qwen3_0_6b_sharded` — language-model debug page with one worker frame for each shard.
 - `/health` — JSON health response with the current worker count.
 
 ## Build and test

@@ -19,12 +19,12 @@ let client: ConsumerClient | undefined;
 
 const setStatus = (message: string, kind = ""): void => { status.textContent = message; status.className = `status ${kind}`; };
 type.addEventListener("change", (): void => {
-	inputLabel.firstChild!.textContent = type.value === "formula" ? "Number" : "Prompt";
-	input.placeholder = type.value === "formula" ? "5" : "What is the capital of France?";
+	inputLabel.firstChild!.textContent = type.value === "dev_formula" ? "Number" : "Prompt";
+	input.placeholder = type.value === "dev_formula" ? "5" : "What is the capital of France?";
 });
 submit.addEventListener("click", (): void => {
 	try {
-		const taskInput = createTaskInput(type.value as "formula" | "llm", input.value);
+		const taskInput = createTaskInput(type.value as "dev_formula" | "llm_qwen3_0_6b_sharded", input.value);
 		client?.close();
 		const socket = new WebSocket(url.value.trim()) as unknown as TaskSocket;
 		client = new ConsumerClient(socket, {

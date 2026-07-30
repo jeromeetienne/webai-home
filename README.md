@@ -69,6 +69,15 @@ partitioning across very different devices.
 - `packages/onnx_experiments` — browser experiments for ONNX Runtime Web.
 - `packages/tiny_iris_classifier` — small end-to-end browser inference example.
 
+## Documentation
+
+- `docs/tasks-and-stages.md` — every kind of task the cluster can run and every
+  stage each one needs.
+- `docs/protocol-by-role.md` — the messages the gateway, the consumers, and the
+  workers exchange.
+- `docs/naming-scheme.md` — how every task, task type, pipeline, and stage name
+  is built.
+
 ## Run the prototype
 
 ```sh

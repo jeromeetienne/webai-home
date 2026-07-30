@@ -92,7 +92,7 @@ export class StageLlmQwen3_0_6bHelper {
 	 * stage name, so a pipeline may name its shard stages anything as long as it lists three
 	 * of them in shard order.
 	 */
-	static readonly computation = "llm_shard";
+	static readonly computation = "llm_qwen3_0_6b_shard";
 
 	/** How many shards this browser can run, which is how many the loaded model was split into. */
 	static readonly shardCount = 3;

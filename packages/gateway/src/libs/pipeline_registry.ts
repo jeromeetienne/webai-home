@@ -63,10 +63,10 @@ export class PipelineRegistry {
  */
 export const builtinPipelineSpecifications: PipelineSpecification[] = [
   {
-    pipelineId: "formula", version: 1, taskType: "task_type_formula",
+    pipelineId: "dev_formula", version: 1, taskType: "task_type_dev_formula",
     stages: [
-      { name: "stage_formula_multiply", computation: "formula_multiply", inputSchemaId: "number@1", outputSchemaId: "number@1", encoding: "inline-json" },
-      { name: "stage_formula_add", computation: "formula_add", inputSchemaId: "number@1", outputSchemaId: "number@1", encoding: "inline-json" },
+      { name: "stage_dev_formula_multiply", computation: "dev_formula_multiply", inputSchemaId: "number@1", outputSchemaId: "number@1", encoding: "inline-json" },
+      { name: "stage_dev_formula_add", computation: "dev_formula_add", inputSchemaId: "number@1", outputSchemaId: "number@1", encoding: "inline-json" },
     ],
   },
   {
@@ -75,11 +75,11 @@ export const builtinPipelineSpecifications: PipelineSpecification[] = [
     // the worker keeps its key-value cache in memory between rounds instead of sending it
     // over the connection; that is what prefersSameWorkerOnRetry protects when an attempt is
     // retried.
-    pipelineId: "llm", version: 1, taskType: "task_type_llm", repeatsUntilDone: true,
+    pipelineId: "llm_qwen3_0_6b_sharded", version: 1, taskType: "task_type_llm_qwen3_0_6b_sharded", repeatsUntilDone: true,
     stages: [
-      { name: "stage_llm_qwen3_0_6b_shard1on3", computation: "llm_shard", inputSchemaId: "llm@1", outputSchemaId: "llm@1", encoding: "inline-json", prefersSameWorkerOnRetry: true },
-      { name: "stage_llm_qwen3_0_6b_shard2on3", computation: "llm_shard", inputSchemaId: "llm@1", outputSchemaId: "llm@1", encoding: "inline-json", prefersSameWorkerOnRetry: true },
-      { name: "stage_llm_qwen3_0_6b_shard3on3", computation: "llm_shard", inputSchemaId: "llm@1", outputSchemaId: "llm@1", encoding: "inline-json", prefersSameWorkerOnRetry: true },
+      { name: "stage_llm_qwen3_0_6b_shard1of3", computation: "llm_qwen3_0_6b_shard", inputSchemaId: "llm@1", outputSchemaId: "llm@1", encoding: "inline-json", prefersSameWorkerOnRetry: true },
+      { name: "stage_llm_qwen3_0_6b_shard2of3", computation: "llm_qwen3_0_6b_shard", inputSchemaId: "llm@1", outputSchemaId: "llm@1", encoding: "inline-json", prefersSameWorkerOnRetry: true },
+      { name: "stage_llm_qwen3_0_6b_shard3of3", computation: "llm_qwen3_0_6b_shard", inputSchemaId: "llm@1", outputSchemaId: "llm@1", encoding: "inline-json", prefersSameWorkerOnRetry: true },
     ],
   },
 ];

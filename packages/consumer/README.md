@@ -13,7 +13,7 @@ npm run dev --workspace @webai/consumer -- 5
 
 Set the registered consumer name with `--name`, for example:
 
-`npm run dev --workspace @webai/consumer -- --name formula-consumer 5`
+`npm run dev --workspace @webai/consumer -- --name dev-formula-consumer 5`
 ```
 
 Use `--url` to connect to another WebSocket endpoint:
@@ -22,10 +22,10 @@ Use `--url` to connect to another WebSocket endpoint:
 npm run dev --workspace @webai/consumer -- 5 --url ws://localhost:9000
 ```
 
-Use `-t/--type` to choose the task type — `formula` (default, numeric input) or `llm` (free-text input, not runnable yet):
+Use `-t/--type` to choose the task type — `dev_formula` (default, numeric input) or `llm_qwen3_0_6b_sharded` (free-text input):
 
 ```sh
-npm run dev --workspace @webai/consumer -- "hello there" --type llm
+npm run dev --workspace @webai/consumer -- "hello there" --type llm_qwen3_0_6b_sharded
 ```
 
 ## Web page

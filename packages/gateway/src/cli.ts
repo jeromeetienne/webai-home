@@ -359,7 +359,7 @@ function scheduleQueuedTasks(): void {
 			continue;
 		}
 		const stage = TaskStore.nextStage(task);
-		if (stage) assign(task.taskId, task.completedStages.at(-1)?.value ?? (task.input.taskType === "task_type_llm" ? StagePayloadFactory.llmPrompt(task.input.input) : StagePayloadFactory.formula(task.input.input)), stage);
+		if (stage) assign(task.taskId, task.completedStages.at(-1)?.value ?? (task.input.taskType === "task_type_llm_qwen3_0_6b_sharded" ? StagePayloadFactory.llmPrompt(task.input.input) : StagePayloadFactory.formula(task.input.input)), stage);
 	}
 }
 
@@ -607,7 +607,7 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage, req
 			task: TaskProjection.snapshot(task),
 		}, counterpartFor(deviceId), requestFrameId);
 		const stage = TaskStore.nextStage(task);
-		if (stage) assign(task.taskId, message.input.taskType === "task_type_llm" ? StagePayloadFactory.llmPrompt(message.input.input) : StagePayloadFactory.formula(message.input.input), stage);
+		if (stage) assign(task.taskId, message.input.taskType === "task_type_llm_qwen3_0_6b_sharded" ? StagePayloadFactory.llmPrompt(message.input.input) : StagePayloadFactory.formula(message.input.input), stage);
 		return;
 	}
 
@@ -761,7 +761,7 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage, req
 			// key-value cache and hand-off tensors this device already holds in memory.
 			// The formula pipeline instead prefers handing the next stage to a different
 			// device, to demonstrate multiple workers cooperating on one task.
-			const excluded = updated.input.taskType === "task_type_llm" ? [] : [deviceId];
+			const excluded = updated.input.taskType === "task_type_llm_qwen3_0_6b_sharded" ? [] : [deviceId];
 			assign(updated.taskId, message.value, upcoming, excluded);
 		} else {
 			const completed = taskStore.update(updated.taskId, {
@@ -849,8 +849,8 @@ const pageRoutes: Record<string, string> = {
 	"/monitor": "monitor/index.html",
 	"/debug": "debug/index.html",
 	"/debug_iframe": "debug_iframe/index.html",
-	"/debug_iframe_formula": "debug_iframe_formula/index.html",
-	"/debug_iframe_llm": "debug_iframe_llm/index.html",
+	"/debug_iframe_dev_formula": "debug_iframe_dev_formula/index.html",
+	"/debug_iframe_llm_qwen3_0_6b_sharded": "debug_iframe_llm_qwen3_0_6b_sharded/index.html",
 };
 const assetContentTypeByExtension: Record<string, string> = {
 	".js": "application/javascript; charset=utf-8",
