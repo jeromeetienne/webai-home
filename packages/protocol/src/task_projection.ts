@@ -1,4 +1,4 @@
-import { maximumSnapshotEventCount, type Task, type TaskSnapshot, type TaskUpdate, type TaskUpdateAssignment } from "./index.js";
+import { maximumSnapshotEventCount, type Task, type TaskSnapshot, type TaskUpdate, type TaskUpdateAssignment } from './index.js';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -55,7 +55,7 @@ export class TaskProjection {
 	 * @param assignment - The stored assignment.
 	 * @returns The assignment identity without the stage input value.
 	 */
-	private static _assignment(assignment: Task["assignment"] & {}): TaskUpdateAssignment {
+	private static _assignment(assignment: Task['assignment'] & {}): TaskUpdateAssignment {
 		const { value: _value, ...identity } = assignment;
 		return identity;
 	}

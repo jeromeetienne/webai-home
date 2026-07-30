@@ -1,4 +1,4 @@
-import { protocolVersion, supportedProtocolVersions, type ClientMessage, type GatewayEnvelope, type GatewayMessage } from "./index.js";
+import { protocolVersion, supportedProtocolVersions, type ClientMessage, type GatewayEnvelope, type GatewayMessage } from './index.js';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -67,9 +67,9 @@ export class Envelope {
 	 * @returns `true` when the value carries a message type but no wrapper.
 	 */
 	static isUnwrappedMessage(value: unknown): boolean {
-		if (typeof value !== "object" || value === null) return false;
+		if (typeof value !== 'object' || value === null) return false;
 		const record = value as Record<string, unknown>;
-		return typeof record.type === "string" && record.body === undefined;
+		return typeof record.type === 'string' && record.body === undefined;
 	}
 
 	/** Generates one frame identifier. */

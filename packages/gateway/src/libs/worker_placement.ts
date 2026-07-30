@@ -1,6 +1,6 @@
-import type { Device, StageName, Task } from "@webai/protocol";
-import type { DeviceRegistry } from "./device_registry.js";
-import type { StagePolicy } from "./stage_policy_resolver.js";
+import type { Device, StageName, Task } from '@webai/protocol';
+import type { DeviceRegistry } from './device_registry.js';
+import type { StagePolicy } from './stage_policy_resolver.js';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -75,8 +75,8 @@ export class WorkerPlacement {
 	 */
 	static reusableWorker(deviceRegistry: DeviceRegistry, workerDeviceId: string, stage: StageName, releaseState: AssignmentReleaseState): Device | undefined {
 		const device = deviceRegistry.get(workerDeviceId);
-		if (device === undefined || device.deviceRole !== "worker") return undefined;
-		if (device.workerState === "draining" || device.ready === false) return undefined;
+		if (device === undefined || device.deviceRole !== 'worker') return undefined;
+		if (device.workerState === 'draining' || device.ready === false) return undefined;
 		if (device.stageNames.includes(stage) === false) return undefined;
 		const activeAssignments = releaseState.isPreviousAssignmentReleased
 			? (device.activeAssignments ?? 0)

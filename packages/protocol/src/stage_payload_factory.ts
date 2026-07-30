@@ -1,4 +1,10 @@
-import type { EncodedTensor, LlmStagePayload, StagePayload, TaskInput } from "./index.js";
+import type { EncodedTensor, LlmStagePayload, StagePayload, TaskInput } from './index.js';
+
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+//	StagePayloadFactory — builds the value a pipeline stage starts from
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
 
 /**
  * Builds the `StagePayload` values carried by `stage.assign`/`stage.result` messages, so
@@ -18,7 +24,7 @@ export class StagePayloadFactory {
 	 * @returns The stage payload to assign to the task's first stage.
 	 */
 	static initial(input: TaskInput): StagePayload {
-		if (input.taskType === "task_type_dev_formula") return StagePayloadFactory.formula(input.input);
+		if (input.taskType === 'task_type_dev_formula') return StagePayloadFactory.formula(input.input);
 		return StagePayloadFactory.llmPrompt(input.input);
 	}
 

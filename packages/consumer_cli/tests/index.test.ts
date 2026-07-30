@@ -1,36 +1,42 @@
-import assert from "node:assert/strict";
-import test from "node:test";
-import { MainHelper } from "../src/cli.js";
-import { ConsumerClient, createTaskInput, isTaskTypeName, taskTypeNames, type TaskSocket } from "../src/libs/consumer_client.js";
-import { protocolVersion } from "@webai/protocol";
+import Assert from 'node:assert/strict';
+import Test from 'node:test';
+import { ConsumerClient, type TaskSocket } from '../src/libs/consumer_client.js';
+import { TaskInputFactory, taskTypeNames } from '../src/libs/task_input_factory.js';
+import { protocolVersion } from '@webai/protocol';
 
-test("parses finite numeric input", () => {
-	assert.equal(MainHelper.parseInputFormula("12.5"), 12.5);
-	assert.equal(MainHelper.parseInputFormula("-3"), -3);
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+//	Tests for the consumer command line package
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+Test('parses finite numeric input', () => {
+	Assert.equal(TaskInputFactory.createTaskInput('dev_formula', '12.5').input, 12.5);
+	Assert.equal(TaskInputFactory.createTaskInput('dev_formula', '-3').input, -3);
 });
 
-test("rejects missing or non-finite input", () => {
-	assert.throws(() => MainHelper.parseInputFormula(undefined), /Input must be a finite number/);
-	assert.throws(() => MainHelper.parseInputFormula("not-a-number"), /Input must be a finite number/);
-	assert.throws(() => MainHelper.parseInputFormula("Infinity"), /Input must be a finite number/);
+Test('rejects missing or non-finite input', () => {
+	Assert.throws(() => TaskInputFactory.createTaskInput('dev_formula', undefined), /Input must be a finite number/);
+	Assert.throws(() => TaskInputFactory.createTaskInput('dev_formula', 'not-a-number'), /Input must be a finite number/);
+	Assert.throws(() => TaskInputFactory.createTaskInput('dev_formula', 'Infinity'), /Input must be a finite number/);
 });
 
-test("validates large-language-model input", () => {
-	assert.equal(MainHelper.parseInputLLM(" hello "), " hello ");
-	assert.throws(() => MainHelper.parseInputLLM("  "), /Input must be a non-empty string/);
+Test('validates large-language-model input', () => {
+	Assert.equal(TaskInputFactory.createTaskInput('llm_qwen3_0_6b_sharded', ' hello ').input, ' hello ');
+	Assert.throws(() => TaskInputFactory.createTaskInput('llm_qwen3_0_6b_sharded', '  '), /Input must be a non-empty string/);
 });
 
-test("builds the task input for every task type a consumer may submit", () => {
-	assert.deepEqual(taskTypeNames, ["dev_formula", "llm_qwen3_0_6b_sharded", "llm_gemma_nano_chrome_full"]);
-	assert.equal(isTaskTypeName("llm_gemma_nano_chrome_full"), true);
-	assert.equal(isTaskTypeName("task_type_llm_gemma_nano_chrome_full"), false);
-	assert.deepEqual(createTaskInput("dev_formula", "5"), { taskType: "task_type_dev_formula", input: 5 });
-	assert.deepEqual(createTaskInput("llm_qwen3_0_6b_sharded", "hello"), { taskType: "task_type_llm_qwen3_0_6b_sharded", input: "hello" });
-	assert.deepEqual(createTaskInput("llm_gemma_nano_chrome_full", "hello"), { taskType: "task_type_llm_gemma_nano_chrome_full", input: "hello" });
-	assert.throws(() => createTaskInput("llm_gemma_nano_chrome_full", "  "), /Input must be a non-empty string/);
+Test('builds the task input for every task type a consumer may submit', () => {
+	Assert.deepEqual(taskTypeNames, ['dev_formula', 'llm_qwen3_0_6b_sharded', 'llm_gemma_nano_chrome_full']);
+	Assert.equal(TaskInputFactory.isTaskTypeName('llm_gemma_nano_chrome_full'), true);
+	Assert.equal(TaskInputFactory.isTaskTypeName('task_type_llm_gemma_nano_chrome_full'), false);
+	Assert.deepEqual(TaskInputFactory.createTaskInput('dev_formula', '5'), { taskType: 'task_type_dev_formula', input: 5 });
+	Assert.deepEqual(TaskInputFactory.createTaskInput('llm_qwen3_0_6b_sharded', 'hello'), { taskType: 'task_type_llm_qwen3_0_6b_sharded', input: 'hello' });
+	Assert.deepEqual(TaskInputFactory.createTaskInput('llm_gemma_nano_chrome_full', 'hello'), { taskType: 'task_type_llm_gemma_nano_chrome_full', input: 'hello' });
+	Assert.throws(() => TaskInputFactory.createTaskInput('llm_gemma_nano_chrome_full', '  '), /Input must be a non-empty string/);
 });
 
-test("registers and submits through the shared client", () => {
+Test('registers and submits through the shared client', () => {
 	const sent: string[] = [];
 	const socket: TaskSocket = {
 		readyState: 1,
@@ -45,27 +51,27 @@ test("registers and submits through the shared client", () => {
 	/** Reads one frame this client sent, and checks the wrapper it travelled in. */
 	const sentFrame = (index: number): { v: number; id: string; ts: string; body: Record<string, unknown> } => {
 		const frame = JSON.parse(sent[index]) as { v: number; id: string; ts: string; body: Record<string, unknown> };
-		assert.equal(frame.v, protocolVersion);
-		assert.ok(frame.id.length > 0);
-		assert.ok(Number.isFinite(Date.parse(frame.ts)));
+		Assert.equal(frame.v, protocolVersion);
+		Assert.ok(frame.id.length > 0);
+		Assert.ok(Number.isFinite(Date.parse(frame.ts)));
 		return frame;
 	};
 	/** Wraps a gateway message the way the gateway does, so the client can read it. */
 	const gatewayFrame = (body: unknown, inReplyTo?: string): string =>
 		JSON.stringify({ v: protocolVersion, id: `message-${Math.random()}`, ts: new Date().toISOString(), ...(inReplyTo === undefined ? {} : { inReplyTo }), body });
 
-	const client = new ConsumerClient(socket, {}, "formula-consumer");
+	const client = new ConsumerClient(socket, {}, 'formula-consumer');
 	socket.onopen?.();
 	const authenticateFrame = sentFrame(0);
-	assert.deepEqual(authenticateFrame.body, { type: "authenticate", token: "development-token" });
-	socket.onmessage?.({ data: gatewayFrame({ type: "authenticated", principal: "principal-development", expiresAt: "2026-01-01T01:00:00.000Z" }, authenticateFrame.id) });
+	Assert.deepEqual(authenticateFrame.body, { type: 'authenticate', token: 'development-token' });
+	socket.onmessage?.({ data: gatewayFrame({ type: 'authenticated', principal: 'principal-development', expiresAt: '2026-01-01T01:00:00.000Z' }, authenticateFrame.id) });
 	const registerFrame = sentFrame(1);
-	assert.deepEqual(registerFrame.body, { type: "register", role: "consumer", name: "formula-consumer" });
-	socket.onmessage?.({ data: gatewayFrame({ type: "registered", deviceId: "device-1" }, registerFrame.id) });
-	client.submit({ taskType: "task_type_dev_formula", input: 5 }, "request-formula-1");
+	Assert.deepEqual(registerFrame.body, { type: 'register', role: 'consumer', name: 'formula-consumer' });
+	socket.onmessage?.({ data: gatewayFrame({ type: 'registered', deviceId: 'device-1' }, registerFrame.id) });
+	client.submit({ taskType: 'task_type_dev_formula', input: 5 }, 'request-formula-1');
 	const submitFrame = sentFrame(2);
-	assert.deepEqual(submitFrame.body, { type: "task.submit", requestId: "request-formula-1", input: { taskType: "task_type_dev_formula", input: 5 } });
+	Assert.deepEqual(submitFrame.body, { type: 'task.submit', requestId: 'request-formula-1', input: { taskType: 'task_type_dev_formula', input: 5 } });
 	// Each frame carries its own identifier, so two requests of the same kind can be told apart.
-	assert.notEqual(authenticateFrame.id, registerFrame.id);
-	assert.notEqual(registerFrame.id, submitFrame.id);
+	Assert.notEqual(authenticateFrame.id, registerFrame.id);
+	Assert.notEqual(registerFrame.id, submitFrame.id);
 });

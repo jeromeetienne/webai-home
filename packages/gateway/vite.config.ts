@@ -1,18 +1,18 @@
-import { resolve } from "node:path";
-import { defineConfig } from "vite";
+import Path from 'node:path';
+import { defineConfig } from 'vite';
 
 export default defineConfig({
-	root: resolve(import.meta.dirname, "web"),
+	root: Path.resolve(import.meta.dirname, 'web'),
 	build: {
 		rollupOptions: {
 			input: {
-				home: resolve(import.meta.dirname, "web/home/index.html"),
-				monitor: resolve(import.meta.dirname, "web/monitor/index.html"),
-				debug: resolve(import.meta.dirname, "web/debug/index.html"),
-				debugIframe: resolve(import.meta.dirname, "web/debug_iframe/index.html"),
-				debugIframeDevFormula: resolve(import.meta.dirname, "web/debug_iframe_dev_formula/index.html"),
-				debugIframeLlmQwen3_0_6bSharded: resolve(import.meta.dirname, "web/debug_iframe_llm_qwen3_0_6b_sharded/index.html"),
-				debugIframeLlmGemmaNanoChromeFull: resolve(import.meta.dirname, "web/debug_iframe_llm_gemma_nano_chrome_full/index.html"),
+				home: Path.resolve(import.meta.dirname, 'web/home/index.html'),
+				monitor: Path.resolve(import.meta.dirname, 'web/monitor/index.html'),
+				debug: Path.resolve(import.meta.dirname, 'web/debug/index.html'),
+				debugIframe: Path.resolve(import.meta.dirname, 'web/debug_iframe/index.html'),
+				debugIframeDevFormula: Path.resolve(import.meta.dirname, 'web/debug_iframe_dev_formula/index.html'),
+				debugIframeLlmQwen3_0_6bSharded: Path.resolve(import.meta.dirname, 'web/debug_iframe_llm_qwen3_0_6b_sharded/index.html'),
+				debugIframeLlmGemmaNanoChromeFull: Path.resolve(import.meta.dirname, 'web/debug_iframe_llm_gemma_nano_chrome_full/index.html'),
 			},
 		},
 	},

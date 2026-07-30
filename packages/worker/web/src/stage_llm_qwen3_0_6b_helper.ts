@@ -1,7 +1,13 @@
-import * as OnnxRuntimeWeb from "onnxruntime-web";
-import { Tokenizer } from "@huggingface/tokenizers";
-import { StagePayloadFactory, type EncodedTensor, type LlmStagePayload } from "@webai/protocol";
-import { centralGatewayAssetUrl } from "./gateway_config";
+import * as OnnxRuntimeWeb from 'onnxruntime-web';
+import { Tokenizer } from '@huggingface/tokenizers';
+import { StagePayloadFactory, type EncodedTensor, type LlmStagePayload } from '@webai/protocol';
+import { GatewayConfig } from './gateway_config';
+
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+//	StageLlmQwen3_0_6bHelper — runs one Qwen3-0.6B shard stage in a worker browser
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
 
 /**
  * Adapts the proven shard-loading and tensor-handling logic from
@@ -19,19 +25,19 @@ import { centralGatewayAssetUrl } from "./gateway_config";
  */
 
 /** Hugging Face identifier for the Qwen3 model used by this experiment. */
-const MODEL_ID = "onnx-community/Qwen3-0.6B-ONNX";
+const MODEL_ID = 'onnx-community/Qwen3-0.6B-ONNX';
 /** URLs for the three shards, served by the dev-only route added to packages/gateway/src/cli.ts. */
 const SHARD_URLS = [
-	centralGatewayAssetUrl("/onnxruntime_qwen3-0.6b-with-shards/shards/shard-1.onnx"),
-	centralGatewayAssetUrl("/onnxruntime_qwen3-0.6b-with-shards/shards/shard-2.onnx"),
-	centralGatewayAssetUrl("/onnxruntime_qwen3-0.6b-with-shards/shards/shard-3.onnx"),
+	GatewayConfig.assetUrl('/onnxruntime_qwen3-0.6b-with-shards/shards/shard-1.onnx'),
+	GatewayConfig.assetUrl('/onnxruntime_qwen3-0.6b-with-shards/shards/shard-2.onnx'),
+	GatewayConfig.assetUrl('/onnxruntime_qwen3-0.6b-with-shards/shards/shard-3.onnx'),
 ] as const;
 /** Direct URL for the tokenizer vocabulary and merge configuration. */
 const TOKENIZER_URL = `https://huggingface.co/${MODEL_ID}/resolve/main/tokenizer.json`;
 /** Direct URL for the tokenizer settings. */
 const TOKENIZER_CONFIG_URL = `https://huggingface.co/${MODEL_ID}/resolve/main/tokenizer_config.json`;
 /** IndexedDB database name for the downloaded model. */
-const MODEL_CACHE_NAME = "onnxruntime-qwen3-models";
+const MODEL_CACHE_NAME = 'onnxruntime-qwen3-models';
 /** IndexedDB schema version for the model cache. */
 const MODEL_CACHE_VERSION = 2;
 /** End-of-sequence token identifier used to stop generation. */
@@ -46,17 +52,17 @@ type ShardSession = OnnxRuntimeWeb.InferenceSession;
 const SHARD_BOUNDARIES = [
 	undefined,
 	{
-		normalized: "/model/layers.9/input_layernorm/output_0",
-		residual: "/model/layers.9/input_layernorm/output_3",
+		normalized: '/model/layers.9/input_layernorm/output_0',
+		residual: '/model/layers.9/input_layernorm/output_3',
 	},
 	{
-		normalized: "/model/layers.19/input_layernorm/output_0",
-		residual: "/model/layers.19/input_layernorm/output_3",
+		normalized: '/model/layers.19/input_layernorm/output_0',
+		residual: '/model/layers.19/input_layernorm/output_3',
 	},
 ] as const;
 
 /** Maps an ONNX Runtime tensor type to the typed-array constructor backing its data. */
-const TYPED_ARRAY_BY_ONNX_TYPE: Record<string, new (buffer: ArrayBuffer) => OnnxRuntimeWeb.Tensor.DataType> = {
+const TYPED_ARRAY_BY_ONNX_TYPE: Record<string, (new (buffer: ArrayBuffer) => OnnxRuntimeWeb.Tensor.DataType) | undefined> = {
 	float32: Float32Array,
 	float64: Float64Array,
 	int64: BigInt64Array as unknown as new (buffer: ArrayBuffer) => OnnxRuntimeWeb.Tensor.DataType,
@@ -71,16 +77,16 @@ const TYPED_ARRAY_BY_ONNX_TYPE: Record<string, new (buffer: ArrayBuffer) => Onnx
 	bool: Uint8Array,
 };
 
-OnnxRuntimeWeb.env.wasm.wasmPaths = "/assets/";
-OnnxRuntimeWeb.env.logLevel = "fatal";
+OnnxRuntimeWeb.env.wasm.wasmPaths = '/assets/';
+OnnxRuntimeWeb.env.logLevel = 'fatal';
 
 /** Per-task generation state kept in memory for as long as that task's shards run on this device. */
-interface TaskGenerationState {
+type TaskGenerationState = {
 	/** Each shard's own key-value cache from its most recent run, reused on its next run. */
 	caches: Array<TensorMap | undefined>;
 	/** Token identifiers generated so far, in order. */
 	generatedIds: number[];
-}
+};
 
 /** Loads the qwen3-0.6b shards and runs the assigned shard for each stage of a task's generation loop. */
 export class StageLlmQwen3_0_6bHelper {
@@ -92,7 +98,7 @@ export class StageLlmQwen3_0_6bHelper {
 	 * stage name, so a pipeline may name its shard stages anything as long as it lists three
 	 * of them in shard order.
 	 */
-	static readonly computation = "llm_qwen3_0_6b_shard";
+	static readonly computation = 'llm_qwen3_0_6b_shard';
 
 	/** How many shards this browser can run, which is how many the loaded model was split into. */
 	static readonly shardCount = 3;
@@ -129,29 +135,29 @@ export class StageLlmQwen3_0_6bHelper {
 		if (shardIndex < 0 || shardIndex >= StageLlmQwen3_0_6bHelper.shardCount) throw new Error(`This browser runs ${StageLlmQwen3_0_6bHelper.shardCount} language-model shards and was asked for shard ${shardIndex + 1}.`);
 		await StageLlmQwen3_0_6bHelper.loadModel([shardIndex]);
 		const session = StageLlmQwen3_0_6bHelper.shardSessions[shardIndex];
-		if (!session) throw new Error(`LLM shard ${shardIndex + 1} was not loaded.`);
+		if (session === undefined) throw new Error(`LLM shard ${shardIndex + 1} was not loaded.`);
 		const isFirstShard = shardIndex === 0;
 		const isFirstRound = isFirstShard && payload.inputIds === undefined;
 		const state = isFirstRound
 			? StageLlmQwen3_0_6bHelper.startTask(taskId)
 			: (StageLlmQwen3_0_6bHelper.stateByTaskId.get(taskId) ?? StageLlmQwen3_0_6bHelper.startTask(taskId));
 
-		const inputIds = isFirstRound ? StageLlmQwen3_0_6bHelper.encodePrompt(payload.text ?? "") : (payload.inputIds ?? []);
+		const inputIds = isFirstRound ? StageLlmQwen3_0_6bHelper.encodePrompt(payload.text ?? '') : (payload.inputIds ?? []);
 		const position = payload.position ?? 0;
 		const boundary = payload.tensors ? StageLlmQwen3_0_6bHelper.decodeBoundary(payload.tensors) : undefined;
 
 		const outputs = await session.run(StageLlmQwen3_0_6bHelper.buildFeeds(session, inputIds, position, state.caches[shardIndex], boundary));
 		state.caches[shardIndex] = Object.fromEntries(
 			Object.entries(outputs)
-				.filter(([name]) => name.startsWith("present."))
-				.map(([name, value]) => [name.replace("present", "past_key_values"), value]),
+				.filter(([name]) => name.startsWith('present.'))
+				.map(([name, value]) => [name.replace('present', 'past_key_values'), value]),
 		);
 
 		const isLastShard = shardIndex === StageLlmQwen3_0_6bHelper.shardCount - 1;
 		if (isLastShard) {
 			const nextToken = StageLlmQwen3_0_6bHelper.getNextToken(StageLlmQwen3_0_6bHelper.findLogits(session, outputs));
 			state.generatedIds.push(nextToken);
-			const text = StageLlmQwen3_0_6bHelper.tokenizer?.decode(state.generatedIds, { skip_special_tokens: true }).trim() ?? "";
+			const text = StageLlmQwen3_0_6bHelper.tokenizer?.decode(state.generatedIds, { skip_special_tokens: true }).trim() ?? '';
 			const done = nextToken === EOS_TOKEN_ID || state.generatedIds.length >= MAX_NEW_TOKENS;
 			if (done) {
 				StageLlmQwen3_0_6bHelper.clearTask(taskId);
@@ -161,7 +167,7 @@ export class StageLlmQwen3_0_6bHelper {
 		}
 
 		const boundaryNames = SHARD_BOUNDARIES[shardIndex + 1];
-		if (!boundaryNames) throw new Error(`Missing boundary definition after shard ${shardIndex + 1}.`);
+		if (boundaryNames === undefined) throw new Error(`Missing boundary definition after shard ${shardIndex + 1}.`);
 		return StagePayloadFactory.llmHandoff(
 			{
 				[boundaryNames.normalized]: StageLlmQwen3_0_6bHelper.encodeTensor(outputs[boundaryNames.normalized]),
@@ -210,14 +216,14 @@ export class StageLlmQwen3_0_6bHelper {
 		if (shardIndexes.every((shardIndex) => StageLlmQwen3_0_6bHelper.shardSessions[shardIndex]) && StageLlmQwen3_0_6bHelper.tokenizer) return;
 		if (StageLlmQwen3_0_6bHelper.loadPromise) return StageLlmQwen3_0_6bHelper.loadPromise;
 
-		const hasWebGPU = "gpu" in navigator;
+		const hasWebGPU = 'gpu' in navigator;
 		StageLlmQwen3_0_6bHelper.loadPromise = Promise.all([
 			fetch(TOKENIZER_URL).then(async (response) => {
-				if (!response.ok) throw new Error(`Tokenizer download failed (${response.status}).`);
+				if (response.ok === false) throw new Error(`Tokenizer download failed (${response.status}).`);
 				return response.json();
 			}),
 			fetch(TOKENIZER_CONFIG_URL).then(async (response) => {
-				if (!response.ok) throw new Error(`Tokenizer configuration download failed (${response.status}).`);
+				if (response.ok === false) throw new Error(`Tokenizer configuration download failed (${response.status}).`);
 				return response.json();
 			}),
 			...shardIndexes.map((shardIndex) => StageLlmQwen3_0_6bHelper.fetchModelBytes(SHARD_URLS[shardIndex])),
@@ -225,8 +231,8 @@ export class StageLlmQwen3_0_6bHelper {
 			StageLlmQwen3_0_6bHelper.tokenizer = new Tokenizer(tokenizerJson, tokenizerConfig);
 			for (const [shardOffset, bytes] of shardBytes.entries()) {
 				StageLlmQwen3_0_6bHelper.shardSessions[shardIndexes[shardOffset]] = await OnnxRuntimeWeb.InferenceSession.create(bytes, {
-					executionProviders: hasWebGPU ? ["webgpu", "wasm"] : ["wasm"],
-					graphOptimizationLevel: "all",
+					executionProviders: hasWebGPU ? ['webgpu', 'wasm'] : ['wasm'],
+					graphOptimizationLevel: 'all',
 				});
 			}
 		}).catch((error: unknown) => {
@@ -241,10 +247,10 @@ export class StageLlmQwen3_0_6bHelper {
 		return new Promise((resolve, reject) => {
 			const request = indexedDB.open(MODEL_CACHE_NAME, MODEL_CACHE_VERSION);
 			request.onupgradeneeded = () => {
-				if (!request.result.objectStoreNames.contains("models")) request.result.createObjectStore("models");
+				if (request.result.objectStoreNames.contains('models') === false) request.result.createObjectStore('models');
 			};
 			request.onsuccess = () => resolve(request.result);
-			request.onerror = () => reject(request.error ?? new Error("Could not open the model cache."));
+			request.onerror = () => reject(request.error ?? new Error('Could not open the model cache.'));
 		});
 	}
 
@@ -253,9 +259,9 @@ export class StageLlmQwen3_0_6bHelper {
 		try {
 			const database = await StageLlmQwen3_0_6bHelper.openModelDatabase();
 			return await new Promise<ArrayBuffer | undefined>((resolve, reject) => {
-				const request = database.transaction("models", "readonly").objectStore("models").get(cacheKey);
+				const request = database.transaction('models', 'readonly').objectStore('models').get(cacheKey);
 				request.onsuccess = () => resolve(request.result as ArrayBuffer | undefined);
-				request.onerror = () => reject(request.error ?? new Error("Could not read the model cache."));
+				request.onerror = () => reject(request.error ?? new Error('Could not read the model cache.'));
 			}).finally(() => database.close());
 		} catch {
 			return undefined;
@@ -267,10 +273,10 @@ export class StageLlmQwen3_0_6bHelper {
 		try {
 			const database = await StageLlmQwen3_0_6bHelper.openModelDatabase();
 			await new Promise<void>((resolve, reject) => {
-				const transaction = database.transaction("models", "readwrite");
-				transaction.objectStore("models").put(model, cacheKey);
+				const transaction = database.transaction('models', 'readwrite');
+				transaction.objectStore('models').put(model, cacheKey);
 				transaction.oncomplete = () => resolve();
-				transaction.onerror = () => reject(transaction.error ?? new Error("Could not write the model cache."));
+				transaction.onerror = () => reject(transaction.error ?? new Error('Could not write the model cache.'));
 			}).finally(() => database.close());
 		} catch {
 			// Caching is a speed optimization only; a failed write should not block inference.
@@ -282,7 +288,7 @@ export class StageLlmQwen3_0_6bHelper {
 		const cached = await StageLlmQwen3_0_6bHelper.readCachedModel(url);
 		if (cached) return cached;
 		const response = await fetch(url);
-		if (!response.ok) throw new Error(`Shard download failed (${response.status}).`);
+		if (response.ok === false) throw new Error(`Shard download failed (${response.status}).`);
 		const bytes = await response.arrayBuffer();
 		await StageLlmQwen3_0_6bHelper.cacheModel(bytes, url);
 		return bytes;
@@ -290,7 +296,7 @@ export class StageLlmQwen3_0_6bHelper {
 
 	/** Encodes a prompt with the Qwen3 chat template and returns its token identifiers. */
 	private static encodePrompt(prompt: string): number[] {
-		if (!StageLlmQwen3_0_6bHelper.tokenizer) throw new Error("The tokenizer is not loaded.");
+		if (StageLlmQwen3_0_6bHelper.tokenizer === undefined) throw new Error('The tokenizer is not loaded.');
 		const formattedPrompt = `<|im_start|>user\n${prompt}<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n`;
 		return StageLlmQwen3_0_6bHelper.tokenizer.encode(formattedPrompt).ids;
 	}
@@ -298,21 +304,21 @@ export class StageLlmQwen3_0_6bHelper {
 	/** Builds the inputs for one shard call, reusing that shard's own key-value cache from its previous round when available. */
 	private static buildFeeds(session: ShardSession, inputIds: number[], position: number, cache: TensorMap | undefined, boundary: TensorMap | undefined): TensorMap {
 		const feeds: TensorMap = {
-			input_ids: new OnnxRuntimeWeb.Tensor("int64", BigInt64Array.from(inputIds, BigInt), [1, inputIds.length]),
+			input_ids: new OnnxRuntimeWeb.Tensor('int64', BigInt64Array.from(inputIds, BigInt), [1, inputIds.length]),
 			attention_mask: new OnnxRuntimeWeb.Tensor(
-				"int64",
+				'int64',
 				BigInt64Array.from({ length: position + inputIds.length }, () => 1n),
 				[1, position + inputIds.length],
 			),
 			position_ids: new OnnxRuntimeWeb.Tensor(
-				"int64",
+				'int64',
 				BigInt64Array.from(inputIds, (_, index) => BigInt(position + index)),
 				[1, inputIds.length],
 			),
 		};
 		if (boundary) Object.assign(feeds, boundary);
-		for (const name of session.inputNames.filter((inputName) => inputName.startsWith("past_key_values."))) {
-			feeds[name] = cache?.[name] ?? new OnnxRuntimeWeb.Tensor("float16", new Uint16Array(0), [1, 8, 0, 128]);
+		for (const name of session.inputNames.filter((inputName) => inputName.startsWith('past_key_values.'))) {
+			feeds[name] = cache?.[name] ?? new OnnxRuntimeWeb.Tensor('float16', new Uint16Array(0), [1, 8, 0, 128]);
 		}
 		return feeds;
 	}
@@ -336,9 +342,9 @@ export class StageLlmQwen3_0_6bHelper {
 
 	/** Finds the logits tensor among a shard's outputs. */
 	private static findLogits(session: ShardSession, outputs: TensorMap): OnnxRuntimeWeb.Tensor {
-		const logitsName = session.outputNames.find((name) => name === "logits" || name.endsWith(".logits"));
+		const logitsName = session.outputNames.find((name) => name === 'logits' || name.endsWith('.logits'));
 		const logits = logitsName ? outputs[logitsName] : undefined;
-		if (!logits) throw new Error(`The model did not return logits. Outputs: ${Object.keys(outputs).join(", ")}`);
+		if (logits === undefined) throw new Error(`The model did not return logits. Outputs: ${Object.keys(outputs).join(', ')}`);
 		return logits;
 	}
 
@@ -346,7 +352,7 @@ export class StageLlmQwen3_0_6bHelper {
 	private static encodeTensor(tensor: OnnxRuntimeWeb.Tensor): EncodedTensor {
 		const view = tensor.data as ArrayBufferView;
 		const bytes = new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
-		let binary = "";
+		let binary = '';
 		const chunkSize = 0x8000;
 		for (let offset = 0; offset < bytes.length; offset += chunkSize) {
 			binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
@@ -367,7 +373,7 @@ export class StageLlmQwen3_0_6bHelper {
 		const bytes = new Uint8Array(binary.length);
 		for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
 		const TypedArrayConstructor = TYPED_ARRAY_BY_ONNX_TYPE[encoded.type];
-		if (!TypedArrayConstructor) throw new Error(`Unsupported tensor type for decoding: ${encoded.type}`);
+		if (TypedArrayConstructor === undefined) throw new Error(`Unsupported tensor type for decoding: ${encoded.type}`);
 		const data = new TypedArrayConstructor(bytes.buffer);
 		return new OnnxRuntimeWeb.Tensor(encoded.type as OnnxRuntimeWeb.Tensor.Type, data, encoded.dims);
 	}

@@ -1,17 +1,25 @@
-import type { TimeRangeMs, TimelineEvent } from "./types.js";
+import type { TimeRangeMs, TimelineEvent } from './types.js';
 
-export interface PlaybackSegment {
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+//	PlaybackController — advances the viewer through a capture over time
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+/** The stretch of the visual timeline that one event occupies. */
+export type PlaybackSegment = {
 	event: TimelineEvent;
 	startMs: number;
 	endMs: number;
-}
+};
 
-export interface PlaybackCallbacks {
+/** What the controller reports back as playback advances. */
+export type PlaybackCallbacks = {
 	onSeek: (eventsUpToNow: TimelineEvent[]) => void;
 	onTimeUpdate: (visualTimeMs: number, logTimeMs: number, activeSegment: PlaybackSegment | undefined, packetProgress: number) => void;
 	onPlayStateChange: (isPlaying: boolean) => void;
 	onFinish: () => void;
-}
+};
 
 /**
  * Plays the log on a deliberately expanded visual timeline. Real timestamps still
@@ -56,6 +64,9 @@ export class PlaybackController {
 		this.rafHandle = requestAnimationFrame(this._tick);
 	};
 
+	/**
+	 * @param callbacks What to call as playback advances.
+	 */
 	constructor(callbacks: PlaybackCallbacks) {
 		this.callbacks = callbacks;
 		this.events = [];
@@ -72,6 +83,13 @@ export class PlaybackController {
 		this.playStartVisualMs = 0;
 	}
 
+	/**
+	 * Loads the events to play, and pauses at the start of them.
+	 *
+	 * @param events The events to play, in time order.
+	 * @param _logTimeRangeMs The real time range the events cover, which the expanded visual
+	 * timeline does not use.
+	 */
 	setTimeline(events: TimelineEvent[], _logTimeRangeMs: TimeRangeMs): void {
 		this.pause();
 		this.events = events;
@@ -83,8 +101,13 @@ export class PlaybackController {
 		this._updateAt(this.currentTimeMs);
 	}
 
+	/**
+	 * Changes how long each event takes on the visual timeline, keeping the current position.
+	 *
+	 * @param durationMs How long one event should take, in milliseconds.
+	 */
 	setPacketDuration(durationMs: number): void {
-		if (!Number.isFinite(durationMs) || durationMs <= 0 || durationMs === this.packetDurationMs) return;
+		if (Number.isFinite(durationMs) === false || durationMs <= 0 || durationMs === this.packetDurationMs) return;
 		const oldRatio: number = this.timeRangeMs.toMs > 0 ? this.currentTimeMs / this.timeRangeMs.toMs : 0;
 		this.packetDurationMs = durationMs;
 		this.segments = this._buildSegments(this.events);
@@ -96,14 +119,17 @@ export class PlaybackController {
 		}
 	}
 
+	/** Returns how long each event currently takes on the visual timeline. */
 	getPacketDuration(): number {
 		return this.packetDurationMs;
 	}
 
+	/** Returns how long the whole capture takes on the visual timeline. */
 	getVisualDuration(): number {
 		return this.timeRangeMs.toMs;
 	}
 
+	/** Starts playing, from the beginning again when playback had reached the end. */
 	play(): void {
 		if (this.isPlaying) return;
 		if (this.currentTimeMs >= this.timeRangeMs.toMs) this.seekTo(this.timeRangeMs.fromMs);
@@ -114,6 +140,7 @@ export class PlaybackController {
 		this.rafHandle = requestAnimationFrame(this._tick);
 	}
 
+	/** Stops playing, leaving the current position where it is. */
 	pause(): void {
 		if (this.rafHandle !== undefined) cancelAnimationFrame(this.rafHandle);
 		this.rafHandle = undefined;
@@ -121,16 +148,23 @@ export class PlaybackController {
 		this.isPlaying = false;
 	}
 
+	/** Starts playing when paused, and pauses when playing. */
 	togglePlay(): void {
 		if (this.isPlaying) this.pause();
 		else this.play();
 	}
 
+	/** Stops playing and returns to the start. */
 	stop(): void {
 		this.pause();
 		this.seekTo(this.timeRangeMs.fromMs);
 	}
 
+	/**
+	 * Changes how fast the visual timeline advances.
+	 *
+	 * @param speed The multiple of normal speed to play at.
+	 */
 	setSpeed(speed: number): void {
 		this.speed = speed;
 		if (this.isPlaying) {
@@ -139,10 +173,20 @@ export class PlaybackController {
 		}
 	}
 
+	/**
+	 * Chooses whether playback starts again on reaching the end.
+	 *
+	 * @param looping Whether to start again.
+	 */
 	setLoop(looping: boolean): void {
 		this.isLooping = looping;
 	}
 
+	/**
+	 * Moves to one moment on the visual timeline.
+	 *
+	 * @param visualTimeMs The moment to move to, clamped to the timeline.
+	 */
 	seekTo(visualTimeMs: number): void {
 		this._updateAt(Math.min(Math.max(visualTimeMs, this.timeRangeMs.fromMs), this.timeRangeMs.toMs));
 		if (this.isPlaying) {
@@ -151,10 +195,20 @@ export class PlaybackController {
 		}
 	}
 
+	/**
+	 * Moves forward or back along the visual timeline.
+	 *
+	 * @param offsetMs How far to move, negative to move back.
+	 */
 	seekBy(offsetMs: number): void {
 		this.seekTo(this.currentTimeMs + offsetMs);
 	}
 
+	/**
+	 * Moves to the moment one event begins.
+	 *
+	 * @param event The event to move to. An event not in the capture is ignored.
+	 */
 	seekToEvent(event: TimelineEvent): void {
 		const segment: PlaybackSegment | undefined = this.segments.find((candidate): boolean => candidate.event === event);
 		if (segment !== undefined) this.seekTo(segment.startMs);

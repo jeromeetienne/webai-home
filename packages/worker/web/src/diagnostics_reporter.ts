@@ -1,5 +1,5 @@
-import { maximumDiagnosticEntriesPerBatch, type DiagnosticEntry } from "@webai/protocol";
-import { centralGatewayAssetUrl } from "./gateway_config";
+import { maximumDiagnosticEntriesPerBatch, type DiagnosticEntry } from '@webai/protocol';
+import { GatewayConfig } from './gateway_config';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -80,7 +80,7 @@ export class DiagnosticsReporter {
 	 * @param messageType The message's `type` field.
 	 * @param messageId The identifier of the frame the message travelled in, when known.
 	 */
-	static record(direction: "received" | "sent", messageType: string, messageId?: string): void {
+	static record(direction: 'received' | 'sent', messageType: string, messageId?: string): void {
 		if (DiagnosticsReporter.deviceId === undefined) return;
 		if (DiagnosticsReporter.buffer.length >= maximumBufferedEntries) {
 			DiagnosticsReporter.buffer.shift();
@@ -110,9 +110,9 @@ export class DiagnosticsReporter {
 
 		const entries = DiagnosticsReporter.buffer.splice(0, maximumDiagnosticEntriesPerBatch);
 		try {
-			await fetch(centralGatewayAssetUrl("/diagnostics"), {
-				method: "POST",
-				headers: { "content-type": "application/json", authorization: `Bearer ${authToken}` },
+			await fetch(GatewayConfig.assetUrl('/diagnostics'), {
+				method: 'POST',
+				headers: { 'content-type': 'application/json', authorization: `Bearer ${authToken}` },
 				body: JSON.stringify({ deviceId, entries }),
 				// Diagnostics must not keep the page alive or block anything else it is doing.
 				keepalive: true,

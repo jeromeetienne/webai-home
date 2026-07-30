@@ -1,5 +1,5 @@
-import { z } from "zod";
-import type { LogEntry } from "@webai/protocol/message_logger";
+import { z } from 'zod';
+import type { LogEntry } from '@webai/protocol/message_logger';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -8,10 +8,10 @@ import type { LogEntry } from "@webai/protocol/message_logger";
 ///////////////////////////////////////////////////////////////////////////////
 
 /** The result of parsing a `.log_entry.jsonl` log file: the entries that parsed, and any lines that did not. */
-export interface ParseResult {
+export type ParseResult = {
 	entries: LogEntry[];
 	lineErrors: string[];
-}
+};
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -27,7 +27,7 @@ export interface ParseResult {
 export class LogEntryParser {
 	private static readonly logEntrySchema = z.object({
 		timestamp: z.string(),
-		direction: z.enum(["received", "sent"]),
+		direction: z.enum(['received', 'sent']),
 		counterpart: z.object({
 			role: z.string(),
 			deviceId: z.string().optional(),
@@ -49,7 +49,7 @@ export class LogEntryParser {
 	static parseJsonl(text: string): ParseResult {
 		const entries: LogEntry[] = [];
 		const lineErrors: string[] = [];
-		const lines: string[] = text.split("\n");
+		const lines: string[] = text.split('\n');
 
 		for (const [lineIndex, rawLine] of lines.entries()) {
 			const line: string = rawLine.trim();
@@ -73,7 +73,7 @@ export class LogEntryParser {
 		}
 
 		const result = LogEntryParser.logEntrySchema.safeParse(json);
-		if (!result.success) {
+		if (result.success === false) {
 			lineErrors.push(`Line ${lineIndex + 1}: does not match the log entry shape`);
 			return undefined;
 		}

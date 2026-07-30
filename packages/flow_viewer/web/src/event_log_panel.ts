@@ -1,5 +1,5 @@
-import { TimelineModel } from "./timeline_model.js";
-import type { TimelineEvent } from "./types.js";
+import { TimelineModel } from './timeline_model.js';
+import type { TimelineEvent } from './types.js';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -24,11 +24,16 @@ export class EventLogPanel {
 	private readonly containerEl: HTMLElement;
 	private readonly onSeekRequested: (event: TimelineEvent) => void;
 
+	/**
+	 * @param containerEl The element the event list is drawn into.
+	 * @param onSeekRequested What to call when the reader clicks one event.
+	 */
 	constructor(containerEl: HTMLElement, onSeekRequested: (event: TimelineEvent) => void) {
 		this.containerEl = containerEl;
 		this.onSeekRequested = onSeekRequested;
 	}
 
+	/** Removes every event currently listed. */
 	clear(): void {
 		this.containerEl.replaceChildren();
 	}
@@ -54,31 +59,31 @@ export class EventLogPanel {
 	///////////////////////////////////////////////////////////////////////////////
 
 	private _buildRow(event: TimelineEvent): HTMLElement {
-		const rowEl: HTMLDivElement = document.createElement("div");
-		rowEl.className = "event-log-row";
+		const rowEl: HTMLDivElement = document.createElement('div');
+		rowEl.className = 'event-log-row';
 		rowEl.style.borderLeftColor = TimelineModel.colorForTaskId(event.taskId);
-		rowEl.addEventListener("click", (): void => this.onSeekRequested(event));
+		rowEl.addEventListener('click', (): void => this.onSeekRequested(event));
 
-		const timeEl: HTMLSpanElement = document.createElement("span");
-		timeEl.className = "row-time";
-		timeEl.textContent = new Date(event.timestampMs).toLocaleTimeString(undefined, { hour12: false }) + `.${String(event.timestampMs % 1000).padStart(3, "0")}`;
+		const timeEl: HTMLSpanElement = document.createElement('span');
+		timeEl.className = 'row-time';
+		timeEl.textContent = new Date(event.timestampMs).toLocaleTimeString(undefined, { hour12: false }) + `.${String(event.timestampMs % 1000).padStart(3, '0')}`;
 		rowEl.appendChild(timeEl);
 
-		const summaryEl: HTMLSpanElement = document.createElement("span");
-		summaryEl.className = "event-log-summary";
-		const fromRole: string = event.fromActorId.split(":")[0];
-		const toRole: string = event.toActorId.split(":")[0];
+		const summaryEl: HTMLSpanElement = document.createElement('span');
+		summaryEl.className = 'event-log-summary';
+		const fromRole: string = event.fromActorId.split(':')[0];
+		const toRole: string = event.toActorId.split(':')[0];
 		summaryEl.append(
 			this._buildRolePill(fromRole),
-			document.createTextNode(" → "),
+			document.createTextNode(' → '),
 			this._buildRolePill(toRole),
 			document.createTextNode(`: ${event.summary}`),
 		);
 		// An answer names the request it answers, taken from the identifiers the log records.
 		// A message with nothing here was pushed by the gateway on its own initiative.
 		if (event.answersMessageType !== undefined) {
-			const answersEl: HTMLSpanElement = document.createElement("span");
-			answersEl.className = "event-log-answers";
+			const answersEl: HTMLSpanElement = document.createElement('span');
+			answersEl.className = 'event-log-answers';
 			answersEl.textContent = ` (answers ${event.answersMessageType})`;
 			summaryEl.appendChild(answersEl);
 		}
@@ -88,8 +93,8 @@ export class EventLogPanel {
 	}
 
 	private _buildRolePill(role: string): HTMLSpanElement {
-		const rolePill: HTMLSpanElement = document.createElement("span");
-		const bootstrapColor: string = role === "consumer" ? "primary" : role === "gateway" ? "info" : role === "worker" ? "success" : "secondary";
+		const rolePill: HTMLSpanElement = document.createElement('span');
+		const bootstrapColor: string = role === 'consumer' ? 'primary' : role === 'gateway' ? 'info' : role === 'worker' ? 'success' : 'secondary';
 		rolePill.className = `badge rounded-pill text-bg-${bootstrapColor} role-pill`;
 		rolePill.textContent = role;
 		return rolePill;

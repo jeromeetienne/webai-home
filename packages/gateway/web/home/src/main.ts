@@ -1,3 +1,3 @@
-import { setupThemeToggle } from "../../src/theme.js";
+import { ThemeToggle } from '../../src/theme_toggle.js';
 
-setupThemeToggle();
+ThemeToggle.setup();
