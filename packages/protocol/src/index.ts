@@ -173,6 +173,17 @@ export interface Task {
    * specification when the task is created, so advancing a task needs no registry lookup.
    */
   pipelineRepeatsUntilDone?: boolean;
+  /**
+   * Which worker device most recently completed each stage of this task, by stage name.
+   *
+   * A stage that keeps state in the memory of the device running it has to be placed back on
+   * the device that holds that state. Which device that is depends on which stage comes next,
+   * not on which device ran last: in a pipeline that repeats, the device that holds the state
+   * for the upcoming stage is the device that ran that same stage in the previous round.
+   *
+   * The field stays optional so a task stored by an earlier gateway can still be read back.
+   */
+  stageWorkerDeviceIds?: Record<StageName, string>;
   acknowledgedAssignmentIds?: string[];
 }
 

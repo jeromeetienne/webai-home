@@ -12,10 +12,11 @@ import { PipelineRegistry, builtinPipelineSpecifications } from "../src/libs/pip
 import { StagePolicyResolver } from "../src/libs/stage_policy_resolver.js";
 import { DiagnosticsRateLimiter } from "../src/libs/diagnostics_rate_limiter.js";
 import { SessionRegistry } from "../src/libs/session_registry.js";
+import { WorkerPlacement } from "../src/libs/worker_placement.js";
 import { splitDevices, stageStatistics } from "../src/dashboard.js";
-import type { TaskInput } from "@webai/protocol";
+import type { StageName, TaskInput } from "@webai/protocol";
 
-const worker = (deviceId: string, stageNames: ("stage_dev_formula_multiply" | "stage_dev_formula_add")[] = ["stage_dev_formula_multiply", "stage_dev_formula_add"]) => ({
+const worker = (deviceId: string, stageNames: StageName[] = ["stage_dev_formula_multiply", "stage_dev_formula_add"]) => ({
   deviceId,
   name: `worker-${deviceId}`,
   deviceRole: "worker" as const,
@@ -241,6 +242,112 @@ test("keeps a state-holding stage on its own device and moves a stateless one aw
   // because creating the model session can take much longer than reading one piece of an answer.
   assert.equal(resolver.resolve(builtInModelTask, "stage_llm_gemma_nano_chrome_full").leaseMs, 60_000);
   assert.equal(resolver.resolve(formulaTask, "stage_dev_formula_add").leaseMs, 15_000);
+});
+
+test("a repeating stage is placed back on the device holding the task's answer", () => {
+  const resolver = new StagePolicyResolver(new PipelineRegistry(builtinPipelineSpecifications), 15_000);
+  const store = new TaskStore();
+  const stage: StageName = "stage_llm_gemma_nano_chrome_full";
+  const registry = new DeviceRegistry();
+  // Two worker browser tabs advertise the same stage. The tab that does not hold the answer is
+  // stored first, so a search for any free worker finds that one, which is what used to happen
+  // for every run after the first.
+  registry.add({ ...worker("device-two", [stage]), workerState: "ready", ready: true, maxConcurrentAssignments: 1, activeAssignments: 0 });
+  registry.add({ ...worker("device-one", [stage]), workerState: "ready", ready: true, maxConcurrentAssignments: 1, activeAssignments: 0 });
+  assert.equal(registry.findWorker(stage)?.deviceId, "device-two");
+
+  const task = createTask(store, { taskType: "task_type_llm_gemma_nano_chrome_full", input: "hello" });
+  store.assign(task.taskId, "device-one", stage, { text: "hello" });
+  const afterFirstPiece = store.addStage(task.taskId, { name: stage, value: { text: "The", done: false } });
+
+  // The device that ran the stage is recorded on the task, so the run that reads the next
+  // piece of the same answer goes back to the tab holding the open generation.
+  assert.deepEqual(afterFirstPiece.stageWorkerDeviceIds, { [stage]: "device-one" });
+  const policy = resolver.resolve(afterFirstPiece, stage);
+  const preferredDeviceId = WorkerPlacement.preferredWorkerDeviceId(afterFirstPiece, stage, policy, "device-one");
+  assert.equal(preferredDeviceId, "device-one");
+  assert.equal(WorkerPlacement.reusableWorker(registry, preferredDeviceId!, stage, { isPreviousAssignmentReleased: true })?.deviceId, "device-one");
+
+  // A task waiting in the queue, with no device having just finished anything, is still pinned
+  // to the tab holding the answer rather than to whichever tab is free.
+  assert.equal(WorkerPlacement.preferredWorkerDeviceId(afterFirstPiece, stage, policy), "device-one");
+});
+
+test("the capacity check is not loosened when the previous assignment was already released", () => {
+  const registry = new DeviceRegistry();
+  const stage: StageName = "stage_llm_gemma_nano_chrome_full";
+  const busy = { ...worker("device-one", [stage]), workerState: "ready" as const, ready: true, maxConcurrentAssignments: 1, activeAssignments: 1 };
+  registry.add(busy);
+
+  // A stage result releases the assignment before the next stage is placed, so the counter is
+  // already correct. Discounting one here would let the worker hold two assignments while its
+  // own limit is one.
+  assert.equal(WorkerPlacement.reusableWorker(registry, "device-one", stage, { isPreviousAssignmentReleased: true }), undefined);
+  // A lease expiry replaces an assignment the worker still holds, so that one assignment is
+  // discounted and the worker can take the stage again.
+  assert.equal(WorkerPlacement.reusableWorker(registry, "device-one", stage, { isPreviousAssignmentReleased: false })?.deviceId, "device-one");
+
+  registry.add({ ...busy, activeAssignments: 0 });
+  assert.equal(WorkerPlacement.reusableWorker(registry, "device-one", stage, { isPreviousAssignmentReleased: true })?.deviceId, "device-one");
+  registry.add({ ...busy, maxConcurrentAssignments: 2, activeAssignments: 1 });
+  assert.equal(WorkerPlacement.reusableWorker(registry, "device-one", stage, { isPreviousAssignmentReleased: true })?.deviceId, "device-one");
+
+  // Every other condition a search for a free worker applies is applied to a named worker too.
+  registry.add({ ...busy, activeAssignments: 0, workerState: "draining", ready: false });
+  assert.equal(WorkerPlacement.reusableWorker(registry, "device-one", stage, { isPreviousAssignmentReleased: true }), undefined);
+  registry.add({ ...busy, activeAssignments: 0, stageNames: ["stage_dev_formula_add"] });
+  assert.equal(WorkerPlacement.reusableWorker(registry, "device-one", stage, { isPreviousAssignmentReleased: true }), undefined);
+  assert.equal(WorkerPlacement.reusableWorker(registry, "device-absent", stage, { isPreviousAssignmentReleased: true }), undefined);
+});
+
+test("each shard of a repeating pipeline returns to the device that ran that same shard", () => {
+  const resolver = new StagePolicyResolver(new PipelineRegistry(builtinPipelineSpecifications), 15_000);
+  const store = new TaskStore();
+  const task = createTask(store, { taskType: "task_type_llm_qwen3_0_6b_sharded", input: "hello" });
+
+  // One round of the three shards, spread over two devices.
+  const placements: [StageName, string][] = [
+    ["stage_llm_qwen3_0_6b_shard1of3", "device-a"],
+    ["stage_llm_qwen3_0_6b_shard2of3", "device-b"],
+    ["stage_llm_qwen3_0_6b_shard3of3", "device-b"],
+  ];
+  let current = task;
+  for (const [stage, deviceId] of placements) {
+    store.assign(current.taskId, deviceId, stage, { tensors: {} });
+    current = store.addStage(current.taskId, { name: stage, value: { text: "The", done: false } });
+  }
+  assert.deepEqual(current.stageWorkerDeviceIds, {
+    stage_llm_qwen3_0_6b_shard1of3: "device-a",
+    stage_llm_qwen3_0_6b_shard2of3: "device-b",
+    stage_llm_qwen3_0_6b_shard3of3: "device-b",
+  });
+
+  // The second round starts again at the first shard. The device holding the key-value cache
+  // for that shard is the device that ran it in the previous round, not the device that
+  // happened to finish last.
+  const upcoming = TaskStore.nextStage(current)!;
+  assert.equal(upcoming, "stage_llm_qwen3_0_6b_shard1of3");
+  assert.equal(WorkerPlacement.preferredWorkerDeviceId(current, upcoming, resolver.resolve(current, upcoming), "device-b"), "device-a");
+
+  // A stage of this task that has never run yet falls back to the device that just finished,
+  // which is where a hand-off from the previous shard is held.
+  const withoutThirdShard = { ...current, stageWorkerDeviceIds: { stage_llm_qwen3_0_6b_shard1of3: "device-a" } };
+  assert.equal(WorkerPlacement.preferredWorkerDeviceId(withoutThirdShard, "stage_llm_qwen3_0_6b_shard3of3", resolver.resolve(current, "stage_llm_qwen3_0_6b_shard3of3"), "device-b"), "device-b");
+});
+
+test("a stage that keeps no state is pinned to no device at all", () => {
+  const resolver = new StagePolicyResolver(new PipelineRegistry(builtinPipelineSpecifications), 15_000);
+  const store = new TaskStore();
+  const task = createTask(store, { taskType: "task_type_dev_formula", input: 5 });
+  store.assign(task.taskId, "device-one", "stage_dev_formula_multiply", 5);
+  const afterMultiply = store.addStage(task.taskId, { name: "stage_dev_formula_multiply", value: 10 });
+
+  // The device is still recorded, because recording it costs nothing and does not depend on
+  // the stage. What decides the placement is the stage's own policy, which says the next stage
+  // is preferably moved to a different device.
+  assert.deepEqual(afterMultiply.stageWorkerDeviceIds, { stage_dev_formula_multiply: "device-one" });
+  const policy = resolver.resolve(afterMultiply, "stage_dev_formula_add");
+  assert.equal(WorkerPlacement.preferredWorkerDeviceId(afterMultiply, "stage_dev_formula_add", policy, "device-one"), undefined);
 });
 
 test("resets the retry budget after each successful LLM stage", () => {

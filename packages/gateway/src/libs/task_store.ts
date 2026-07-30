@@ -155,6 +155,11 @@ export class TaskStore {
 	/**
 	 * Appends a completed stage result to a stored task.
 	 *
+	 * The device that ran the stage is recorded against the stage name, so that a later run of
+	 * that same stage can be placed back on the device holding the state the stage left in
+	 * memory. The device is read from the assignment the result completes, so no caller has to
+	 * pass it in.
+	 *
 	 * @param taskId - The task identifier to update.
 	 * @param stage - The completed stage result to append.
 	 * @returns The updated task.
@@ -165,10 +170,12 @@ export class TaskStore {
 		if (!task) {
 			throw new Error(`Task ${taskId} was not found`);
 		}
+		const workerDeviceId = task.assignment?.workerDeviceId;
 		return this.update(taskId, {
 			completedStages: [...task.completedStages, stage],
 			assignment: undefined,
 			currentStageAttempts: 0,
+			...(workerDeviceId === undefined ? {} : { stageWorkerDeviceIds: { ...(task.stageWorkerDeviceIds ?? {}), [stage.name]: workerDeviceId } }),
 			...(assignmentId === undefined ? {} : { acknowledgedAssignmentIds: [...(task.acknowledgedAssignmentIds ?? []), assignmentId] }),
 		});
 	}

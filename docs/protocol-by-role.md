@@ -247,9 +247,11 @@ The gateway refuses to extend the lease of an assignment that is no longer curre
 Two properties of a stage control leasing, both stated in the pipeline specification:
 
 - `leaseMs` is how long that stage's lease lasts. A stage that states no lease uses the gateway's `--lease-ms` option, which defaults to 15,000 milliseconds. A multiplication and a language-model shard no longer have to share one duration.
-- `prefersSameWorkerOnRetry` says that a retry of the stage should go back to the worker that previously held it, rather than deliberately avoiding that worker. Set it for a stage that keeps state between assignments. The three language-model shards behave this way even without a pipeline specification, because all shards of one task must stay on one device for the worker to retain its key-value cache. Retrying such a stage on a different device throws that cache away at exactly the moment the model is slow, so the retry is more likely to be slow again than the attempt it replaced.
+- `prefersSameWorkerOnRetry` says that the stage should go back to the worker that already holds the state that stage keeps in memory, rather than deliberately avoiding that worker. Set it for a stage that keeps state between assignments. The three language-model shards set it, because all shards of one task must stay on one device for the worker to retain its key-value cache. Retrying such a stage on a different device throws that cache away at exactly the moment the model is slow, so the retry is more likely to be slow again than the attempt it replaced.
 
 A stage that keeps no state is still retried away from the worker that missed its lease. Both kinds of retry remain bounded by the gateway's `--max-attempts` option.
+
+`prefersSameWorkerOnRetry` also decides where a stage goes when nothing has gone wrong. To place such a stage the gateway needs to know which worker holds the state for the stage that is about to run, which is not the same as which worker ran last: in a pipeline that repeats, the state for the upcoming stage is held by the worker that ran that same stage in the previous round. The gateway therefore records on each task which worker most recently completed each of its stages, and consults that record when it hands out the stage that follows a finished one and when it takes a task out of the `queued` state. None of this reaches a worker, which sees only its own `stage.assign` messages.
 
 ### What a worker sees
 

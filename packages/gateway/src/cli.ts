@@ -31,6 +31,7 @@ import { PipelineRegistry, builtinPipelineSpecifications } from "./libs/pipeline
 import { StagePolicyResolver } from "./libs/stage_policy_resolver.js";
 import { DiagnosticsRateLimiter } from "./libs/diagnostics_rate_limiter.js";
 import { SessionRegistry } from "./libs/session_registry.js";
+import { WorkerPlacement } from "./libs/worker_placement.js";
 
 const options = new Command()
 	.option("-p, --port <number>", "HTTP and WebSocket port", "8787")
@@ -265,25 +266,23 @@ function occupyWorkerAssignment(workerDeviceId: string): void {
 	publishDevice(deviceRegistry.add({ ...device, activeAssignments: (device.activeAssignments ?? 0) + 1, lastSeenAt: new Date().toISOString() }));
 }
 
-/**
- * Reports whether the worker that just lost a stage can be given that stage again.
- *
- * The worker's assignment counter still includes the assignment that is about to be
- * released, so that assignment is discounted before the counter is compared against the
- * worker's own limit. Every other condition is the one `DeviceRegistry.findWorker` applies.
- *
- * @param workerDeviceId - The worker that previously held the stage.
- * @param stage - The stage being retried.
- * @returns The worker device when it can take the stage again, or `undefined`.
- */
-function reusableWorker(workerDeviceId: string, stage: StageName): Device | undefined {
-	const device = deviceRegistry.get(workerDeviceId);
-	if (device === undefined || device.deviceRole !== "worker") return undefined;
-	if (device.workerState === "draining" || device.ready === false) return undefined;
-	if (device.stageNames.includes(stage) === false) return undefined;
-	if (Math.max(0, (device.activeAssignments ?? 0) - 1) >= (device.maxConcurrentAssignments ?? 1)) return undefined;
-	return device;
-}
+/** How one call to `assign` differs from placing a stage on any free worker. */
+type AssignOptions = {
+	/** Device identifiers that must not receive the assignment. */
+	excluded?: string[];
+	/** Why this assignment replaces an earlier one, when it does. */
+	retryReason?: "lease_expired" | "worker_disconnected" | "worker_relinquished";
+	/**
+	 * A worker to place the stage on before considering any other, used when the stage keeps
+	 * state in the memory of one device and must go back to the device holding that state.
+	 */
+	preferredWorkerDeviceId?: string | undefined;
+	/**
+	 * Whether the assignment the preferred worker previously held has already been released.
+	 * This decides how that worker's assignment counter is compared against its own limit.
+	 */
+	isPreviousAssignmentReleased?: boolean;
+};
 
 /**
  * Assigns a task stage to an available worker device.
@@ -291,19 +290,15 @@ function reusableWorker(workerDeviceId: string, stage: StageName): Device | unde
  * @param taskId - The task identifier to assign.
  * @param value - The value that the worker must process.
  * @param stage - The stage to assign.
- * @param excluded - Device identifiers that must not receive the assignment.
- * @param retryReason - Why this assignment replaces an earlier one, when it does.
- * @param preferredWorkerDeviceId - A worker to place the stage on before considering any
- * other, used when the stage keeps state between assignments and a retry should go back to
- * the device that already holds that state.
+ * @param options - How this assignment differs from placing the stage on any free worker.
  */
 function assign(
 	taskId: string,
 	value: StagePayload,
 	stage: StageName,
-	excluded: string[] = [], retryReason?: "lease_expired" | "worker_disconnected" | "worker_relinquished",
-	preferredWorkerDeviceId?: string,
+	options: AssignOptions = {},
 ): void {
+	const { excluded = [], retryReason, preferredWorkerDeviceId, isPreviousAssignmentReleased = false } = options;
 	const existing = taskStore.get(taskId);
 	if (!existing || existing.state === "cancelled" || existing.state === "completed" || existing.state === "failed") return;
 	if (existing.currentStageAttempts >= maximumAttempts) {
@@ -311,7 +306,9 @@ function assign(
 		broadcastTask(taskId);
 		return;
 	}
-	const preferred = preferredWorkerDeviceId === undefined ? undefined : reusableWorker(preferredWorkerDeviceId, stage);
+	const preferred = preferredWorkerDeviceId === undefined
+		? undefined
+		: WorkerPlacement.reusableWorker(deviceRegistry, preferredWorkerDeviceId, stage, { isPreviousAssignmentReleased });
 	const device = preferred ?? (retryReason === undefined
 		? deviceRegistry.findWorker(stage, excluded) ?? deviceRegistry.findWorker(stage)
 		: deviceRegistry.findWorker(stage, excluded));
@@ -359,7 +356,14 @@ function scheduleQueuedTasks(): void {
 			continue;
 		}
 		const stage = TaskStore.nextStage(task);
-		if (stage) assign(task.taskId, task.completedStages.at(-1)?.value ?? StagePayloadFactory.initial(task.input), stage);
+		if (stage === undefined) continue;
+		// A task waits in the queue when no worker advertised the stage that comes next. If that
+		// stage keeps state in the memory of one device, the wait must not be ended by handing
+		// the stage to whichever worker connected first: only the device holding the state can
+		// carry the stage on. The task holds no assignment while it is queued, so nothing is
+		// discounted from the preferred worker's assignment counter.
+		const preferredWorkerDeviceId = WorkerPlacement.preferredWorkerDeviceId(task, stage, stagePolicyResolver.resolve(task, stage));
+		assign(task.taskId, task.completedStages.at(-1)?.value ?? StagePayloadFactory.initial(task.input), stage, { preferredWorkerDeviceId, isPreviousAssignmentReleased: true });
 	}
 }
 
@@ -378,17 +382,17 @@ function recoverAssignments(): void {
 		if (!assignment || Date.parse(assignment.leaseUntil) > Date.now()) continue;
 		const policy = stagePolicyResolver.resolve(task, assignment.stage);
 		if (policy.prefersSameWorkerOnRetry) {
-			assign(task.taskId, assignment.value, assignment.stage, [], "lease_expired", assignment.workerDeviceId);
+			assign(task.taskId, assignment.value, assignment.stage, { retryReason: "lease_expired", preferredWorkerDeviceId: assignment.workerDeviceId });
 			continue;
 		}
-		assign(task.taskId, assignment.value, assignment.stage, [assignment.workerDeviceId], "lease_expired");
+		assign(task.taskId, assignment.value, assignment.stage, { excluded: [assignment.workerDeviceId], retryReason: "lease_expired" });
 	}
 }
 
 function recoverWorkerAssignments(deviceId: string): void {
 	for (const task of taskStore.list()) {
 		const assignment = task.assignment;
-		if (assignment?.workerDeviceId === deviceId) assign(task.taskId, assignment.value, assignment.stage, [deviceId], "worker_disconnected");
+		if (assignment?.workerDeviceId === deviceId) assign(task.taskId, assignment.value, assignment.stage, { excluded: [deviceId], retryReason: "worker_disconnected" });
 	}
 }
 
@@ -704,7 +708,7 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage, req
 			taskStore.acceptAssignment(task.taskId);
 			broadcastTask(task.taskId);
 		} else {
-			assign(task.taskId, assignment.value, assignment.stage, [deviceId], "worker_relinquished");
+			assign(task.taskId, assignment.value, assignment.stage, { excluded: [deviceId], retryReason: "worker_relinquished" });
 		}
 		return;
 	}
@@ -757,15 +761,24 @@ function handle(socket: WebSocket, deviceId: string, message: ClientMessage, req
 		releaseWorkerAssignment(deviceId);
 		const upcoming = TaskStore.nextStage(updated);
 		if (upcoming) {
-			// A stage that keeps state in the memory of the device running it must be allowed
-			// to land on the device that just finished a stage of this task: a language-model
-			// shard needs the key-value cache and hand-off tensors that device holds, and a
-			// built-in language-model stage needs the generation it is holding open. A stage
-			// that keeps no such state is instead preferably moved to a different device, to
-			// demonstrate several workers cooperating on one task. Each stage states which of
-			// the two it is, so no task type is named here.
-			const excluded = stagePolicyResolver.resolve(updated, upcoming).prefersSameWorkerOnRetry ? [] : [deviceId];
-			assign(updated.taskId, message.value, upcoming, excluded);
+			// A stage that keeps state in the memory of the device running it must be placed back
+			// on the device holding that state: a language-model shard needs the key-value cache
+			// and hand-off tensors that device holds, and a built-in language-model stage needs
+			// the generation it is holding open. Which device that is comes from the task's own
+			// record of which device ran each stage, falling back to the device that just
+			// finished. A stage that keeps no such state is instead preferably moved to a
+			// different device, to demonstrate several workers cooperating on one task. Each
+			// stage states which of the two it is, so no task type is named here.
+			const policy = stagePolicyResolver.resolve(updated, upcoming);
+			assign(updated.taskId, message.value, upcoming, {
+				excluded: policy.prefersSameWorkerOnRetry ? [] : [deviceId],
+				preferredWorkerDeviceId: WorkerPlacement.preferredWorkerDeviceId(updated, upcoming, policy, deviceId),
+				// The assignment this result completes was released just above, so the preferred
+				// worker's assignment counter is already correct and nothing may be discounted
+				// from it. Discounting one here would let that worker hold one assignment more
+				// than its own maxConcurrentAssignments allows.
+				isPreviousAssignmentReleased: true,
+			});
 		} else {
 			const completed = taskStore.update(updated.taskId, {
 				state: "completed",
