@@ -32,6 +32,12 @@ Use `-t/--type` to choose the task type:
 npm run dev --workspace @webai/consumer-cli -- "hello there" --type llm_qwen3_0_6b_sharded
 ```
 
+Use `-s/--stream` to ask for the answer in pieces as it is produced, rather than in one result once it is finished. Without it, the cluster answers with the fewest messages the pipeline can manage.
+
+```sh
+npm run dev --workspace @webai/consumer-cli -- "hello there" --type llm_gemma_nano_chrome_full --stream
+```
+
 ## Public exports
 
 `@webai/consumer_openai` and any other package that reuses this one's consumer functionality import from `@webai/consumer-cli` itself:

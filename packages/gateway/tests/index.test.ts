@@ -929,6 +929,38 @@ Test('a submitted task is assigned to a matching worker, and runs both stages to
 	Assert.equal((taskReply as { task: { state: string; result: unknown } }).task.result, 17);
 });
 
+Test('the generation settings a task was submitted with reach the worker on every stage of that task', () => {
+	const { drive, registerWorker, registerConsumer, allSentTo } = buildClientMessageHandlerHarness();
+	registerWorker('worker-1', 'worker-one');
+	registerConsumer('consumer-1', 'consumer-one');
+
+	const input: TaskInput = { ...devFormulaInput(5), generationSettings: { isStreaming: true } };
+	const [submitReply] = drive('consumer-1', { type: 'task.submit', requestId: 'request-1', input });
+	const taskId = (submitReply as { task: { taskId: string } }).task.taskId;
+
+	const assignments = () => allSentTo('worker-1').filter((sent): sent is Extract<GatewayMessage, { type: 'stage.assign' }> => sent.type === 'stage.assign');
+	const firstAssignment = assignments()[0];
+	Assert.deepEqual(firstAssignment?.generationSettings, { isStreaming: true });
+
+	// The settings are read off the stored task rather than remembered from the submission, so
+	// the stage that follows carries them too, without the first stage's result passing them on.
+	drive('worker-1', { type: 'stage.accepted', taskId, assignmentId: firstAssignment!.assignmentId, attempt: firstAssignment!.attempt });
+	drive('worker-1', { type: 'stage.result', taskId, assignmentId: firstAssignment!.assignmentId, attempt: firstAssignment!.attempt, stage: 'stage_dev_formula_multiply', value: 10 });
+	Assert.deepEqual(assignments()[1]?.generationSettings, { isStreaming: true });
+});
+
+Test('a task submitted without generation settings puts no settings field on the assignment', () => {
+	const { drive, registerWorker, registerConsumer, allSentTo } = buildClientMessageHandlerHarness();
+	registerWorker('worker-1', 'worker-one');
+	registerConsumer('consumer-1', 'consumer-one');
+
+	drive('consumer-1', { type: 'task.submit', requestId: 'request-1', input: devFormulaInput(5) });
+
+	const assignment = allSentTo('worker-1').find((sent): sent is Extract<GatewayMessage, { type: 'stage.assign' }> => sent.type === 'stage.assign');
+	Assert.equal(assignment === undefined, false);
+	Assert.equal('generationSettings' in assignment!, false);
+});
+
 Test('a task may only be cancelled by the consumer that owns it', () => {
 	const { drive, registerConsumer } = buildClientMessageHandlerHarness();
 	registerConsumer('consumer-1', 'consumer-one');

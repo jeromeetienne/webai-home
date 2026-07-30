@@ -236,6 +236,18 @@ A worker asks for `pipelines.get` before it registers, and advertises every stag
 
 A pipeline that states `repeatsUntilDone` starts again at its first stage once its last stage finishes, and ends only when a stage result reports `done: true`. The language-model pipeline works this way — its three shards run once per generated token — so its looping is a property the specification states rather than behaviour written into the gateway.
 
+### Generation settings
+
+A consumer states what it wants about how its answer is generated, as opposed to what the answer is about, in an optional `generationSettings` field on the task input it submits. Today it holds one setting, `isStreaming`, which says whether the consumer wants the answer in pieces as it is produced rather than in one result once it is finished. A submission that states nothing carries no `generationSettings` field at all, which is the same as asking for the answer in one result.
+
+The settings travel with the task input rather than beside it, so the gateway stores them once when the task is created and reads them off the stored task every time it places a stage. Every path that places a stage therefore sends the same settings without any of them having to pass the settings along: the first assignment, each round of a pipeline that repeats, a retry after a lease expires, and a task placed after waiting in the queue.
+
+They reach the worker as their own field of `stage.assign`, never inside the stage input value. The stage input value is what a stage consumes and returns — it is a plain number for the formula pipeline — and the gateway stores it again with every completed stage and every assignment attempt, so putting settings there would both make workers echo them back and store them once per stage.
+
+The gateway does not read the settings. Which of them a stage honours is decided by the code that runs the stage, because a setting means different things to a stage that drives a browser's built-in model and to a stage that runs one shard of a model this project ships. A setting this protocol version does not define is refused at submission rather than dropped, because a dropped setting would change the answer a consumer receives without telling it anything went wrong.
+
+That refusal only reaches as far as the settings block itself. A gateway built before the block existed has no such field to check, and drops it silently along with everything else it does not recognise on a task input. Nothing catches that today, because no stage yet honours a setting, so no answer yet differs between a gateway that received the settings and one that dropped them. The step of this work that makes a setting change an answer is the step that has to raise `protocolVersion`.
+
 ### The assignment lease
 
 Every `stage.assign` carries a `leaseUntil` time. If that time passes and the assignment is still not finished, the gateway takes the stage away from the worker and assigns it again. The worker's eventual result is then refused with the error code `STALE_ASSIGNMENT`, and the work it did is thrown away.
@@ -255,7 +267,7 @@ A stage that keeps no state is still retried away from the worker that missed it
 
 ### What a worker sees
 
-A worker never receives `task.updated`, and a worker holding a stage assignment may not read the whole task through `task.get` or `task.resync`. A worker's entire view of a task is what `stage.assign` carries: the task identifier, the assignment identity, the stage name, the computation to run, the stage's position in its pipeline, the stage input value, and the lease expiry. A worker therefore never sees the original task input, the identity of the consumer that submitted the task, or the results of stages assigned to other workers. When an assignment stops being current — the task was cancelled, the lease expired, the worker relinquished the assignment, or the worker disconnected and the stage was reassigned — the gateway sends that worker the narrow `stage.cancel` message instead.
+A worker never receives `task.updated`, and a worker holding a stage assignment may not read the whole task through `task.get` or `task.resync`. A worker's entire view of a task is what `stage.assign` carries: the task identifier, the assignment identity, the stage name, the computation to run, the stage's position in its pipeline, the stage input value, the generation settings the consumer asked for, and the lease expiry. A worker therefore never sees the original task input, the identity of the consumer that submitted the task, or the results of stages assigned to other workers. When an assignment stops being current — the task was cancelled, the lease expired, the worker relinquished the assignment, or the worker disconnected and the stage was reassigned — the gateway sends that worker the narrow `stage.cancel` message instead.
 
 The current task states are `queued`, `assigned`, `running`, `completed`,
 `failed`, and `cancelled`. The prototype currently sets `queued`, `assigned`,

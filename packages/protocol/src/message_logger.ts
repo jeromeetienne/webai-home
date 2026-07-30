@@ -136,8 +136,10 @@ export class MessageLogger {
 	 * relayed by a worker, and inside an array such as the `completedStages` of a task.
 	 *
 	 * When the removed value is a task input — an object carrying a `taskType` discriminator —
-	 * only that discriminator is kept, so a log still shows which kind of task was submitted
-	 * without exposing the task's data. Every other property of the value is dropped.
+	 * two properties are kept, so a log still shows which kind of task was submitted and how it
+	 * asked to be answered, without exposing the task's data: the discriminator itself, and the
+	 * generation settings, which are walked by this same function rather than copied, so nothing
+	 * beneath them escapes redaction. Every other property of the value is dropped.
 	 *
 	 * @param payload The message body to redact.
 	 * @param depth How many levels the walk has already descended. Callers leave this unset.
@@ -155,8 +157,22 @@ export class MessageLogger {
 				record[key] = MessageLogger.redactPayload(original, depth + 1);
 				continue;
 			}
-			const taskType: unknown = typeof original === 'object' && original !== null ? (original as Record<string, unknown>).taskType : undefined;
-			record[key] = typeof taskType === 'string' ? { taskType, input: redactedMarker } : redactedMarker;
+			const taskInput: Record<string, unknown> | undefined = typeof original === 'object' && original !== null ? original as Record<string, unknown> : undefined;
+			const taskType: unknown = taskInput?.taskType;
+			// A task input keeps the two facts about it that are not the consumer's own content:
+			// which kind of task it is, and what it asked for about how its answer is generated.
+			// Both describe how the cluster behaved rather than what was said to it, and whether a
+			// task asked for its answer in pieces is exactly what a log is read to find out.
+			//
+			// The settings are walked by this same function rather than copied across. Not every
+			// caller hands this function a value the protocol has validated — a relayed `signal`
+			// message carries an unchecked body, and a consumer logs a frame before checking it —
+			// so an object sitting where a task input is expected can hold anything at all under a
+			// name this function otherwise redacts. Walking it keeps that impossible.
+			const generationSettings = taskInput?.generationSettings;
+			record[key] = typeof taskType === 'string'
+				? { taskType, input: redactedMarker, ...(generationSettings === undefined ? {} : { generationSettings: MessageLogger.redactPayload(generationSettings, depth + 1) }) }
+				: redactedMarker;
 		}
 		return record;
 	}

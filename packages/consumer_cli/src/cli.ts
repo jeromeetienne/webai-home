@@ -31,13 +31,17 @@ export class Cli {
 			.argument('<input>', 'number for dev_formula, free text for either language-model task type')
 			.option('-u, --url <url>', 'central gateway WebSocket URL', 'ws://localhost:8787')
 			.option('-t, --type <type>', `task type: ${taskTypeNames.join(', ')}`, 'dev_formula')
-			.option('-n, --name <name>', 'consumer name', 'consumer');
+			.option('-n, --name <name>', 'consumer name', 'consumer')
+			.option('-s, --stream', 'ask for the answer in pieces as it is produced, rather than in one result once it is finished');
 		command.parse([process.argv[0], process.argv[1] ?? '', ...args]);
-		const options = command.opts<{ url: string; type: string; name: string }>();
+		const options = command.opts<{ url: string; type: string; name: string; stream?: boolean }>();
 		if (TaskInputFactory.isTaskTypeName(options.type) === false) {
 			throw new Error(`Type must be one of ${taskTypeNames.join(', ')}`);
 		}
-		const taskInput = TaskInputFactory.createTaskInput(options.type, command.args[0]);
+		// Nothing is asked for when the option is absent, so a submission without it carries no
+		// generation settings at all rather than a settings field stating the default.
+		const generationSettings = options.stream === true ? { isStreaming: true } : undefined;
+		const taskInput = TaskInputFactory.createTaskInput(options.type, command.args[0], generationSettings);
 
 		const logsDirectory = Url.fileURLToPath(new URL('../logs', import.meta.url));
 		const runTimestamp = new Date().toISOString().replace(/[:.]/g, '-');

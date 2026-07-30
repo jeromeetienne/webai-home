@@ -26,13 +26,48 @@ export const TaskType = z.enum(['task_type_dev_formula', 'task_type_llm_qwen3_0_
 /** The kinds of work a consumer may submit. */
 export type TaskType = z.infer<typeof TaskType>;
 
-/** The work submitted with a task: its kind, and the value that kind carries. */
+/**
+ * What a consumer asks for about how its answer is generated, rather than what the answer is
+ * about.
+ *
+ * These settings are stated once, when the task is submitted, and the gateway carries them
+ * unchanged to the worker on every `stage.assign` of that task. The gateway does not read
+ * them: which of them a stage honours is decided by the code that runs the stage, because a
+ * setting means different things to a stage that drives a browser's built-in model and to a
+ * stage that runs one shard of a model this project ships.
+ *
+ * The object refuses a field it does not recognise, rather than dropping it. A setting that is
+ * silently dropped changes the answer a consumer receives without telling it anything went
+ * wrong, so a consumer that asks for a setting this protocol version does not define has its
+ * submission refused and can decide for itself whether to submit again without it.
+ *
+ * That holds only where both sides know this block exists. A gateway built before it did has
+ * no `generationSettings` field on its task input at all, and its task input members are not
+ * strict, so it drops the whole block silently and answers as though nothing had been asked
+ * for. Nothing catches that today, because no stage yet honours a setting and so no answer yet
+ * differs; the moment one does, the protocol version is what has to say so.
+ */
+export const GenerationSettingsSchema = z.object({
+	/**
+	 * Whether the consumer wants the answer in pieces as it is produced, rather than in one
+	 * result once it is finished.
+	 *
+	 * Asking for pieces costs a scheduling round for every piece, so it is a per-task choice
+	 * rather than how the cluster always behaves. A task that does not ask for it is answered
+	 * with the fewest messages the pipeline can manage.
+	 */
+	isStreaming: z.boolean().optional(),
+}).strict();
+/** What a consumer asks for about how its answer is generated. */
+export type GenerationSettings = z.infer<typeof GenerationSettingsSchema>;
+
+/** The work submitted with a task: its kind, the value that kind carries, and how to generate it. */
 export const TaskInput = z.discriminatedUnion('taskType', [
-	z.object({ taskType: z.literal('task_type_dev_formula'), input: z.number().finite() }),
-	z.object({ taskType: z.literal('task_type_llm_qwen3_0_6b_sharded'), input: z.string() }),
-	z.object({ taskType: z.literal('task_type_llm_gemma_nano_chrome_full'), input: z.string() }),
+	z.object({ taskType: z.literal('task_type_dev_formula'), input: z.number().finite(), generationSettings: GenerationSettingsSchema.optional() }),
+	z.object({ taskType: z.literal('task_type_llm_qwen3_0_6b_sharded'), input: z.string(), generationSettings: GenerationSettingsSchema.optional() }),
+	z.object({ taskType: z.literal('task_type_llm_gemma_nano_chrome_full'), input: z.string(), generationSettings: GenerationSettingsSchema.optional() }),
 ]);
-/** The work submitted with a task: its kind, and the value that kind carries. */
+/** The work submitted with a task: its kind, the value that kind carries, and how to generate it. */
 export type TaskInput = z.infer<typeof TaskInput>;
 
 /** One step of a pipeline: what it computes, what it accepts and returns, and how it is placed. */
@@ -443,9 +478,13 @@ export type GatewayMessage =
 	// that was added after the worker was built.
 	| { type: 'pipelines'; pipelines: PipelineSpecification[] }
 	// "stage.assign" carries "computation" so the worker knows what code to run without
-	// recognising the stage name, and "stageIndex" so a computation with ordered parts, such
-	// as a language-model shard, knows which part of its pipeline it is running.
-	| { type: 'stage.assign'; taskId: string; assignmentId: string; attempt: number; stage: StageName; computation: string; stageIndex: number; value: StagePayload; leaseUntil: string; peerId?: string }
+	// recognising the stage name, "stageIndex" so a computation with ordered parts, such
+	// as a language-model shard, knows which part of its pipeline it is running, and
+	// "generationSettings" so it knows what the consumer asked for about how the answer is
+	// generated. All three ride on the assignment message rather than in "value", because
+	// "value" is what a stage consumes and returns — a plain number for the formula pipeline —
+	// and is stored again with every completed stage and every assignment attempt.
+	| { type: 'stage.assign'; taskId: string; assignmentId: string; attempt: number; stage: StageName; computation: string; stageIndex: number; value: StagePayload; generationSettings?: GenerationSettings | undefined; leaseUntil: string; peerId?: string }
 	| { type: 'stage.cancel'; taskId: string; assignmentId: string; attempt: number; reason: string }
 	| { type: 'stage.lease.extended'; taskId: string; assignmentId: string; attempt: number; leaseUntil: string }
 	| { type: 'stage.result.accepted'; taskId: string; assignmentId: string; attempt: number; revision: number; status: 'assigned' | 'completed' | 'failed' }

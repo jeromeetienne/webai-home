@@ -71,6 +71,13 @@ Test('validates every inbound client message shape', () => {
 	Assert.equal(ClientMessageSchema.safeParse({ type: 'task.submit', requestId: 'request-1', input: { taskType: 'task_type_dev_formula', input: 5 } }).success, true);
 	Assert.equal(ClientMessageSchema.safeParse({ type: 'stage.result', taskId: 'task-1', assignmentId: 'assignment-1', attempt: 1, stage: 'stage_dev_formula_multiply', value: 10 }).success, true);
 	Assert.equal(ClientMessageSchema.safeParse({ type: 'stage.result', taskId: 'task-1', assignmentId: 'assignment-1', attempt: 1, stage: 'stage_llm_gemma_nano_chrome_full', value: { text: 'The capital', isContinuation: true, done: false } }).success, true);
+	// The generation settings are optional, so every submission written before they existed is
+	// still valid, and a setting the gateway has never heard of is refused rather than dropped:
+	// a dropped setting would change the answer without telling the consumer anything.
+	Assert.equal(ClientMessageSchema.safeParse({ type: 'task.submit', requestId: 'request-1', input: { taskType: 'task_type_llm_gemma_nano_chrome_full', input: 'hello', generationSettings: { isStreaming: true } } }).success, true);
+	Assert.equal(ClientMessageSchema.safeParse({ type: 'task.submit', requestId: 'request-1', input: { taskType: 'task_type_llm_gemma_nano_chrome_full', input: 'hello', generationSettings: {} } }).success, true);
+	Assert.equal(ClientMessageSchema.safeParse({ type: 'task.submit', requestId: 'request-1', input: { taskType: 'task_type_llm_gemma_nano_chrome_full', input: 'hello', generationSettings: { isStreaming: true, temperature: 0.7 } } }).success, false);
+	Assert.equal(ClientMessageSchema.safeParse({ type: 'task.submit', requestId: 'request-1', input: { taskType: 'task_type_llm_gemma_nano_chrome_full', input: 'hello', generationSettings: { isStreaming: 'yes' } } }).success, false);
 	Assert.equal(ClientMessageSchema.safeParse({ type: 'task.submit', input: { taskType: 'task_type_dev_formula', input: 5 } }).success, false);
 	Assert.equal(ClientMessageSchema.safeParse({ type: 'stage.result', taskId: 'task-1', stage: 'stage_dev_formula_multiply', value: 10 }).success, false);
 	Assert.equal(ClientMessageSchema.safeParse({ type: 'register', role: 'consumer', name: 'consumer', unexpected: true }).success, false);
@@ -86,12 +93,31 @@ Test('redacts task inputs and stage values but keeps the task type', () => {
 
 	logger.log('received', counterpart, 'task.submit', { type: 'task.submit', requestId: 'request-1', input: { taskType: 'task_type_llm_qwen3_0_6b_sharded', input: 'What is the capital of France?' } });
 	logger.log('sent', counterpart, 'stage.assign', { type: 'stage.assign', taskId: 'task-1', stage: 'stage_dev_formula_multiply', value: 5 });
+	// The generation settings survive redaction: they say how the cluster was asked to behave
+	// rather than what the consumer said to the model, and a log is read to find that out.
+	logger.log('received', counterpart, 'task.submit', { type: 'task.submit', requestId: 'request-2', input: { taskType: 'task_type_llm_gemma_nano_chrome_full', input: 'What is the capital of France?', generationSettings: { isStreaming: true } } });
 
 	const entries = Fs.readFileSync(logFilePath, 'utf8').trim().split('\n').map((line) => JSON.parse(line) as LogEntry);
 	Fs.rmSync(directoryPath, { recursive: true, force: true });
 
 	Assert.deepEqual(entries[0].payload, { type: 'task.submit', requestId: 'request-1', input: { taskType: 'task_type_llm_qwen3_0_6b_sharded', input: '[redacted]' } });
 	Assert.deepEqual(entries[1].payload, { type: 'stage.assign', taskId: 'task-1', stage: 'stage_dev_formula_multiply', value: '[redacted]' });
+	Assert.deepEqual(entries[2].payload, { type: 'task.submit', requestId: 'request-2', input: { taskType: 'task_type_llm_gemma_nano_chrome_full', input: '[redacted]', generationSettings: { isStreaming: true } } });
+
+	// Not every value this walk is given has been checked against the protocol first: a relayed
+	// `signal` message carries a body the schema declares as unknown, and a consumer logs a frame
+	// before checking it. So the settings that are kept are walked like any other value rather
+	// than copied across, and anything hidden under them is redacted just the same.
+	const relayed = MessageLogger.redactPayload({
+		type: 'signal',
+		to: 'device-2',
+		data: { input: { taskType: 'task_type_llm_gemma_nano_chrome_full', input: 'a prompt', generationSettings: { isStreaming: true, text: 'A PRIVATE PROMPT', nested: { token: 'A CREDENTIAL' } } } },
+	});
+	Assert.deepEqual(relayed, {
+		type: 'signal',
+		to: 'device-2',
+		data: { input: { taskType: 'task_type_llm_gemma_nano_chrome_full', input: '[redacted]', generationSettings: { isStreaming: true, text: '[redacted]', nested: { token: '[redacted]' } } } },
+	});
 });
 
 Test('redacts the task result, the values inside completed stages, and a relayed message', () => {

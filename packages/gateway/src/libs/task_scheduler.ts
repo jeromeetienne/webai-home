@@ -111,6 +111,12 @@ export class TaskScheduler {
 				computation: specification?.computation ?? stage,
 				stageIndex: Math.max(0, (existing.pipelineStages ?? []).indexOf(stage)),
 				value,
+				// What the consumer asked for about how its answer is generated, carried unchanged
+				// from the submission. It is read off the stored task rather than remembered here,
+				// so every path that places a stage — the first assignment, each round of a
+				// repeating pipeline, a retry, and a task placed after waiting in the queue — sends
+				// the same settings without any of them having to pass the settings along.
+				generationSettings: existing.input.generationSettings,
 				leaseUntil: assignment.leaseUntil,
 			}, { role: device.deviceRole, deviceId: device.deviceId });
 		}

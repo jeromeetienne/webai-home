@@ -1,4 +1,4 @@
-import type { StageName, StagePayload, ClientMessage } from '@webai/protocol';
+import type { StageName, StagePayload, ClientMessage, GenerationSettings } from '@webai/protocol';
 import { SessionRenewal } from '@webai/protocol/session_renewal';
 import { StageDevFormulaHelper } from './stage_dev_formula_helper';
 import { StageLlmQwen3_0_6bHelper } from './stage_llm_qwen3_0_6b_helper';
@@ -46,6 +46,8 @@ type GatewayMessage = {
 	computation?: string;
 	/** The assigned stage's position in its pipeline, counted from zero. */
 	stageIndex?: number;
+	/** What the consumer asked for about how its answer is generated, carried unchanged from the submission. */
+	generationSettings?: GenerationSettings;
 	/** The pipeline specifications the gateway has loaded, in reply to `pipelines.get`. */
 	pipelines?: { stages: { name: string; computation: string }[] }[];
 	/** When the authenticated session expires, in reply to `authenticate`. */
