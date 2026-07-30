@@ -6,7 +6,7 @@ import type { PlaybackSegment } from "./playback_controller.js";
 import { EventLogPanel } from "./event_log_panel.js";
 import type { CategoryFilters, LogSource, SessionPayload, TimeRangeMs, TimelineEvent } from "./types.js";
 import { calculateStatistics, formatBytes, formatLatency, type StatisticsReport, type StatisticsTotals } from "./statistics.js";
-import SAMPLE_LOG_TEXT from "../../fixtures/sample-gateway-log.jsonl?raw";
+import SAMPLE_LOG_TEXT from "../../fixtures/sample-gateway-log.log_entry.jsonl?raw";
 import { setupThemeToggle } from "../../../shared/theme.js";
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -28,7 +28,7 @@ const SPEED_STORAGE_KEY = "webai-flow-viewer-speed";
  * Top-level controller for the flow_viewer page. On startup it tries to fetch
  * a session already prepared by the `flow_viewer` CLI (every log file merged and the time
  * range and filters chosen on the command line) so viewing a capture is ready immediately;
- * playback remains paused until the user starts it. Dropping a `.jsonl` file onto the page
+ * playback remains paused until the user starts it. Dropping a `.log_entry.jsonl` file onto the page
  * remains available as a manual fallback for ad hoc use.
  */
 class FlowViewerApp {

@@ -21,7 +21,7 @@ export class MainHelper {
 		const taskInput = createTaskInput(options.type, command.args[0]);
 		const logsDirectory = NodeUrl.fileURLToPath(new URL("../logs", import.meta.url));
 		const runTimestamp = new Date().toISOString().replace(/[:.]/g, "-");
-		const messageLogger = new MessageLogger(NodePath.join(logsDirectory, `consumer-${runTimestamp}.jsonl`));
+		const messageLogger = new MessageLogger(NodePath.join(logsDirectory, `consumer-${runTimestamp}.log_entry.jsonl`));
 		const socket = new WebSocket(options.url) as unknown as ConstructorParameters<typeof ConsumerClient>[0];
 		const client = new ConsumerClient(socket, {
 			onMessage: (direction, message) => messageLogger.log(direction, { role: "gateway" }, message.type, message),

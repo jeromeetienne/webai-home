@@ -74,7 +74,7 @@ const stagePolicyResolver = new StagePolicyResolver(pipelineRegistry, Number(opt
 // connected worker, relayed to us since a browser page cannot write files itself.
 const logsDirectory = join(dirname(fileURLToPath(import.meta.url)), "../logs");
 const runTimestamp = new Date().toISOString().replace(/[:.]/g, "-");
-const gatewayMessageLogger = new MessageLogger(join(logsDirectory, `gateway-${runTimestamp}.jsonl`));
+const gatewayMessageLogger = new MessageLogger(join(logsDirectory, `gateway-${runTimestamp}.log_entry.jsonl`));
 const workerMessageLoggers = new Map<string, MessageLogger>();
 const maximumInboundMessageBytes = 8_500_000;
 
@@ -103,7 +103,7 @@ const maximumDiagnosticsRequestBytes = 64_000;
 function workerMessageLogger(deviceId: string): MessageLogger {
 	let logger = workerMessageLoggers.get(deviceId);
 	if (!logger) {
-		logger = new MessageLogger(join(logsDirectory, `worker-${deviceId}.jsonl`));
+		logger = new MessageLogger(join(logsDirectory, `worker-${deviceId}.log_entry.jsonl`));
 		workerMessageLoggers.set(deviceId, logger);
 	}
 	return logger;

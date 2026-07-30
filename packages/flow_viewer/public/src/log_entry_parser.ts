@@ -7,7 +7,7 @@ import type { LogEntry } from "@webai/protocol/message_logger";
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
-/** The result of parsing a `.jsonl` log file: the entries that parsed, and any lines that did not. */
+/** The result of parsing a `.log_entry.jsonl` log file: the entries that parsed, and any lines that did not. */
 export interface ParseResult {
 	entries: LogEntry[];
 	lineErrors: string[];
@@ -44,7 +44,7 @@ export class LogEntryParser {
 	});
 
 	/**
-	 * @param text The full contents of a `.jsonl` log file.
+	 * @param text The full contents of a `.log_entry.jsonl` log file.
 	 */
 	static parseJsonl(text: string): ParseResult {
 		const entries: LogEntry[] = [];

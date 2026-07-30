@@ -41,7 +41,7 @@ test("marks old entries as estimates", () => {
 });
 
 test("renders request and assignment identities from the issue 37 formula fixture", () => {
-	const fixturePath = join(process.cwd(), "fixtures/issue-37-formula.jsonl");
+	const fixturePath = join(process.cwd(), "fixtures/issue-37-formula.log_entry.jsonl");
 	const entries = readFileSync(fixturePath, "utf8").trim().split("\n").map((line) => JSON.parse(line) as LogEntry);
 	const model = TimelineModel.build([{ id: "issue-37", label: "Issue 37", entries }], { fromMs: 0, toMs: Number.MAX_SAFE_INTEGER }, { showChatter: true, showSignaling: true });
 	assert.equal(model.events.some((item) => item.summary.includes("request formula-request-1")), true);

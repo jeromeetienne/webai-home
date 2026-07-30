@@ -74,7 +74,7 @@ test("validates every inbound client message shape", () => {
 
 test("redacts task inputs and stage values but keeps the task type", () => {
   const directoryPath = mkdtempSync(join(tmpdir(), "message-logger-"));
-  const logFilePath = join(directoryPath, "log.jsonl");
+  const logFilePath = join(directoryPath, "log.log_entry.jsonl");
   const logger = new MessageLogger(logFilePath);
   const counterpart = { role: "consumer", deviceId: "device-1" };
 

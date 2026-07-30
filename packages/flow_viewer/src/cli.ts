@@ -41,8 +41,8 @@ export class MainHelper {
 	static async run(args: string[] = process.argv.slice(2)): Promise<void> {
 		const command = new Commander.Command()
 			.name("flow_viewer")
-			.argument("[files...]", "log files to merge (defaults to every packages/gateway/logs/gateway-*.jsonl file)")
-			.option("--logs-dir <dir>", "directory to scan for gateway-*.jsonl files when no files are given")
+			.argument("[files...]", "log files to merge (defaults to every packages/gateway/logs/gateway-*.log_entry.jsonl file)")
+			.option("--logs-dir <dir>", "directory to scan for gateway-*.log_entry.jsonl files when no files are given")
 			.option("--from <datetime>", "start of the time range to show (defaults to the earliest message loaded)")
 			.option("--to <datetime>", "end of the time range to show (defaults to the latest message loaded)")
 			.option("--chatter", "show connection chatter (register / registered / devices) on load", false)
@@ -56,7 +56,7 @@ export class MainHelper {
 		const options = command.opts<CliOptions>();
 		const filePaths: string[] = MainHelper._resolveFilePaths(command.args, options.logsDir);
 		if (filePaths.length === 0) {
-			console.error("No log files found. Pass one or more .jsonl files, or run the gateway first so packages/gateway/logs has some.");
+			console.error("No log files found. Pass one or more .log_entry.jsonl files, or run the gateway first so packages/gateway/logs has some.");
 			process.exitCode = 1;
 			return;
 		}
@@ -104,7 +104,7 @@ export class MainHelper {
 
 		if (!NodeFs.existsSync(logsDir)) return [];
 		return NodeFs.readdirSync(logsDir)
-			.filter((fileName: string): boolean => /^gateway-.*\.jsonl$/.test(fileName))
+			.filter((fileName: string): boolean => /^gateway-.*\.log_entry\.jsonl$/.test(fileName))
 			.sort()
 			.map((fileName: string): string => NodePath.join(logsDir, fileName));
 	}
@@ -118,7 +118,7 @@ export class MainHelper {
 			for (const lineError of lineErrors) console.warn(`${NodePath.basename(filePath)}: ${lineError}`);
 
 			sources.push({
-				id: NodePath.basename(filePath).replace(/\.jsonl$/, ""),
+				id: NodePath.basename(filePath).replace(/\.log_entry\.jsonl$/, ""),
 				label: MainHelper._labelForFile(filePath),
 				entries,
 			});
@@ -128,7 +128,7 @@ export class MainHelper {
 
 	private static _labelForFile(filePath: string): string {
 		const fileName: string = NodePath.basename(filePath);
-		const runMatch = /^gateway-(\d{4})-(\d{2})-(\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z\.jsonl$/.exec(fileName);
+		const runMatch = /^gateway-(\d{4})-(\d{2})-(\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z\.log_entry\.jsonl$/.exec(fileName);
 		if (runMatch === null) return fileName;
 		const [, year, month, day, hour, minute, second] = runMatch;
 		return `Gateway (${month}/${day} ${hour}:${minute}:${second})`;
