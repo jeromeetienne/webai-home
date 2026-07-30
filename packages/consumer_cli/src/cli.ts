@@ -41,7 +41,7 @@ export class Cli {
 
 		const logsDirectory = Url.fileURLToPath(new URL('../logs', import.meta.url));
 		const runTimestamp = new Date().toISOString().replace(/[:.]/g, '-');
-		const messageLogger = new MessageLogger(Path.join(logsDirectory, `consumer-${runTimestamp}.log_entry.jsonl`));
+		const messageLogger = new MessageLogger(Path.join(logsDirectory, `consumer-cli-${runTimestamp}.log_entry.jsonl`));
 
 		// The connection of the `ws` package names its event handlers with its own event
 		// types, so it is read here through the smaller shape this client actually uses.

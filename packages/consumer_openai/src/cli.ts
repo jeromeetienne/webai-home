@@ -9,6 +9,7 @@ import { MessageLogger } from '@webai/protocol/message_logger';
 
 // local imports
 import { ClusterTaskRunner } from './libs/cluster_task_runner.js';
+import { CurlStyleTransactionLogger } from './libs/curl_style_transaction_logger.js';
 import { OpenaiRoutes } from './libs/openai_routes.js';
 import { ServerSettings } from './libs/server_settings.js';
 
@@ -44,7 +45,15 @@ export class Cli {
 		// the consumer command line program records it.
 		const logsDirectory = Url.fileURLToPath(new URL('../logs', import.meta.url));
 		const runTimestamp = new Date().toISOString().replace(/[:.]/g, '-');
-		const messageLogger = new MessageLogger(Path.join(logsDirectory, `openai-${runTimestamp}.log_entry.jsonl`));
+		const messageLogger = new MessageLogger(Path.join(logsDirectory, `consumer-openai-${runTimestamp}.log_entry.jsonl`));
+
+		// Every `POST /v1/chat/completions` transaction this server answers, kept in its own file
+		// and its own shape rather than folded into the message log above: that file is this
+		// server's wire protocol with the central gateway, and this one is what a caller of this
+		// server experienced, which are easier to read apart than interleaved.
+		// `metadata.gatewayRequestId` on an entry here joins it back to the matching
+		// `task.submit` in the other file.
+		const transactionLogger = new CurlStyleTransactionLogger(Path.join(logsDirectory, `consumer_openai-${runTimestamp}.log_http.txt`));
 
 		const runner = new ClusterTaskRunner({
 			gatewayUrl: settings.gatewayUrl,
@@ -55,7 +64,7 @@ export class Cli {
 			maximumTasksInFlight: settings.maximumTasksInFlight,
 			messageLogger,
 		});
-		const routes = new OpenaiRoutes(runner, settings.apiKey, Math.floor(Date.now() / 1000));
+		const routes = new OpenaiRoutes(runner, settings.apiKey, Math.floor(Date.now() / 1000), transactionLogger);
 
 		const app = Express();
 		app.disable('x-powered-by');

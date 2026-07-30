@@ -56,6 +56,8 @@ type PendingTask = {
 	timeoutTimer: ReturnType<typeof setTimeout> | undefined;
 	/** Whether this request has already been answered, so it is not answered twice. */
 	isSettled: boolean;
+	/** Told the identifier this request was submitted under, and again once a task identifier is assigned, so a caller can record both for auditing. */
+	onCorrelationIds: ((ids: { requestId: string; taskId?: string }) => void) | undefined;
 };
 
 /** One request waiting for the connection to the central gateway to be registered. */
@@ -133,15 +135,19 @@ export class ClusterTaskRunner {
 	 * recognises which model could not be served.
 	 * @param abortSignal Reports that whoever sent the request has gone, so the task is
 	 * cancelled instead of being run for nobody.
+	 * @param onCorrelationIds Told the identifier this request is submitted under as soon as it
+	 * is generated, and again once the central gateway assigns a task identifier to it, so a
+	 * caller can record both for auditing without this runner exposing its internal maps.
 	 * @returns The generated text.
 	 * @throws OpenaiError when the task fails, is refused, or does not finish in time.
 	 */
-	async run(taskInput: TaskInput, modelId: string, abortSignal?: AbortSignal): Promise<string> {
+	async run(taskInput: TaskInput, modelId: string, abortSignal?: AbortSignal, onCorrelationIds?: (ids: { requestId: string; taskId?: string }) => void): Promise<string> {
 		if (this.pendingByRequestId.size >= this.options.maximumTasksInFlight) throw OpenaiError.tooManyTasksInFlight(this.options.maximumTasksInFlight);
 		const client = await this.registeredClient();
 		const requestId = Crypto.randomUUID();
+		onCorrelationIds?.({ requestId });
 		return await new Promise<string>((resolve, reject) => {
-			const pending: PendingTask = { requestId, taskId: undefined, taskInput, modelId, resolve, reject, timeoutTimer: undefined, isSettled: false };
+			const pending: PendingTask = { requestId, taskId: undefined, taskInput, modelId, resolve, reject, timeoutTimer: undefined, isSettled: false, onCorrelationIds };
 			pending.timeoutTimer = setTimeout(() => {
 				this.giveUp(pending, OpenaiError.requestTimedOut(this.options.requestTimeoutMs), 'this server waited as long as it was willing to');
 			}, this.options.requestTimeoutMs);
@@ -290,6 +296,7 @@ export class ClusterTaskRunner {
 		if (pending === undefined) return;
 		pending.taskId = task.taskId;
 		this.pendingByTaskId.set(task.taskId, pending);
+		pending.onCorrelationIds?.({ requestId: pending.requestId, taskId: task.taskId });
 		this.settleFromTaskState(pending, task.state, task.result, task.error);
 	}
 

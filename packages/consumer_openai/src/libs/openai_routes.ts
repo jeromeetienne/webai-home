@@ -9,6 +9,7 @@ import type { z } from 'zod';
 
 // local imports
 import type { ClusterTaskRunner } from './cluster_task_runner.js';
+import type { CurlStyleTransactionLogger, TransactionAuthOutcome, TransactionOutcome, TransactionResponseType } from './curl_style_transaction_logger.js';
 import { ModelCatalog } from './model_catalog.js';
 import { OpenaiError } from './openai_error.js';
 import { PromptFlattener } from './prompt_flattener.js';
@@ -24,6 +25,36 @@ import { ChatCompletionRequestSchema, type ChatCompletionResponse, type HealthRe
 const bodySizeLimit = '1mb';
 
 /**
+ * What this server has learned about one `POST /v1/chat/completions` request, gathered as it is
+ * read, checked, and answered, and written to the transaction log exactly once, when the
+ * response closes.
+ */
+type ChatCompletionTransaction = {
+	/** The identifier of this transaction. */
+	id: string;
+	/** When this request was received. */
+	receivedAt: Date;
+	/** The model the request asked for, once the body could be read safely. */
+	model: string | undefined;
+	/** Whether, and how, the request's key was checked. */
+	authOutcome: TransactionAuthOutcome | undefined;
+	/** The identifier the task was submitted to the central gateway under, once one exists. */
+	gatewayRequestId: string | undefined;
+	/** The task identifier the central gateway assigned, once one exists. */
+	gatewayTaskId: string | undefined;
+	/** When this request was answered or failed, once it has been. */
+	respondedAt: Date | undefined;
+	/** How this request's lifecycle ended, once it has. */
+	outcome: TransactionOutcome | undefined;
+	/** The HTTP status returned, once one has been decided. */
+	status: number | undefined;
+	/** What kind of body was returned, once one has been decided. */
+	responseType: TransactionResponseType | undefined;
+	/** The response body, once one has been decided. */
+	responseBody: unknown;
+};
+
+/**
  * The endpoints this server answers: the two of the OpenAI completion interface it serves, and
  * one that reports its own state.
  *
@@ -32,16 +63,21 @@ const bodySizeLimit = '1mb';
  * spread across the handlers.
  */
 export class OpenaiRoutes {
+	/** Every `POST /v1/chat/completions` request's transaction in flight, keyed by its Express request object, so the response-close handler set up when the request begins can find it later. */
+	private readonly transactions = new WeakMap<Express.Request, ChatCompletionTransaction>();
+
 	/**
 	 * @param runner Runs one cluster task per request.
 	 * @param apiKey The key a request must present, when this server was started with one.
 	 * @param startedAtSeconds When this server started, as a whole number of seconds since the
 	 * start of 1970, which is the creation date it states for every model.
+	 * @param transactionLogger Where every chat completion request is recorded as one transaction.
 	 */
 	constructor(
 		private readonly runner: ClusterTaskRunner,
 		private readonly apiKey: string | undefined,
 		private readonly startedAtSeconds: number,
+		private readonly transactionLogger: CurlStyleTransactionLogger,
 	) {}
 
 	/**
@@ -64,12 +100,23 @@ export class OpenaiRoutes {
 			response.status(health.ok ? 200 : 503).json(health);
 		});
 
+		// Registered ahead of the key check below, so a request to this route is tracked for its
+		// transaction log even when that check is what fails it.
+		router.use('/v1/chat/completions', (request, response, next) => {
+			this.beginTransaction(request, response);
+			next();
+		});
+
 		router.use('/v1', (request, response, next) => {
 			try {
 				this.checkApiKey(request);
+				const transaction = this.transactions.get(request);
+				if (transaction !== undefined && this.apiKey !== undefined) transaction.authOutcome = 'ok';
 				next();
 			} catch (failure: unknown) {
-				OpenaiRoutes.sendFailure(response, failure);
+				const transaction = this.transactions.get(request);
+				if (transaction !== undefined) transaction.authOutcome = 'failed';
+				OpenaiRoutes.sendFailure(response, failure, transaction);
 			}
 		});
 
@@ -80,7 +127,8 @@ export class OpenaiRoutes {
 		// An asynchronous handler that fails does not reach the error handling of Express by
 		// itself, so this route catches its own failures rather than relying on that.
 		router.post('/v1/chat/completions', (request, response) => {
-			void this.handleChatCompletion(request, response).catch((failure: unknown) => OpenaiRoutes.sendFailure(response, failure));
+			const transaction = this.transactions.get(request);
+			void this.handleChatCompletion(request, response, transaction).catch((failure: unknown) => OpenaiRoutes.sendFailure(response, failure, transaction));
 		});
 
 		// A body that is not valid JSON is refused by the reader mounted above, which fails
@@ -104,12 +152,15 @@ export class OpenaiRoutes {
 	 *
 	 * @param request The incoming request.
 	 * @param response The response to answer with.
+	 * @param transaction This request's transaction record, absent only in a test that builds
+	 * routes without going through {@link router}.
 	 * @throws OpenaiError when the request cannot be read or the cluster cannot serve it.
 	 */
-	private async handleChatCompletion(request: Express.Request, response: Express.Response): Promise<void> {
+	private async handleChatCompletion(request: Express.Request, response: Express.Response, transaction: ChatCompletionTransaction | undefined): Promise<void> {
 		const parsed = ChatCompletionRequestSchema.safeParse(request.body);
 		if (parsed.success === false) throw OpenaiRoutes.schemaFailureOf(parsed.error);
 		const body = parsed.data;
+		if (transaction !== undefined) transaction.model = body.model;
 		if (body.stream === true) throw OpenaiError.streamingRefused();
 		const taskTypeName = ModelCatalog.taskTypeNameOf(body.model);
 		if (taskTypeName === undefined) throw OpenaiError.unknownModel(body.model, ModelCatalog.modelIds);
@@ -129,7 +180,11 @@ export class OpenaiRoutes {
 			if (response.writableEnded === false) abortController.abort();
 		});
 
-		const answer = await this.runner.run(taskInput, body.model, abortController.signal);
+		const answer = await this.runner.run(taskInput, body.model, abortController.signal, (ids) => {
+			if (transaction === undefined) return;
+			transaction.gatewayRequestId = ids.requestId;
+			if (ids.taskId !== undefined) transaction.gatewayTaskId = ids.taskId;
+		});
 		const completion: ChatCompletionResponse = {
 			id: `chatcmpl-${Crypto.randomUUID()}`,
 			object: 'chat.completion',
@@ -137,6 +192,13 @@ export class OpenaiRoutes {
 			model: body.model,
 			choices: [{ index: 0, message: { role: 'assistant', content: answer }, logprobs: null, finish_reason: 'stop' }],
 		};
+		if (transaction !== undefined) {
+			transaction.respondedAt = new Date();
+			transaction.outcome = 'completed';
+			transaction.status = 200;
+			transaction.responseType = 'chat.completion';
+			transaction.responseBody = completion;
+		}
 		if (response.writableEnded === true) return;
 		response.status(200).json(completion);
 	}
@@ -186,15 +248,81 @@ export class OpenaiRoutes {
 	 * @param failure The failure. Anything that is not an `OpenaiError` is a fault in this
 	 * server rather than in the request, so it is reported as such and written to this server's
 	 * own output.
+	 * @param transaction This request's transaction record, so the failure is recorded on it.
+	 * Absent for a route this server does not log a transaction for, such as `GET /v1/models`.
 	 */
-	private static sendFailure(response: Express.Response, failure: unknown): void {
-		if (response.writableEnded === true) return;
-		if (failure instanceof OpenaiError) {
-			response.status(failure.status).json(failure.body);
-			return;
+	private static sendFailure(response: Express.Response, failure: unknown, transaction?: ChatCompletionTransaction): void {
+		const openaiFailure = failure instanceof OpenaiError ? failure : OpenaiError.unexpected();
+		if (failure instanceof OpenaiError === false) console.error(failure);
+		if (transaction !== undefined) {
+			transaction.respondedAt = new Date();
+			transaction.outcome = 'failed';
+			transaction.status = openaiFailure.status;
+			transaction.responseType = 'error';
+			transaction.responseBody = openaiFailure.body;
 		}
-		console.error(failure);
-		const unexpected = OpenaiError.unexpected();
-		response.status(unexpected.status).json(unexpected.body);
+		if (response.writableEnded === true) return;
+		response.status(openaiFailure.status).json(openaiFailure.body);
+	}
+
+	///////////////////////////////////////////////////////////////////////////////
+	///////////////////////////////////////////////////////////////////////////////
+	//	The Transaction Log
+	///////////////////////////////////////////////////////////////////////////////
+	///////////////////////////////////////////////////////////////////////////////
+
+	/**
+	 * Starts this request's transaction record, and arranges for it to be written exactly once,
+	 * when the response closes.
+	 *
+	 * The response's `close` event is used rather than writing the record at the place a status
+	 * is decided, because it fires exactly once whether the response was sent in full or the
+	 * caller went away first, and by then `response.writableEnded` says which one happened. That
+	 * keeps the record for a completed call and the record for an abandoned one to a single
+	 * write, rather than one attempt per place a status can be decided.
+	 *
+	 * @param request The incoming request.
+	 * @param response The response that will answer it.
+	 */
+	private beginTransaction(request: Express.Request, response: Express.Response): void {
+		const transaction: ChatCompletionTransaction = {
+			id: Crypto.randomUUID(),
+			receivedAt: new Date(),
+			model: undefined,
+			authOutcome: undefined,
+			gatewayRequestId: undefined,
+			gatewayTaskId: undefined,
+			respondedAt: undefined,
+			outcome: undefined,
+			status: undefined,
+			responseType: undefined,
+			responseBody: undefined,
+		};
+		this.transactions.set(request, transaction);
+		response.on('close', () => {
+			// A response that was never written to has not answered the request: the caller went
+			// away, whether or not a failure had already been decided for it.
+			const callerDisconnected = response.writableEnded === false;
+			const respondedAt = transaction.respondedAt ?? new Date();
+			this.transactionLogger.log({
+				id: transaction.id,
+				receivedAt: transaction.receivedAt,
+				method: request.method,
+				path: '/v1/chat/completions',
+				httpVersion: `HTTP/${request.httpVersion}`,
+				requestHeaders: request.headers,
+				requestBody: request.body,
+				model: transaction.model,
+				authOutcome: transaction.authOutcome ?? 'not_required',
+				gatewayRequestId: transaction.gatewayRequestId,
+				gatewayTaskId: transaction.gatewayTaskId,
+				outcome: callerDisconnected ? 'cancelled' : (transaction.outcome ?? 'failed'),
+				status: callerDisconnected ? 0 : (transaction.status ?? 0),
+				responseType: callerDisconnected ? 'none' : (transaction.responseType ?? 'none'),
+				responseBody: callerDisconnected ? undefined : transaction.responseBody,
+				elapsedMs: respondedAt.getTime() - transaction.receivedAt.getTime(),
+				callerDisconnected,
+			});
+		});
 	}
 }

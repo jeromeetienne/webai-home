@@ -117,6 +117,73 @@ Two of these are worth spelling out:
 - A task already under way is **not** picked up again after the gateway connection returns. The gateway gives the new connection a new device identifier, and a task belongs to the device that submitted it, so a request waiting when the connection drops is given up on rather than being left to wait for an answer that can no longer reach it.
 - When a caller hangs up, or `--request-timeout-ms` is reached, this server cancels the task, so the cluster stops running stages for an answer nobody will read.
 
+## Auditing HTTP transactions
+
+Every `POST /v1/chat/completions` request is recorded as one `curl -v`-style block of plain text, appended to its own file, `logs/consumer_openai-<run timestamp>.log_http.txt`, one file per run of this server, in the same `logs/` directory as the message log described above but kept apart from it: that file is this server's own wire protocol with the central gateway, and this one is what a caller of this server actually experienced. This is the work described by [issue #75](https://github.com/webai-at-home/webai-at-home/issues/75).
+
+One block is written per transaction, once its response has closed, in the shape `curl -v`, a browser's network inspector, or a reverse proxy's access log already uses: a `>` line per outgoing request field, a `<` line per incoming response field, a blank line between headers and body, and a few plain diagnostic lines naming how the request was authenticated, how it was submitted to the central gateway, how long it took, and how it ended. It reads like this:
+
+```text
+==================================================
+
+> POST /v1/chat/completions HTTP/1.1
+> host: localhost:8788
+> content-type: application/json
+> authorization: Bearer sekret
+> content-length: 144
+>
+> {
+>   "model": "llm_qwen3_0_6b_sharded",
+>   "messages": [
+>     {
+>       "role": "user",
+>       "content": "What is the capital of France?"
+>     }
+>   ]
+> }
+
+< HTTP/1.1 200 OK
+< content-type: application/json
+<
+< {
+<   "id": "chatcmpl-e5f944cd-c863-418a-88e6-3b347a33f9ae",
+<   "object": "chat.completion",
+<   "created": 1785419970,
+<   "model": "llm_qwen3_0_6b_sharded",
+<   "choices": [
+<     {
+<       "index": 0,
+<       "message": {
+<         "role": "assistant",
+<         "content": "The capital of France is **Paris**."
+<       },
+<       "logprobs": null,
+<       "finish_reason": "stop"
+<     }
+<   ]
+< }
+
+Transaction: 7893bfe2-e193-4817-91f8-af59c343cdd4
+Duration: 1855 ms
+Model: llm_qwen3_0_6b_sharded
+Auth: ok
+Gateway request: bedf801e-5e65-47a7-a31e-4d1424e4a0d4
+Gateway task: task-329d8a1b-eb3d-4d87-baf7-29d739ec3aba
+Outcome: completed
+
+==================================================
+```
+
+`Gateway request` is the same `requestId` a `task.submit` in the message log above carries, and `Gateway task` is the `taskId` a `task.accepted` in that same file assigns, so a transaction here can be followed into the gateway traffic that answered it. `Outcome` is `completed`, `failed`, or `cancelled`; a request whose caller disconnects before an answer arrives, whether by closing the connection or because `--request-timeout-ms` was reached, prints `< (no response: the caller disconnected before one was sent)` and `Outcome: cancelled`, told apart from a request this server actively refused or failed to serve.
+
+**Nothing is redacted.** Every header is written as received, the `Authorization` header included, and both bodies are written as sent. That is the point of this log: a block says what a caller actually asked for and what it actually received, which is what makes it worth keeping for an audit, and what lets a block be read, compared with `diff`, and replayed as the request it describes.
+
+The only thing held back is length: a body longer than 4096 characters is cut short and followed by `Body truncated (N characters omitted of M)`, so one very long prompt or answer cannot make a whole run's log unreadable.
+
+It follows that this file holds the keys presented to this server and every prompt and answer that went through it, in full. **It is as sensitive as the credentials and the conversations it records**; `logs/` is ignored by git for that reason, and the file should be treated the same way anywhere it is copied.
+
+A failure while writing to this log, including one while first creating the log directory, is caught and reported to this server's own output, so a caller is always given the answer or failure it was owed even when the log itself cannot be written to.
+
 ## Build, type check, and test
 
 ```sh
@@ -131,7 +198,7 @@ npm run typecheck --workspace @webai/consumer-openai
 npm run test --workspace @webai/consumer-openai
 ```
 
-The tests cover reading a request, the models on offer, the failure mapping, and the whole run of a cluster task against a stand-in connection, in the way [`packages/consumer_cli/tests/index.test.ts`](../consumer_cli/tests/index.test.ts) tests `ConsumerClient`. They start no server and reach no gateway, so a live run against the real cluster is still what proves the package works; the examples above are that run.
+The tests cover reading a request, the models on offer, the failure mapping, the whole run of a cluster task against a stand-in connection, and the transaction log described above, in the way [`packages/consumer_cli/tests/index.test.ts`](../consumer_cli/tests/index.test.ts) tests `ConsumerClient`. Most start no server and reach no gateway; a handful send real HTTP requests to the actual Express routes in front of a stand-in gateway connection to check the full request-response flow and what it writes to the transaction log. A live run against the real cluster is still what proves the package works end to end; the examples above are that run.
 
 ## The source files
 
@@ -143,3 +210,4 @@ The tests cover reading a request, the models on offer, the failure mapping, and
 - [`src/libs/prompt_flattener.ts`](./src/libs/prompt_flattener.ts) — turning a conversation into the single piece of text a task carries.
 - [`src/libs/openai_error.ts`](./src/libs/openai_error.ts) — every way a request can fail, with its status and its body.
 - [`src/libs/openai_types.ts`](./src/libs/openai_types.ts) — the request bodies accepted and the response bodies returned.
+- [`src/libs/curl_style_transaction_logger.ts`](./src/libs/curl_style_transaction_logger.ts) — records every chat completion request to the transaction log described above.
