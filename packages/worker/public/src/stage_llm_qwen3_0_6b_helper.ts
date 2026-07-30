@@ -83,7 +83,7 @@ interface TaskGenerationState {
 }
 
 /** Loads the qwen3-0.6b shards and runs the assigned shard for each stage of a task's generation loop. */
-export class StageLlmHelper {
+export class StageLlmQwen3_0_6bHelper {
 	/**
 	 * The computation this worker browser implements, named the way a pipeline stage names
 	 * its computation.
@@ -104,7 +104,7 @@ export class StageLlmHelper {
 	 * @returns `true` when this helper can run it.
 	 */
 	static implementsComputation(computation: string): boolean {
-		return computation === StageLlmHelper.computation;
+		return computation === StageLlmQwen3_0_6bHelper.computation;
 	}
 
 	/** The three ordered shard sessions: input, middle, and output. */
@@ -126,35 +126,35 @@ export class StageLlmHelper {
 	 * @throws If the pipeline asks for a shard beyond the number this browser's model was split into.
 	 */
 	static async compute(shardIndex: number, taskId: string, payload: LlmStagePayload): Promise<LlmStagePayload> {
-		if (shardIndex < 0 || shardIndex >= StageLlmHelper.shardCount) throw new Error(`This browser runs ${StageLlmHelper.shardCount} language-model shards and was asked for shard ${shardIndex + 1}.`);
-		await StageLlmHelper.loadModel([shardIndex]);
-		const session = StageLlmHelper.shardSessions[shardIndex];
+		if (shardIndex < 0 || shardIndex >= StageLlmQwen3_0_6bHelper.shardCount) throw new Error(`This browser runs ${StageLlmQwen3_0_6bHelper.shardCount} language-model shards and was asked for shard ${shardIndex + 1}.`);
+		await StageLlmQwen3_0_6bHelper.loadModel([shardIndex]);
+		const session = StageLlmQwen3_0_6bHelper.shardSessions[shardIndex];
 		if (!session) throw new Error(`LLM shard ${shardIndex + 1} was not loaded.`);
 		const isFirstShard = shardIndex === 0;
 		const isFirstRound = isFirstShard && payload.inputIds === undefined;
 		const state = isFirstRound
-			? StageLlmHelper.startTask(taskId)
-			: (StageLlmHelper.stateByTaskId.get(taskId) ?? StageLlmHelper.startTask(taskId));
+			? StageLlmQwen3_0_6bHelper.startTask(taskId)
+			: (StageLlmQwen3_0_6bHelper.stateByTaskId.get(taskId) ?? StageLlmQwen3_0_6bHelper.startTask(taskId));
 
-		const inputIds = isFirstRound ? StageLlmHelper.encodePrompt(payload.text ?? "") : (payload.inputIds ?? []);
+		const inputIds = isFirstRound ? StageLlmQwen3_0_6bHelper.encodePrompt(payload.text ?? "") : (payload.inputIds ?? []);
 		const position = payload.position ?? 0;
-		const boundary = payload.tensors ? StageLlmHelper.decodeBoundary(payload.tensors) : undefined;
+		const boundary = payload.tensors ? StageLlmQwen3_0_6bHelper.decodeBoundary(payload.tensors) : undefined;
 
-		const outputs = await session.run(StageLlmHelper.buildFeeds(session, inputIds, position, state.caches[shardIndex], boundary));
+		const outputs = await session.run(StageLlmQwen3_0_6bHelper.buildFeeds(session, inputIds, position, state.caches[shardIndex], boundary));
 		state.caches[shardIndex] = Object.fromEntries(
 			Object.entries(outputs)
 				.filter(([name]) => name.startsWith("present."))
 				.map(([name, value]) => [name.replace("present", "past_key_values"), value]),
 		);
 
-		const isLastShard = shardIndex === StageLlmHelper.shardCount - 1;
+		const isLastShard = shardIndex === StageLlmQwen3_0_6bHelper.shardCount - 1;
 		if (isLastShard) {
-			const nextToken = StageLlmHelper.getNextToken(StageLlmHelper.findLogits(session, outputs));
+			const nextToken = StageLlmQwen3_0_6bHelper.getNextToken(StageLlmQwen3_0_6bHelper.findLogits(session, outputs));
 			state.generatedIds.push(nextToken);
-			const text = StageLlmHelper.tokenizer?.decode(state.generatedIds, { skip_special_tokens: true }).trim() ?? "";
+			const text = StageLlmQwen3_0_6bHelper.tokenizer?.decode(state.generatedIds, { skip_special_tokens: true }).trim() ?? "";
 			const done = nextToken === EOS_TOKEN_ID || state.generatedIds.length >= MAX_NEW_TOKENS;
 			if (done) {
-				StageLlmHelper.clearTask(taskId);
+				StageLlmQwen3_0_6bHelper.clearTask(taskId);
 				return StagePayloadFactory.llmDone(text);
 			}
 			return StagePayloadFactory.llmContinue(text, nextToken, position + inputIds.length);
@@ -164,8 +164,8 @@ export class StageLlmHelper {
 		if (!boundaryNames) throw new Error(`Missing boundary definition after shard ${shardIndex + 1}.`);
 		return StagePayloadFactory.llmHandoff(
 			{
-				[boundaryNames.normalized]: StageLlmHelper.encodeTensor(outputs[boundaryNames.normalized]),
-				[boundaryNames.residual]: StageLlmHelper.encodeTensor(outputs[boundaryNames.residual]),
+				[boundaryNames.normalized]: StageLlmQwen3_0_6bHelper.encodeTensor(outputs[boundaryNames.normalized]),
+				[boundaryNames.residual]: StageLlmQwen3_0_6bHelper.encodeTensor(outputs[boundaryNames.residual]),
 			},
 			inputIds,
 			position,
@@ -181,7 +181,7 @@ export class StageLlmHelper {
 	 * @param taskId The task whose generation state should be discarded.
 	 */
 	static clearTask(taskId: string): void {
-		StageLlmHelper.stateByTaskId.delete(taskId);
+		StageLlmQwen3_0_6bHelper.stateByTaskId.delete(taskId);
 	}
 
 	/**
@@ -191,14 +191,14 @@ export class StageLlmHelper {
 	 * positions of the enabled language-model stages in their pipeline.
 	 */
 	static preload(shardIndexes: readonly number[]): Promise<void> {
-		const runnable = shardIndexes.filter((shardIndex) => shardIndex >= 0 && shardIndex < StageLlmHelper.shardCount);
-		return runnable.length === 0 ? Promise.resolve() : StageLlmHelper.loadModel(runnable);
+		const runnable = shardIndexes.filter((shardIndex) => shardIndex >= 0 && shardIndex < StageLlmQwen3_0_6bHelper.shardCount);
+		return runnable.length === 0 ? Promise.resolve() : StageLlmQwen3_0_6bHelper.loadModel(runnable);
 	}
 
 	/** Creates and stores fresh generation state for a task's first round. */
 	private static startTask(taskId: string): TaskGenerationState {
 		const state: TaskGenerationState = { caches: [undefined, undefined, undefined], generatedIds: [] };
-		StageLlmHelper.stateByTaskId.set(taskId, state);
+		StageLlmQwen3_0_6bHelper.stateByTaskId.set(taskId, state);
 		return state;
 	}
 
@@ -207,11 +207,11 @@ export class StageLlmHelper {
 	 */
 	private static async loadModel(requestedShardIndexes: readonly number[]): Promise<void> {
 		const shardIndexes = [...new Set(requestedShardIndexes)];
-		if (shardIndexes.every((shardIndex) => StageLlmHelper.shardSessions[shardIndex]) && StageLlmHelper.tokenizer) return;
-		if (StageLlmHelper.loadPromise) return StageLlmHelper.loadPromise;
+		if (shardIndexes.every((shardIndex) => StageLlmQwen3_0_6bHelper.shardSessions[shardIndex]) && StageLlmQwen3_0_6bHelper.tokenizer) return;
+		if (StageLlmQwen3_0_6bHelper.loadPromise) return StageLlmQwen3_0_6bHelper.loadPromise;
 
 		const hasWebGPU = "gpu" in navigator;
-		StageLlmHelper.loadPromise = Promise.all([
+		StageLlmQwen3_0_6bHelper.loadPromise = Promise.all([
 			fetch(TOKENIZER_URL).then(async (response) => {
 				if (!response.ok) throw new Error(`Tokenizer download failed (${response.status}).`);
 				return response.json();
@@ -220,20 +220,20 @@ export class StageLlmHelper {
 				if (!response.ok) throw new Error(`Tokenizer configuration download failed (${response.status}).`);
 				return response.json();
 			}),
-			...shardIndexes.map((shardIndex) => StageLlmHelper.fetchModelBytes(SHARD_URLS[shardIndex])),
+			...shardIndexes.map((shardIndex) => StageLlmQwen3_0_6bHelper.fetchModelBytes(SHARD_URLS[shardIndex])),
 		]).then(async ([tokenizerJson, tokenizerConfig, ...shardBytes]) => {
-			StageLlmHelper.tokenizer = new Tokenizer(tokenizerJson, tokenizerConfig);
+			StageLlmQwen3_0_6bHelper.tokenizer = new Tokenizer(tokenizerJson, tokenizerConfig);
 			for (const [shardOffset, bytes] of shardBytes.entries()) {
-				StageLlmHelper.shardSessions[shardIndexes[shardOffset]] = await OnnxRuntimeWeb.InferenceSession.create(bytes, {
+				StageLlmQwen3_0_6bHelper.shardSessions[shardIndexes[shardOffset]] = await OnnxRuntimeWeb.InferenceSession.create(bytes, {
 					executionProviders: hasWebGPU ? ["webgpu", "wasm"] : ["wasm"],
 					graphOptimizationLevel: "all",
 				});
 			}
 		}).catch((error: unknown) => {
-			StageLlmHelper.loadPromise = undefined;
+			StageLlmQwen3_0_6bHelper.loadPromise = undefined;
 			throw error;
 		});
-		return StageLlmHelper.loadPromise;
+		return StageLlmQwen3_0_6bHelper.loadPromise;
 	}
 
 	/** Opens the IndexedDB database used to store the downloaded ONNX model. */
@@ -251,7 +251,7 @@ export class StageLlmHelper {
 	/** Reads the shard bytes from IndexedDB, returning no value when unavailable. */
 	private static async readCachedModel(cacheKey: string): Promise<ArrayBuffer | undefined> {
 		try {
-			const database = await StageLlmHelper.openModelDatabase();
+			const database = await StageLlmQwen3_0_6bHelper.openModelDatabase();
 			return await new Promise<ArrayBuffer | undefined>((resolve, reject) => {
 				const request = database.transaction("models", "readonly").objectStore("models").get(cacheKey);
 				request.onsuccess = () => resolve(request.result as ArrayBuffer | undefined);
@@ -265,7 +265,7 @@ export class StageLlmHelper {
 	/** Stores the downloaded shard bytes in IndexedDB for later page loads. */
 	private static async cacheModel(model: ArrayBuffer, cacheKey: string): Promise<void> {
 		try {
-			const database = await StageLlmHelper.openModelDatabase();
+			const database = await StageLlmQwen3_0_6bHelper.openModelDatabase();
 			await new Promise<void>((resolve, reject) => {
 				const transaction = database.transaction("models", "readwrite");
 				transaction.objectStore("models").put(model, cacheKey);
@@ -279,20 +279,20 @@ export class StageLlmHelper {
 
 	/** Returns shard bytes from IndexedDB or downloads and caches a fresh copy. */
 	private static async fetchModelBytes(url: string): Promise<ArrayBuffer> {
-		const cached = await StageLlmHelper.readCachedModel(url);
+		const cached = await StageLlmQwen3_0_6bHelper.readCachedModel(url);
 		if (cached) return cached;
 		const response = await fetch(url);
 		if (!response.ok) throw new Error(`Shard download failed (${response.status}).`);
 		const bytes = await response.arrayBuffer();
-		await StageLlmHelper.cacheModel(bytes, url);
+		await StageLlmQwen3_0_6bHelper.cacheModel(bytes, url);
 		return bytes;
 	}
 
 	/** Encodes a prompt with the Qwen3 chat template and returns its token identifiers. */
 	private static encodePrompt(prompt: string): number[] {
-		if (!StageLlmHelper.tokenizer) throw new Error("The tokenizer is not loaded.");
+		if (!StageLlmQwen3_0_6bHelper.tokenizer) throw new Error("The tokenizer is not loaded.");
 		const formattedPrompt = `<|im_start|>user\n${prompt}<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n`;
-		return StageLlmHelper.tokenizer.encode(formattedPrompt).ids;
+		return StageLlmQwen3_0_6bHelper.tokenizer.encode(formattedPrompt).ids;
 	}
 
 	/** Builds the inputs for one shard call, reusing that shard's own key-value cache from its previous round when available. */
@@ -357,7 +357,7 @@ export class StageLlmHelper {
 	/** Decodes the boundary tensors received from the previous shard's stage result. */
 	private static decodeBoundary(tensors: Record<string, EncodedTensor>): TensorMap {
 		return Object.fromEntries(
-			Object.entries(tensors).map(([name, encoded]) => [name, StageLlmHelper.decodeTensor(encoded)]),
+			Object.entries(tensors).map(([name, encoded]) => [name, StageLlmQwen3_0_6bHelper.decodeTensor(encoded)]),
 		);
 	}
 

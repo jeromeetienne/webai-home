@@ -281,15 +281,15 @@ The current formula stages multiply the input by `2` and then add `7`.
 The language-model task sequence cycles through three shards:
 
 ```text
-stage_llm_shard1 -> stage_llm_shard2 -> stage_llm_shard3
-                 -> stage_llm_shard1 -> ...
+stage_llm_qwen3_0_6b_shard1on3 -> stage_llm_qwen3_0_6b_shard2on3 -> stage_llm_qwen3_0_6b_shard3on3
+                               -> stage_llm_qwen3_0_6b_shard1on3 -> ...
 ```
 
 The first assignment carries the prompt in `LlmStagePayload.text`. Intermediate
 assignments carry encoded boundary tensors, token identifiers, and the token
 position. The final shard returns generated text and sets `done: true` when
 generation is complete. When `done` is false, the final shard returns the next
-token and the gateway starts another cycle at `stage_llm_shard1`.
+token and the gateway starts another cycle at `stage_llm_qwen3_0_6b_shard1on3`.
 
 An encoded tensor contains `dims`, `type`, and base64-encoded data. The current
 JSON tensor encoding is a probe format and is not a final compatibility

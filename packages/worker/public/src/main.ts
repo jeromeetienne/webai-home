@@ -4,7 +4,7 @@ export { };
 import { StageName, type StageName as StageNameType, type StagePayload, type ClientMessage } from "@webai/protocol";
 import { Envelope } from "@webai/protocol/envelope";
 import { StageFormulaHelper } from "./stage_formula_helper";
-import { StageLlmHelper } from "./stage_llm_helper";
+import { StageLlmQwen3_0_6bHelper } from "./stage_llm_qwen3_0_6b_helper";
 import { centralGatewayAuthToken, centralGatewayWebSocketUrl } from "./gateway_config";
 import { DiagnosticsReporter } from "./diagnostics_reporter";
 import { SessionRenewal } from "@webai/protocol/session_renewal";
@@ -41,7 +41,7 @@ export const requestedStageNamesFromUrl = (search: string): StageNameType[] => {
  * @returns `true` when one of this browser's helpers implements it.
  */
 const implementsComputation = (computation: string): boolean =>
-	StageFormulaHelper.implementsComputation(computation) || StageLlmHelper.implementsComputation(computation);
+	StageFormulaHelper.implementsComputation(computation) || StageLlmQwen3_0_6bHelper.implementsComputation(computation);
 
 /**
  * Chooses the stages this browser offers to the gateway, from the pipelines the gateway has
@@ -65,7 +65,7 @@ export const offeredStages = (
 			if (implementsComputation(stage.computation) === false) continue;
 			if (requestedStageNames.length > 0 && requestedStageNames.includes(stage.name) === false) continue;
 			if (stageNames.includes(stage.name) === false) stageNames.push(stage.name);
-			if (StageLlmHelper.implementsComputation(stage.computation) && llmShardIndexes.includes(stageIndex) === false) llmShardIndexes.push(stageIndex);
+			if (StageLlmQwen3_0_6bHelper.implementsComputation(stage.computation) && llmShardIndexes.includes(stageIndex) === false) llmShardIndexes.push(stageIndex);
 		}
 	}
 	return { stageNames, llmShardIndexes };
@@ -414,7 +414,7 @@ const stopLeaseHeartbeat = (assignmentId?: string): void => {
 					statusEl.textContent = "Loading LLM shards";
 					statusEl.className = "badge text-bg-warning";
 				}
-				StageLlmHelper.preload(offered.llmShardIndexes)
+				StageLlmQwen3_0_6bHelper.preload(offered.llmShardIndexes)
 					.then(() => {
 						isPreparing = false;
 						if (!socket) return;
@@ -443,7 +443,7 @@ const stopLeaseHeartbeat = (assignmentId?: string): void => {
 			DiagnosticsReporter.record("received", message.type, frame.id);
 			if (message.type === "stage.cancel" && message.taskId !== undefined) {
 				stopLeaseHeartbeat(message.assignmentId);
-				StageLlmHelper.clearTask(message.taskId);
+				StageLlmQwen3_0_6bHelper.clearTask(message.taskId);
 				return;
 			}
 			// The gateway answers each lease heartbeat with a later expiry. Nothing has to be
@@ -459,10 +459,10 @@ const stopLeaseHeartbeat = (assignmentId?: string): void => {
 			// the stage occupies. This browser never has to recognise the stage name.
 			const computation = message.computation ?? "";
 			/** Whether the assigned stage runs a language-model shard, as opposed to a formula computation. */
-			const isLlmStage = StageLlmHelper.implementsComputation(computation);
+			const isLlmStage = StageLlmQwen3_0_6bHelper.implementsComputation(computation);
 			/** Computes the result for the assigned stage and sends it back once ready. */
 			const computeResult: Promise<StagePayload> = isLlmStage
-				? StageLlmHelper.compute(message.stageIndex ?? 0, taskId, value as Exclude<StagePayload, number>)
+				? StageLlmQwen3_0_6bHelper.compute(message.stageIndex ?? 0, taskId, value as Exclude<StagePayload, number>)
 				: Promise.resolve(StageFormulaHelper.compute(computation, value as number));
 			computeResult
 				.then((value) => {
@@ -482,7 +482,7 @@ const stopLeaseHeartbeat = (assignmentId?: string): void => {
 					stopLeaseHeartbeat(assignmentId);
 					// A failed LLM stage abandons the task; drop its in-memory key-value cache
 					// rather than leaving it in memory for a task that will never resume.
-					if (isLlmStage) StageLlmHelper.clearTask(taskId);
+					if (isLlmStage) StageLlmQwen3_0_6bHelper.clearTask(taskId);
 					const failedMessage: ClientMessage = {
 						type: "stage.failed",
 						taskId,

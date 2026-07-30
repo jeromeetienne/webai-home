@@ -30,7 +30,7 @@ test("restricts task states, and checks the shape of a stage name without listin
   assert.equal(TaskState.safeParse("completed").success, true);
   assert.equal(TaskState.safeParse("unknown").success, false);
   assert.equal(StageName.safeParse("stage_formula_multiply").success, true);
-  assert.equal(StageName.safeParse("stage_llm_shard1").success, true);
+  assert.equal(StageName.safeParse("stage_llm_qwen3_0_6b_shard1on3").success, true);
   // A stage name this package has never heard of is accepted, because which stage names
   // exist is decided at run time by the pipelines the gateway has loaded.
   assert.equal(StageName.safeParse("stage_invented_by_a_pipeline_file").success, true);
@@ -87,9 +87,9 @@ test("redacts the task result, the values inside completed stages, and a relayed
 
   const snapshot = MessageLogger.redactPayload({
     type: "task.snapshot",
-    task: { taskId: "task-1", completedStages: [{ name: "stage_llm_shard1", value: { text: "SECRET STAGE" } }] },
+    task: { taskId: "task-1", completedStages: [{ name: "stage_llm_qwen3_0_6b_shard1on3", value: { text: "SECRET STAGE" } }] },
   }) as { task: { completedStages: { name: string; value: unknown }[] } };
-  assert.deepEqual(snapshot.task.completedStages, [{ name: "stage_llm_shard1", value: "[redacted]" }]);
+  assert.deepEqual(snapshot.task.completedStages, [{ name: "stage_llm_qwen3_0_6b_shard1on3", value: "[redacted]" }]);
 
   // Redaction still reaches a value nested inside another message, which is the shape a
   // gateway message carrying a task takes.
@@ -143,7 +143,7 @@ function buildLlmTask(shardCount: number): Task {
     workerDeviceId: "device-worker",
     assignmentId: `assignment-${index}`,
     attempt: 1,
-    stage: "stage_llm_shard1" as const,
+    stage: "stage_llm_qwen3_0_6b_shard1on3" as const,
     value: tensorPayload,
     leaseUntil: "2026-01-01T00:00:15.000Z",
   }));
@@ -196,7 +196,7 @@ test("no stage value appears in a task update, and none appears twice", () => {
   assert.equal(serialised.includes("AAAA"), false);
   assert.equal("value" in (update.assignment ?? {}), false);
   assert.equal(update.completedStageCount, 5);
-  assert.equal(update.currentStage, "stage_llm_shard1");
+  assert.equal(update.currentStage, "stage_llm_qwen3_0_6b_shard1on3");
 });
 
 test("the task snapshot drops the attempt history and truncates the change log", () => {

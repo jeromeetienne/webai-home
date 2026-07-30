@@ -77,9 +77,9 @@ export const builtinPipelineSpecifications: PipelineSpecification[] = [
     // retried.
     pipelineId: "llm", version: 1, taskType: "task_type_llm", repeatsUntilDone: true,
     stages: [
-      { name: "stage_llm_shard1", computation: "llm_shard", inputSchemaId: "llm@1", outputSchemaId: "llm@1", encoding: "inline-json", prefersSameWorkerOnRetry: true },
-      { name: "stage_llm_shard2", computation: "llm_shard", inputSchemaId: "llm@1", outputSchemaId: "llm@1", encoding: "inline-json", prefersSameWorkerOnRetry: true },
-      { name: "stage_llm_shard3", computation: "llm_shard", inputSchemaId: "llm@1", outputSchemaId: "llm@1", encoding: "inline-json", prefersSameWorkerOnRetry: true },
+      { name: "stage_llm_qwen3_0_6b_shard1on3", computation: "llm_shard", inputSchemaId: "llm@1", outputSchemaId: "llm@1", encoding: "inline-json", prefersSameWorkerOnRetry: true },
+      { name: "stage_llm_qwen3_0_6b_shard2on3", computation: "llm_shard", inputSchemaId: "llm@1", outputSchemaId: "llm@1", encoding: "inline-json", prefersSameWorkerOnRetry: true },
+      { name: "stage_llm_qwen3_0_6b_shard3on3", computation: "llm_shard", inputSchemaId: "llm@1", outputSchemaId: "llm@1", encoding: "inline-json", prefersSameWorkerOnRetry: true },
     ],
   },
 ];
