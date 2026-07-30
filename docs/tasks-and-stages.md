@@ -54,13 +54,13 @@ Neither stage states its own lease duration, so both use the gateway default. Ne
 **How to submit one:**
 
 ```bash
-npm run sample:dev_formula --workspace @webai/consumer
+npm run sample:dev_formula --workspace @webai/consumer-cli
 ```
 
 That script submits the number 5 under the consumer name `dev-formula-consumer`. To submit a different number, call the command line client directly:
 
 ```bash
-npm run dev --workspace @webai/consumer -- --type dev_formula 12
+npm run dev --workspace @webai/consumer-cli -- --type dev_formula 12
 ```
 
 ### Task type `task_type_llm_qwen3_0_6b_sharded`
@@ -98,13 +98,13 @@ The normal arrangement is three tabs, each restricted to one stage, which is wha
 **How to submit one:**
 
 ```bash
-npm run sample:llm_qwen3_0_6b_sharded --workspace @webai/consumer
+npm run sample:llm_qwen3_0_6b_sharded --workspace @webai/consumer-cli
 ```
 
 That script submits the prompt "What is the capital of France?" under the consumer name `llm-qwen3-0-6b-sharded-consumer`. To submit a different prompt, call the command line client directly:
 
 ```bash
-npm run dev --workspace @webai/consumer -- --type llm_qwen3_0_6b_sharded "Write one sentence about rain."
+npm run dev --workspace @webai/consumer-cli -- --type llm_qwen3_0_6b_sharded "Write one sentence about rain."
 ```
 
 ### Task type `task_type_llm_gemma_nano_chrome_full`
@@ -144,13 +144,13 @@ A second tab advertising the same stage does no harm. The gateway records which 
 **How to submit one:**
 
 ```bash
-npm run sample:llm_gemma_nano_chrome_full --workspace @webai/consumer
+npm run sample:llm_gemma_nano_chrome_full --workspace @webai/consumer-cli
 ```
 
 That script submits the prompt "What is the capital of France?" under the consumer name `llm-gemma-nano-chrome-full-consumer`. To submit a different prompt, call the command line client directly:
 
 ```bash
-npm run dev --workspace @webai/consumer -- --type llm_gemma_nano_chrome_full "Write one sentence about rain."
+npm run dev --workspace @webai/consumer-cli -- --type llm_gemma_nano_chrome_full "Write one sentence about rain."
 ```
 
 ## Every stage in the cluster
@@ -192,4 +192,4 @@ Every value sent to a stage or returned by one is built by `StagePayloadFactory`
 - The formula computations: [`packages/worker/public/src/stage_dev_formula_helper.ts`](../packages/worker/public/src/stage_dev_formula_helper.ts).
 - The language-model shard computation: [`packages/worker/public/src/stage_llm_qwen3_0_6b_helper.ts`](../packages/worker/public/src/stage_llm_qwen3_0_6b_helper.ts).
 - The computation that uses the language model built into the browser: [`packages/worker/public/src/stage_llm_gemma_nano_chrome_helper.ts`](../packages/worker/public/src/stage_llm_gemma_nano_chrome_helper.ts).
-- Submitting a task from the command line: [`packages/consumer/src/cli.ts`](../packages/consumer/src/cli.ts) and [`packages/consumer/src/consumer_client.ts`](../packages/consumer/src/consumer_client.ts).
+- Submitting a task from the command line: [`packages/consumer_cli/src/cli.ts`](../packages/consumer_cli/src/cli.ts) and [`packages/consumer_cli/src/consumer_client.ts`](../packages/consumer_cli/src/consumer_client.ts).

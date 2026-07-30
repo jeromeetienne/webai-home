@@ -3,7 +3,7 @@
   "private": true,
   "workspaces": ["packages/*"],
   "scripts": {
-    "build": "npm run build --workspace @webai/protocol && npm run build --workspace @webai/gateway && npm run build --workspace @webai/consumer",
+    "build": "npm run build --workspace @webai/protocol && npm run build --workspace @webai/gateway && npm run build --workspace @webai/consumer-cli",
     "test": "npm run test --workspaces"
   },
   "devDependencies": {

@@ -334,7 +334,7 @@ from the registry, and its unfinished assignment is retried on another worker.
 - Gateway routing and scheduling: [`packages/gateway/src/cli.ts`](../packages/gateway/src/cli.ts)
 - Task state and stage sequencing: [`packages/gateway/src/libs/task_store.ts`](../packages/gateway/src/libs/task_store.ts)
 - Worker registration and stage execution: [`packages/worker/public/src/main.ts`](../packages/worker/public/src/main.ts)
-- Consumer registration and task submission: [`packages/consumer/src/consumer_client.ts`](../packages/consumer/src/consumer_client.ts)
+- Consumer registration and task submission: [`packages/consumer_cli/src/consumer_client.ts`](../packages/consumer_cli/src/consumer_client.ts)
 
 ## Open protocol decisions
 

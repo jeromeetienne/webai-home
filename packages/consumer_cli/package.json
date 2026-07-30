@@ -1,5 +1,5 @@
 {
-  "name": "@webai/consumer",
+  "name": "@webai/consumer-cli",
   "version": "0.1.0",
   "type": "module",
   "scripts": {

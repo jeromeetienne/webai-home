@@ -66,7 +66,7 @@ partitioning across very different devices.
 - `packages/gateway` — coordinator HTTP and WebSocket gateway, scheduling, and
   home and worker pages.
 - `packages/protocol` — shared message and task definitions with validation.
-- `packages/consumer` — command-line client for submitting test tasks.
+- `packages/consumer_cli` — command-line client for submitting test tasks.
 - `packages/flow_viewer` — flow_viewer for inspecting recorded message traffic.
 - `packages/onnx_experiments` — browser experiments for ONNX Runtime Web.
 - `packages/tiny_iris_classifier` — small end-to-end browser inference example.
@@ -85,7 +85,7 @@ partitioning across very different devices.
 ```sh
 npm install
 npm run dev:gateway
-npm run dev --workspace @webai/consumer -- 5
+npm run dev --workspace @webai/consumer-cli -- 5
 ```
 
 Start the standalone worker browser with `npm run dev --workspace @webai/worker`, then open its displayed URL in two browser tabs and
