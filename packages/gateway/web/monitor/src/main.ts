@@ -92,8 +92,8 @@ const describeMessage = (message: GatewayMessage): string => {
  * shown, instead of the panel emptying out as soon as the task advances.
  */
 type TaskPanelState = {
-	snapshot?: TaskSnapshot;
-	update?: TaskUpdate;
+	snapshot?: TaskSnapshot | undefined;
+	update?: TaskUpdate | undefined;
 };
 
 /** What each task type is called on this page, so a task is recognisable without its identifier. */
@@ -248,7 +248,16 @@ const configureFoldablePanels = (): void => {
 			for (const activity of message.devices as DeviceActivity[]) {
 				const stored = deviceById.get(activity.deviceId);
 				if (stored === undefined) continue;
-				deviceById.set(activity.deviceId, { ...stored, ...activity });
+				// Only the activity fields actually present are merged in. Spreading the whole
+				// activity record would overwrite a known value with undefined for any field the
+				// message left out, losing what the stored device already said about it.
+				deviceById.set(activity.deviceId, {
+					...stored,
+					lastSeenAt: activity.lastSeenAt,
+					...(activity.workerState === undefined ? {} : { workerState: activity.workerState }),
+					...(activity.ready === undefined ? {} : { ready: activity.ready }),
+					...(activity.activeAssignments === undefined ? {} : { activeAssignments: activity.activeAssignments }),
+				});
 			}
 			renderDevices();
 			addEvent({ type: "Device activity", timestamp: new Date().toISOString(), details: `${message.devices.length} device${message.devices.length === 1 ? "" : "s"} · ${describeDeviceCount(deviceById)}` });
