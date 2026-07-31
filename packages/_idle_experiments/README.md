@@ -25,5 +25,6 @@ npm run preview --workspace @webai/idle-experiments
 ## Experiments
 
 - [`public/visibility_timer_log`](public/visibility_timer_log) — logs `document.visibilityState` and focus changes, how far a nominal 1-second timer drifts from 1 second, how many animation frames land between ticks, and how long a fixed amount of raw computation takes, once a second, for as long as the page is open. No model, no server: open it, move the window around, and read the log.
+- [`public/qwen3_generation_log`](public/qwen3_generation_log) — loads Qwen3-0.6B-ONNX through ONNX Runtime Web (own copy of the loading and generation logic, not shared with `@webai/onnx-experiments`) and generates a short answer to the same fixed prompt over and over, logging each cycle's duration and tokens/second against this tab's visibility and focus at the time. The first load downloads about 570 MB, cached afterward in IndexedDB. Uses WebGPU when available, WebAssembly otherwise.
 
 The experiment pages are measurements and demonstrations, not production code.
