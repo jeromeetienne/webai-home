@@ -90,7 +90,7 @@ partitioning across very different devices.
 ```sh
 npm install
 npm run dev --workspace @webai/gateway
-npm run dev --workspace @webai/consumer-cli -- 5
+npm run dev --workspace @webai/consumer-cli -- submit 5
 ```
 
 Start the worker browser page with `npm run dev --workspace @webai/worker-webpage`.

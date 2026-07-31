@@ -1,0 +1,166 @@
+import type { Device } from '@webai/protocol';
+import { GatewaySession } from '../libs/gateway_session.js';
+import { DeviceAvailability } from '../libs/device_availability.js';
+import type { CliError } from '../libs/cli_errors.js';
+
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+//	StatusCommand — prints the worker cluster's current state
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+//	Types
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+/** What `consumer_cli status` needs to connect and how to report what it sees. */
+export type StatusCommandOptions = {
+	url: string;
+	authToken: string;
+	timeoutMs: number;
+	watch: boolean;
+	json: boolean;
+};
+
+/** One worker device, as `status` prints it. */
+type StatusWorkerRow = {
+	deviceId: string;
+	name: string;
+	stageNames: string[];
+	workerState: string;
+	activeAssignments: number;
+	maxConcurrentAssignments: number;
+	lastSeenAt: string;
+};
+
+/** The worker cluster state `status` prints, either as a table or as JSON. */
+type StatusSnapshot = {
+	workerCount: number;
+	readyCount: number;
+	drainingCount: number;
+	unavailableCount: number;
+	totalCapacity: number;
+	activeAssignments: number;
+	availableCapacity: number;
+	workers: StatusWorkerRow[];
+};
+
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+//	Status Command
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+/**
+ * Connects to the central gateway as an observer and prints the current worker cluster
+ * state: how many workers are connected, how much of their advertised capacity is free, and
+ * one row per worker. Without `--watch`, it prints one snapshot and exits. With `--watch`, it
+ * reprints on every subsequent change until interrupted or disconnected.
+ */
+export class StatusCommand {
+	/**
+	 * @param options Where to connect, how to report, and whether to keep watching.
+	 * @throws {CliError} If the connection, authentication, or first snapshot fails.
+	 */
+	static async run(options: StatusCommandOptions): Promise<void> {
+		const render = (devices: Device[]): void => {
+			const snapshot = StatusCommand._buildSnapshot(devices);
+			console.log(options.json ? JSON.stringify(snapshot, null, 2) : StatusCommand._formatHuman(snapshot));
+		};
+
+		const session = await GatewaySession.connect({
+			url: options.url,
+			authToken: options.authToken,
+			timeoutMs: options.timeoutMs,
+			onDevices: render,
+			...(options.watch ? {
+				onConnectionLost: (error: CliError): void => {
+					console.error(error.message);
+					process.exitCode = error.exitCode;
+				},
+			} : {}),
+		});
+
+		if (options.watch === false) {
+			session.close();
+			return;
+		}
+
+		// The connection stays open for `--watch`, so this only settles on a clean interrupt;
+		// an unexpected disconnect is reported through `onConnectionLost` above instead.
+		await new Promise<void>((resolve) => {
+			process.once('SIGINT', (): void => {
+				session.close();
+				process.exitCode = 0;
+				resolve();
+			});
+		});
+	}
+
+	///////////////////////////////////////////////////////////////////////////////
+	///////////////////////////////////////////////////////////////////////////////
+	//	Formatting
+	///////////////////////////////////////////////////////////////////////////////
+	///////////////////////////////////////////////////////////////////////////////
+
+	/**
+	 * Builds the snapshot `status` prints, from the live device list.
+	 *
+	 * @param devices Every currently connected device, worker and consumer alike.
+	 * @returns The worker cluster state to print.
+	 */
+	private static _buildSnapshot(devices: Device[]): StatusSnapshot {
+		const workers = devices.filter((device) => device.deviceRole === 'worker');
+		const drainingCount = workers.filter((worker) => worker.workerState === 'draining').length;
+		const readyCount = workers.filter((worker) => worker.workerState !== 'draining' && DeviceAvailability.isAvailable(worker)).length;
+		const unavailableCount = workers.length - readyCount - drainingCount;
+		return {
+			workerCount: workers.length,
+			readyCount,
+			drainingCount,
+			unavailableCount,
+			totalCapacity: workers.reduce((sum, worker) => sum + (worker.maxConcurrentAssignments ?? 1), 0),
+			activeAssignments: workers.reduce((sum, worker) => sum + (worker.activeAssignments ?? 0), 0),
+			availableCapacity: workers.reduce((sum, worker) => sum + DeviceAvailability.availableCapacity(worker), 0),
+			workers: workers.map((worker) => ({
+				deviceId: worker.deviceId,
+				name: worker.name,
+				stageNames: worker.stageNames,
+				workerState: worker.workerState ?? 'ready',
+				activeAssignments: worker.activeAssignments ?? 0,
+				maxConcurrentAssignments: worker.maxConcurrentAssignments ?? 1,
+				lastSeenAt: worker.lastSeenAt,
+			})),
+		};
+	}
+
+	/**
+	 * Formats a snapshot as the human-readable table `status` prints by default.
+	 *
+	 * @param snapshot The worker cluster state to print.
+	 * @returns The table text, ready to print with a single `console.log`.
+	 */
+	private static _formatHuman(snapshot: StatusSnapshot): string {
+		const lines: string[] = [];
+		lines.push(
+			`${snapshot.workerCount} worker${snapshot.workerCount === 1 ? '' : 's'} `
+			+ `(${snapshot.readyCount} ready, ${snapshot.drainingCount} draining, ${snapshot.unavailableCount} unavailable) · `
+			+ `capacity ${snapshot.availableCapacity}/${snapshot.totalCapacity} available, ${snapshot.activeAssignments} active`,
+		);
+		if (snapshot.workers.length === 0) {
+			lines.push('No worker browsers are connected.');
+			return lines.join('\n');
+		}
+		const nameWidth = Math.max(4, ...snapshot.workers.map((worker) => worker.name.length));
+		const stateWidth = Math.max(5, ...snapshot.workers.map((worker) => worker.workerState.length));
+		lines.push('');
+		lines.push(`${'NAME'.padEnd(nameWidth)}  ${'STATE'.padEnd(stateWidth)}  CAPACITY  STAGES`);
+		for (const worker of snapshot.workers) {
+			const capacity = `${worker.activeAssignments}/${worker.maxConcurrentAssignments}`.padEnd(8);
+			lines.push(`${worker.name.padEnd(nameWidth)}  ${worker.workerState.padEnd(stateWidth)}  ${capacity}  ${worker.stageNames.join(', ') || '-'}`);
+		}
+		return lines.join('\n');
+	}
+}

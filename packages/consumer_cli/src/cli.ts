@@ -1,23 +1,27 @@
 import * as Commander from 'commander';
 import Url from 'node:url';
-import Path from 'node:path';
-import WebSocket from 'ws';
-import { MessageLogger } from '@webai/protocol/message_logger';
-import { ConsumerClient, type TaskSocket } from './libs/consumer_client.js';
 import { TaskInputFactory, taskTypeNames } from './libs/task_input_factory.js';
+import { CliError } from './libs/cli_errors.js';
+import { SubmitCommand } from './commands/submit_command.js';
+import { StatusCommand } from './commands/status_command.js';
+import { CapacityCommand } from './commands/capacity_command.js';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
-//	Cli — submits one task to the central gateway and prints what comes back
+//	Cli — the consumer command line program: submit, status, and capacity
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
+
+/** The default bearer token, matching the gateway's own `--auth-token` default. */
+const defaultAuthenticationToken = 'development-token';
+
+/** The shared options every subcommand accepts, before each subcommand's own options. */
+type GlobalOptions = { url: string; authToken?: string };
 
 /**
- * The command line program of the consumer.
- *
- * It reads the task type and its value from the command line, opens one connection to the
- * central gateway, submits a single task, prints every answer as formatted JSON, and closes
- * the connection once the task has either completed or failed.
+ * The command line program of the consumer: `submit` sends one task to the central gateway,
+ * `status` reports the current worker cluster state, and `capacity` estimates how many
+ * concurrent runs of a task type the cluster can currently support.
  */
 export class Cli {
 	/**
@@ -27,42 +31,79 @@ export class Cli {
 	 * arguments this process was started with.
 	 */
 	static async run(args: string[] = process.argv.slice(2)): Promise<void> {
-		const command = new Commander.Command()
-			.argument('<input>', 'number for dev_formula, free text for either language-model task type')
+		const program = new Commander.Command('consumer_cli')
 			.option('-u, --url <url>', 'central gateway WebSocket URL', 'ws://localhost:8787')
+			.option('-a, --auth-token <token>', `bearer token for the central gateway (falls back to the ${'WEBAI_AUTH_TOKEN'} environment variable, then to a development default)`);
+
+		program
+			.command('submit')
+			.argument('<input>', 'number for dev_formula, free text for either language-model task type')
 			.option('-t, --type <type>', `task type: ${taskTypeNames.join(', ')}`, 'dev_formula')
 			.option('-n, --name <name>', 'consumer name', 'consumer')
-			.option('-s, --stream', 'ask for the answer in pieces as it is produced, rather than in one result once it is finished');
-		command.parse([process.argv[0], process.argv[1] ?? '', ...args]);
-		const options = command.opts<{ url: string; type: string; name: string; stream?: boolean }>();
-		if (TaskInputFactory.isTaskTypeName(options.type) === false) {
-			throw new Error(`Type must be one of ${taskTypeNames.join(', ')}`);
+			.option('-s, --stream', 'ask for the answer in pieces as it is produced, rather than in one result once it is finished')
+			.action(async (input: string, localOptions: { type: string; name: string; stream?: boolean }, command: Commander.Command) => {
+				const options = command.optsWithGlobals<GlobalOptions & typeof localOptions>();
+				if (TaskInputFactory.isTaskTypeName(options.type) === false) throw new Error(`Type must be one of ${taskTypeNames.join(', ')}`);
+				await SubmitCommand.run({
+					url: options.url,
+					authToken: Cli.resolveAuthToken(options.authToken),
+					type: options.type,
+					name: options.name,
+					stream: options.stream === true,
+					input,
+				});
+			});
+
+		program
+			.command('status')
+			.option('-w, --watch', 'keep the connection open and reprint on every change, until interrupted or disconnected')
+			.option('--json', 'print the snapshot as JSON instead of a table')
+			.option('--timeout <ms>', 'how long to wait for the central gateway to answer', '10000')
+			.action(async (localOptions: { watch?: boolean; json?: boolean; timeout: string }, command: Commander.Command) => {
+				const options = command.optsWithGlobals<GlobalOptions & typeof localOptions>();
+				await StatusCommand.run({
+					url: options.url,
+					authToken: Cli.resolveAuthToken(options.authToken),
+					timeoutMs: Number(options.timeout),
+					watch: options.watch === true,
+					json: options.json === true,
+				});
+			});
+
+		program
+			.command('capacity')
+			.argument('<type>', `task type: ${taskTypeNames.join(', ')}`)
+			.option('--json', 'print the estimate as JSON instead of a sentence')
+			.option('--timeout <ms>', 'how long to wait for the central gateway to answer', '10000')
+			.action(async (type: string, localOptions: { json?: boolean; timeout: string }, command: Commander.Command) => {
+				const options = command.optsWithGlobals<GlobalOptions & typeof localOptions>();
+				await CapacityCommand.run({
+					url: options.url,
+					authToken: Cli.resolveAuthToken(options.authToken),
+					timeoutMs: Number(options.timeout),
+					type,
+					json: options.json === true,
+				});
+			});
+
+		try {
+			await program.parseAsync([process.argv[0] ?? '', process.argv[1] ?? '', ...args]);
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			console.error(message);
+			process.exitCode = error instanceof CliError ? error.exitCode : 1;
 		}
-		// Nothing is asked for when the option is absent, so a submission without it carries no
-		// generation settings at all rather than a settings field stating the default.
-		const generationSettings = options.stream === true ? { isStreaming: true } : undefined;
-		const taskInput = TaskInputFactory.createTaskInput(options.type, command.args[0], generationSettings);
+	}
 
-		const logsDirectory = Url.fileURLToPath(new URL('../logs', import.meta.url));
-		const runTimestamp = new Date().toISOString().replace(/[:.]/g, '-');
-		const messageLogger = new MessageLogger(Path.join(logsDirectory, `consumer-cli-${runTimestamp}.log_entry.jsonl`));
-
-		// The connection of the `ws` package names its event handlers with its own event
-		// types, so it is read here through the smaller shape this client actually uses.
-		const socket = new WebSocket(options.url) as unknown as TaskSocket;
-		const client = new ConsumerClient(socket, {
-			onMessage: (direction, message) => messageLogger.log(direction, { role: 'gateway' }, message.type, message),
-			onRegistered: () => client.submit(taskInput),
-			onTaskAccepted: (task) => console.log(JSON.stringify(task, null, 2)),
-			onTaskUpdated: (update) => {
-				console.log(JSON.stringify(update, null, 2));
-				if (update.state === 'completed' || update.state === 'failed') client.close();
-			},
-			onError: (error) => {
-				console.error(error.message);
-				client.close();
-			},
-		}, options.name);
+	/**
+	 * Resolves the bearer token to authenticate with, in priority order: the `-a/--auth-token`
+	 * option, the `WEBAI_AUTH_TOKEN` environment variable, then the development default.
+	 *
+	 * @param optionValue The `-a/--auth-token` option, when given.
+	 * @returns The bearer token to authenticate with.
+	 */
+	private static resolveAuthToken(optionValue: string | undefined): string {
+		return optionValue ?? process.env.WEBAI_AUTH_TOKEN ?? defaultAuthenticationToken;
 	}
 }
 

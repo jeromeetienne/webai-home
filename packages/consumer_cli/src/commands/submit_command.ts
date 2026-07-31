@@ -1,0 +1,65 @@
+import Url from 'node:url';
+import Path from 'node:path';
+import WebSocket from 'ws';
+import { MessageLogger } from '@webai/protocol/message_logger';
+import { ConsumerClient, type TaskSocket } from '../libs/consumer_client.js';
+import { TaskInputFactory, type TaskTypeName } from '../libs/task_input_factory.js';
+
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+//	SubmitCommand — submits one task to the central gateway and prints what comes back
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+/** What `consumer_cli submit` needs to submit one task and report on it. */
+export type SubmitCommandOptions = {
+	url: string;
+	authToken: string;
+	type: TaskTypeName;
+	name: string;
+	stream: boolean;
+	input: string | undefined;
+};
+
+/**
+ * Submits one task to the central gateway, prints every answer as formatted JSON, and closes
+ * the connection once the task has either completed or failed.
+ */
+export class SubmitCommand {
+	/**
+	 * @param options The task to submit and the connection to submit it over.
+	 * @returns Once the connection has been closed, after the task completed or failed.
+	 */
+	static async run(options: SubmitCommandOptions): Promise<void> {
+		// Nothing is asked for when the option is absent, so a submission without it carries no
+		// generation settings at all rather than a settings field stating the default.
+		const generationSettings = options.stream === true ? { isStreaming: true } : undefined;
+		const taskInput = TaskInputFactory.createTaskInput(options.type, options.input, generationSettings);
+
+		const logsDirectory = Url.fileURLToPath(new URL('../../logs', import.meta.url));
+		const runTimestamp = new Date().toISOString().replace(/[:.]/g, '-');
+		const messageLogger = new MessageLogger(Path.join(logsDirectory, `consumer-cli-${runTimestamp}.log_entry.jsonl`));
+
+		return new Promise<void>((resolve) => {
+			// The connection of the `ws` package names its event handlers with its own event
+			// types, so it is read here through the smaller shape this client actually uses.
+			const socket = new WebSocket(options.url) as unknown as TaskSocket;
+			const client = new ConsumerClient(socket, {
+				onMessage: (direction, message) => messageLogger.log(direction, { role: 'gateway' }, message.type, message),
+				onRegistered: () => client.submit(taskInput),
+				onTaskAccepted: (task) => console.log(JSON.stringify(task, null, 2)),
+				onTaskUpdated: (update) => {
+					console.log(JSON.stringify(update, null, 2));
+					if (update.state === 'completed' || update.state === 'failed') client.close();
+				},
+				onError: (error) => {
+					console.error(error.message);
+					client.close();
+				},
+				onConnectionChange: (isConnected) => {
+					if (isConnected === false) resolve();
+				},
+			}, options.name, options.authToken);
+		});
+	}
+}

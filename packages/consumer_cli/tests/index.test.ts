@@ -2,7 +2,10 @@ import Assert from 'node:assert/strict';
 import Test from 'node:test';
 import { ConsumerClient, type TaskSocket } from '../src/libs/consumer_client.js';
 import { TaskInputFactory, taskTypeNames } from '../src/libs/task_input_factory.js';
-import { protocolVersion, type ProtocolError } from '@webai/protocol';
+import { DeviceAvailability } from '../src/libs/device_availability.js';
+import { CapacityCalculator } from '../src/libs/capacity_calculator.js';
+import { ObserverClient } from '../src/libs/observer_client.js';
+import { protocolVersion, type Device, type PipelineSpecification, type ProtocolError } from '@webai/protocol';
 import * as ConsumerCli from '@webai/consumer-cli';
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -110,6 +113,158 @@ Test('reports an error the gateway sent with its code and its request identifier
 	// the callback handles one shape rather than two.
 	socket.onmessage?.({ data: 'not json at all' });
 	Assert.deepEqual(errors[1], { type: 'error', code: 'INVALID_MESSAGE', message: 'The central gateway sent invalid data' });
+});
+
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+//	DeviceAvailability
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+Test('reads whether a worker device may take on another assignment', () => {
+	const baseDevice: Device = {
+		deviceId: 'worker-1', name: 'Worker 1', deviceRole: 'worker', stageNames: ['stage_a'],
+		connectedAt: '2026-01-01T00:00:00.000Z', lastSeenAt: '2026-01-01T00:00:00.000Z',
+	};
+	Assert.equal(DeviceAvailability.isAvailable(baseDevice), true);
+	Assert.equal(DeviceAvailability.availableCapacity(baseDevice), 1);
+
+	Assert.equal(DeviceAvailability.isAvailable({ ...baseDevice, workerState: 'draining' }), false);
+	Assert.equal(DeviceAvailability.isAvailable({ ...baseDevice, ready: false }), false);
+	Assert.equal(DeviceAvailability.isAvailable({ ...baseDevice, maxConcurrentAssignments: 2, activeAssignments: 2 }), false);
+	Assert.equal(DeviceAvailability.isAvailable({ ...baseDevice, maxConcurrentAssignments: 2, activeAssignments: 1 }), true);
+
+	Assert.equal(DeviceAvailability.availableCapacity({ ...baseDevice, maxConcurrentAssignments: 3, activeAssignments: 1 }), 2);
+	Assert.equal(DeviceAvailability.availableCapacity({ ...baseDevice, workerState: 'draining', maxConcurrentAssignments: 3 }), 0);
+});
+
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+//	CapacityCalculator
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+Test('estimates worker-pinned capacity as the total free capacity of workers advertising every shard', () => {
+	const shardStages = ['stage_llm_qwen3_0_6b_shard1of3', 'stage_llm_qwen3_0_6b_shard2of3', 'stage_llm_qwen3_0_6b_shard3of3'];
+	const pipeline: PipelineSpecification = {
+		pipelineId: 'llm_qwen3_0_6b_sharded', version: 1, taskType: 'task_type_llm_qwen3_0_6b_sharded', repeatsUntilDone: true,
+		stages: shardStages.map((name) => ({ name, computation: 'llm_qwen3_0_6b_shard', inputSchemaId: 'llm@1', outputSchemaId: 'llm@1', encoding: 'inline-json', prefersSameWorkerOnRetry: true })),
+	};
+	/** A worker device with the given stages, one free slot, connected and last seen at a fixed time. */
+	const worker = (deviceId: string, stageNames: string[]): Device => ({
+		deviceId, name: deviceId, deviceRole: 'worker', stageNames,
+		connectedAt: '2026-01-01T00:00:00.000Z', lastSeenAt: '2026-01-01T00:00:00.000Z',
+		maxConcurrentAssignments: 1, activeAssignments: 0,
+	});
+	// 5 workers advertise all 3 shards, with one free slot each; 3 more advertise only the first
+	// shard, so they cannot host a run of this pipeline at all — matching the example from
+	// https://github.com/webai-at-home/webai-at-home/issues/90.
+	const devices: Device[] = [
+		worker('worker-1', shardStages), worker('worker-2', shardStages), worker('worker-3', shardStages),
+		worker('worker-4', shardStages), worker('worker-5', shardStages),
+		worker('worker-6', [shardStages[0] as string]), worker('worker-7', [shardStages[0] as string]), worker('worker-8', [shardStages[0] as string]),
+	];
+	const result = CapacityCalculator.calculate(pipeline, devices);
+	Assert.equal(result.capacity, 5);
+	Assert.equal(result.reason, 'worker coverage (5 of 8 workers advertise all 3 stages)');
+});
+
+Test('estimates independent-stage capacity as the bottleneck stage\'s free capacity', () => {
+	const pipeline: PipelineSpecification = {
+		pipelineId: 'dev_formula', version: 1, taskType: 'task_type_dev_formula',
+		stages: [
+			{ name: 'stage_dev_formula_multiply', computation: 'dev_formula_multiply', inputSchemaId: 'number@1', outputSchemaId: 'number@1', encoding: 'inline-json' },
+			{ name: 'stage_dev_formula_add', computation: 'dev_formula_add', inputSchemaId: 'number@1', outputSchemaId: 'number@1', encoding: 'inline-json' },
+		],
+	};
+	/** A worker device advertising one stage, with one free slot. */
+	const worker = (deviceId: string, stageName: string): Device => ({
+		deviceId, name: deviceId, deviceRole: 'worker', stageNames: [stageName],
+		connectedAt: '2026-01-01T00:00:00.000Z', lastSeenAt: '2026-01-01T00:00:00.000Z',
+		maxConcurrentAssignments: 1, activeAssignments: 0,
+	});
+	// 7 workers can run the multiply stage, only 3 can run the add stage — each stage can run on
+	// a different worker, so the add stage's 3 free slots are what limits the whole pipeline.
+	const devices: Device[] = [
+		...Array.from({ length: 7 }, (_, index) => worker(`multiply-${index}`, 'stage_dev_formula_multiply')),
+		...Array.from({ length: 3 }, (_, index) => worker(`add-${index}`, 'stage_dev_formula_add')),
+	];
+	const result = CapacityCalculator.calculate(pipeline, devices);
+	Assert.equal(result.capacity, 3);
+	Assert.equal(result.reason, 'stage_dev_formula_add (3 available slots vs 7 on stage_dev_formula_multiply)');
+});
+
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+//	ObserverClient
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+Test('tracks the live device list an observer connection reports', () => {
+	const sent: string[] = [];
+	const socket: TaskSocket = {
+		readyState: 1, OPEN: 1, send: (data) => sent.push(data), close: () => undefined,
+		onopen: null, onmessage: null, onerror: null, onclose: null,
+	};
+	/** Wraps a gateway message the way the gateway does, so the client can read it. */
+	const gatewayFrame = (body: unknown, inReplyTo?: string): string =>
+		JSON.stringify({ v: protocolVersion, id: `message-${Math.random()}`, ts: new Date().toISOString(), ...(inReplyTo === undefined ? {} : { inReplyTo }), body });
+
+	const snapshots: Device[][] = [];
+	new ObserverClient(socket, { onDevices: (devices) => snapshots.push(devices) }, 'observer-token');
+	socket.onopen?.();
+	const authenticateFrame = JSON.parse(sent[0] as string) as { id: string; body: Record<string, unknown> };
+	Assert.deepEqual(authenticateFrame.body, { type: 'authenticate', token: 'observer-token' });
+	socket.onmessage?.({ data: gatewayFrame({ type: 'authenticated', principal: 'principal-development', expiresAt: '2026-01-01T01:00:00.000Z' }, authenticateFrame.id) });
+	Assert.deepEqual((JSON.parse(sent[1] as string) as { body: unknown }).body, { type: 'observe' });
+
+	const worker: Device = {
+		deviceId: 'worker-1', name: 'Worker 1', deviceRole: 'worker', stageNames: ['stage_a'],
+		connectedAt: '2026-01-01T00:00:00.000Z', lastSeenAt: '2026-01-01T00:00:00.000Z',
+		maxConcurrentAssignments: 2, activeAssignments: 0,
+	};
+	socket.onmessage?.({ data: gatewayFrame({ type: 'devices', devices: [worker], revision: 1 }) });
+	Assert.deepEqual(snapshots[0], [worker]);
+
+	const joinedWorker: Device = { ...worker, deviceId: 'worker-2', name: 'Worker 2' };
+	socket.onmessage?.({ data: gatewayFrame({ type: 'device.joined', device: joinedWorker, revision: 2 }) });
+	Assert.deepEqual(snapshots[1]?.map((device) => device.deviceId), ['worker-1', 'worker-2']);
+
+	// Only the changed activity fields are merged in, so a field an activity message left out
+	// keeps the value the stored device already had — here, its stage list and concurrency limit.
+	socket.onmessage?.({ data: gatewayFrame({ type: 'device.activity', devices: [{ deviceId: 'worker-1', lastSeenAt: '2026-01-01T00:01:00.000Z', activeAssignments: 1 }], revision: 3 }) });
+	const updatedWorker = snapshots[2]?.find((device) => device.deviceId === 'worker-1');
+	Assert.equal(updatedWorker?.activeAssignments, 1);
+	Assert.equal(updatedWorker?.maxConcurrentAssignments, 2);
+	Assert.deepEqual(updatedWorker?.stageNames, ['stage_a']);
+
+	socket.onmessage?.({ data: gatewayFrame({ type: 'device.left', deviceId: 'worker-2', revision: 4 }) });
+	Assert.deepEqual(snapshots[3]?.map((device) => device.deviceId), ['worker-1']);
+});
+
+Test('requests and reports the registered pipelines when asked to', () => {
+	const sent: string[] = [];
+	const socket: TaskSocket = {
+		readyState: 1, OPEN: 1, send: (data) => sent.push(data), close: () => undefined,
+		onopen: null, onmessage: null, onerror: null, onclose: null,
+	};
+	const gatewayFrame = (body: unknown, inReplyTo?: string): string =>
+		JSON.stringify({ v: protocolVersion, id: `message-${Math.random()}`, ts: new Date().toISOString(), ...(inReplyTo === undefined ? {} : { inReplyTo }), body });
+
+	const pipelinesReceived: PipelineSpecification[][] = [];
+	new ObserverClient(socket, { onPipelines: (pipelines) => pipelinesReceived.push(pipelines) }, 'observer-token', true);
+	socket.onopen?.();
+	const authenticateFrame = JSON.parse(sent[0] as string) as { id: string };
+	socket.onmessage?.({ data: gatewayFrame({ type: 'authenticated', principal: 'principal-development', expiresAt: '2026-01-01T01:00:00.000Z' }, authenticateFrame.id) });
+	Assert.deepEqual((JSON.parse(sent[1] as string) as { body: unknown }).body, { type: 'observe' });
+	Assert.deepEqual((JSON.parse(sent[2] as string) as { body: unknown }).body, { type: 'pipelines.get' });
+
+	const pipeline: PipelineSpecification = {
+		pipelineId: 'dev_formula', version: 1, taskType: 'task_type_dev_formula',
+		stages: [{ name: 'stage_dev_formula_multiply', computation: 'dev_formula_multiply', inputSchemaId: 'number@1', outputSchemaId: 'number@1', encoding: 'inline-json' }],
+	};
+	socket.onmessage?.({ data: gatewayFrame({ type: 'pipelines', pipelines: [pipeline] }) });
+	Assert.deepEqual(pipelinesReceived, [[pipeline]]);
 });
 
 ///////////////////////////////////////////////////////////////////////////////

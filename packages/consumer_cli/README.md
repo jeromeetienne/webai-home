@@ -1,34 +1,42 @@
 # `@webai/consumer-cli`
 
-Command-line client for submitting tasks to the central gateway.
+Command-line client for the central gateway: submitting tasks, reading the worker cluster's current state, and estimating its capacity.
 
-It connects over WebSocket, registers as a consumer client, submits one input value, and shows task updates until the task completes or fails.
+The program has three subcommands: `submit` sends one task and shows its updates until it completes or fails, `status` reports the connected workers and their free capacity, and `capacity` estimates how many concurrent runs of a task type the cluster can currently support.
 
-## Run
+## Shared options
+
+Every subcommand accepts:
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `-u, --url <url>` | `ws://localhost:8787` | Gateway WebSocket address. |
+| `-a, --auth-token <token>` | `WEBAI_AUTH_TOKEN` environment variable, then `development-token` | Bearer token for the central gateway. |
+
+## `submit`
 
 From the repository root, with the central gateway running:
 
 ```sh
-npm run dev --workspace @webai/consumer-cli -- 5
+npm run dev --workspace @webai/consumer-cli -- submit 5
 ```
 
 Set the registered consumer name with `--name`, for example:
 
 ```sh
-npm run dev --workspace @webai/consumer-cli -- --name dev-formula-consumer 5
+npm run dev --workspace @webai/consumer-cli -- submit --name dev-formula-consumer 5
 ```
 
 Use `--url` to connect to another WebSocket endpoint:
 
 ```sh
-npm run dev --workspace @webai/consumer-cli -- 5 --url ws://localhost:9000
+npm run dev --workspace @webai/consumer-cli -- submit 5 --url ws://localhost:9000
 ```
 
-The command line options are:
+`submit`'s own options:
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `-u, --url <url>` | `ws://localhost:8787` | Gateway WebSocket address. |
 | `-t, --type <type>` | `dev_formula` | `dev_formula`, `llm_qwen3_0_6b_sharded`, or `llm_gemma_nano_chrome_full`. |
 | `-n, --name <name>` | `consumer` | Name registered with the gateway. |
 | `-s, --stream` | off | Ask a language-model task to return answer pieces while it runs. |
@@ -40,17 +48,65 @@ Use `-t/--type` to choose the task type:
 - `llm_gemma_nano_chrome_full` takes free text, and is run by one worker browser tab using the Gemma Nano model built into Chrome.
 
 ```sh
-npm run dev --workspace @webai/consumer-cli -- "hello there" --type llm_qwen3_0_6b_sharded
+npm run dev --workspace @webai/consumer-cli -- submit "hello there" --type llm_qwen3_0_6b_sharded
 ```
 
 Use `-s/--stream` to ask for the answer in pieces as it is produced, rather than in one result once it is finished. Without it, the cluster answers with the fewest messages the pipeline can manage.
 
 ```sh
-npm run dev --workspace @webai/consumer-cli -- "hello there" --type llm_gemma_nano_chrome_full --stream
+npm run dev --workspace @webai/consumer-cli -- submit "hello there" --type llm_gemma_nano_chrome_full --stream
 ```
 
 `--stream` is not valid for `dev_formula`, which always returns one numeric
-result. The command writes gateway messages to `packages/consumer_cli/logs`.
+result. `submit` writes gateway messages to `packages/consumer_cli/logs`.
+
+## `status`
+
+Connects as an observer and prints the current worker cluster state: how many workers are connected, how much of their advertised capacity is free, and one row per worker.
+
+```sh
+npm run dev --workspace @webai/consumer-cli -- status
+```
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `-w, --watch` | off | Keep the connection open and reprint on every change, until interrupted or disconnected. |
+| `--json` | off | Print the snapshot as JSON instead of a table. |
+| `--timeout <ms>` | `10000` | How long to wait for the central gateway to answer. |
+
+Without `--watch`, `status` prints one snapshot and exits `0`. With `--watch`, it keeps reprinting until interrupted with Ctrl-C (clean exit `0`) or disconnected (non-zero exit); it does not reconnect on its own.
+
+## `capacity`
+
+Estimates how many concurrent runs of a task type the cluster can currently support, from the connected workers and the pipeline that serves that task type.
+
+```sh
+npm run dev --workspace @webai/consumer-cli -- capacity llm_qwen3_0_6b_sharded
+```
+
+```
+llm_qwen3_0_6b_sharded: 5 concurrent runs supported
+  limited by: worker coverage (5 of 8 workers advertise all 3 stages)
+```
+
+A pipeline whose every stage keeps state on one worker between rounds — such as a language-model shard's key-value cache — needs a worker that advertises every one of its stages, so capacity is the total free capacity of those workers. A pipeline with no such stage can spread its stages across different workers, so its capacity is set by whichever stage has the least free capacity behind it.
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `--json` | off | Print the estimate as JSON instead of a sentence. |
+| `--timeout <ms>` | `10000` | How long to wait for the central gateway to answer. |
+
+An unknown `<type>` is an error with a non-zero exit code.
+
+## Exit codes
+
+`status` and `capacity` use these exit codes:
+
+- `0` — success.
+- `1` — connection failure (unreachable gateway, or dropped mid-`--watch`).
+- `2` — authentication failure.
+- `3` — timed out waiting for the central gateway to answer.
+- `4` — the central gateway sent something this client could not make sense of.
 
 ## Public exports
 
