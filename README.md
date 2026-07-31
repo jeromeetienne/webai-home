@@ -72,6 +72,7 @@ partitioning across very different devices.
 - `packages/flow_viewer` — flow_viewer for inspecting recorded message traffic.
 - `packages/onnx_experiments` — browser experiments for ONNX Runtime Web.
 - `packages/tiny_iris_classifier` — small end-to-end browser inference example.
+- `packages/docker_server` — Linux Docker image that runs the gateway and `consumer_openai` together.
 
 ## Documentation
 
