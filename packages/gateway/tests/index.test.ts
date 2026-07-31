@@ -224,10 +224,10 @@ Test('repeats the single Chrome built-in language-model stage until it reports t
 
 	// Each run of the stage reads one more piece of the answer, so the stage runs again for as
 	// long as its results say the answer is not finished.
-	const afterFirstPiece = store.addStage(task.taskId, { name: 'stage_llm_gemma_nano_chrome_full', value: { text: 'The', isContinuation: true, done: false } });
+	const afterFirstPiece = store.addStage(task.taskId, { name: 'stage_llm_gemma_nano_chrome_full', value: { newText: 'The', isContinuation: true, done: false } });
 	Assert.equal(TaskStore.nextStage(afterFirstPiece), 'stage_llm_gemma_nano_chrome_full');
 
-	const afterSecondPiece = store.addStage(afterFirstPiece.taskId, { name: 'stage_llm_gemma_nano_chrome_full', value: { text: 'The capital', isContinuation: true, done: false } });
+	const afterSecondPiece = store.addStage(afterFirstPiece.taskId, { name: 'stage_llm_gemma_nano_chrome_full', value: { newText: ' capital', isContinuation: true, done: false } });
 	Assert.equal(TaskStore.nextStage(afterSecondPiece), 'stage_llm_gemma_nano_chrome_full');
 
 	const afterLastPiece = store.addStage(afterSecondPiece.taskId, { name: 'stage_llm_gemma_nano_chrome_full', value: { text: 'The capital of France is Paris.', done: true } });
@@ -782,7 +782,7 @@ const buildClientMessageHandlerHarness = () => {
 	 */
 	const allSentTo = (deviceId: string): GatewayMessage[] => (sockets.get(deviceId)?.sent ?? []).map((frame) => frame.body);
 
-	return { drive, authenticate, registerWorker, registerConsumer, allSentTo, authToken, taskStore, deviceRegistry, sessionRegistry };
+	return { drive, authenticate, registerWorker, registerConsumer, allSentTo, authToken, taskStore, deviceRegistry, sessionRegistry, scheduler };
 };
 
 Test('every message needs an active session first, before any rule specific to that message type is even reached', () => {
@@ -929,6 +929,62 @@ Test('a submitted task is assigned to a matching worker, and runs both stages to
 	Assert.equal((taskReply as { task: { state: string; result: unknown } }).task.result, 17);
 });
 
+Test('a task that asked for its answer in pieces reports each piece on the revision that produced it', () => {
+	const store = new TaskStore();
+	const streamingInput: TaskInput = { taskType: 'task_type_llm_gemma_nano_chrome_full', input: 'What is the capital of France?', generationSettings: { isStreaming: true } };
+	const task = createTask(store, streamingInput);
+	const stage = 'stage_llm_gemma_nano_chrome_full';
+
+	const afterFirstPiece = store.addStage(task.taskId, { name: stage, value: { newText: 'The', isContinuation: true, done: false } });
+	Assert.equal(afterFirstPiece.newText, 'The');
+	Assert.equal(afterFirstPiece.generatedText, 'The');
+
+	// The piece belongs to the revision that produced it and to no other. The revision that
+	// assigns the next run produces no text, so it must not repeat the piece before it —
+	// a consumer joining the pieces would otherwise receive every one of them twice.
+	const afterAssigning = store.assign(afterFirstPiece.taskId, 'worker-1', stage, { isContinuation: true });
+	Assert.equal(afterAssigning.newText, undefined);
+	Assert.equal(afterAssigning.generatedText, 'The');
+
+	const afterSecondPiece = store.addStage(afterAssigning.taskId, { name: stage, value: { newText: ' capital', isContinuation: true, done: false } });
+	Assert.equal(afterSecondPiece.newText, ' capital');
+	Assert.equal(afterSecondPiece.generatedText, 'The capital');
+
+	// The result that finishes the answer carries the whole answer and no piece, because every
+	// piece has already been reported. Adding the whole answer to what was reported would send
+	// the answer a second time. The whole answer replaces what the pieces were joined into,
+	// because the device that generated it is the authority on what the answer is.
+	const afterLastPiece = store.addStage(afterSecondPiece.taskId, { name: stage, value: { text: 'The capital of France is Paris.', done: true } });
+	Assert.equal(afterLastPiece.newText, undefined);
+	Assert.equal(afterLastPiece.generatedText, 'The capital of France is Paris.');
+});
+
+Test('the finished answer replaces what the pieces were joined into, rather than being added to it', () => {
+	const store = new TaskStore();
+	const streamingInput: TaskInput = { taskType: 'task_type_llm_qwen3_0_6b_sharded', input: 'Say hi', generationSettings: { isStreaming: true } };
+	const task = createTask(store, streamingInput);
+	const stage = 'stage_llm_qwen3_0_6b_shard3of3';
+
+	// A piece is the device's own account of how the answer grew, and a device cannot always
+	// report an addition: a character written across two tokens is read as a placeholder and then
+	// replaced, so a piece can restate what came before it. Joining is how the answer is followed
+	// while it is written; what it is, is what the result that finishes it carries.
+	const afterRestatement = store.addStage(task.taskId, { name: stage, value: { newText: 'Caf�', done: false } });
+	Assert.equal(afterRestatement.generatedText, 'Caf�');
+
+	const finished = store.addStage(afterRestatement.taskId, { name: stage, value: { text: 'Café', done: true } });
+	Assert.equal(finished.generatedText, 'Café');
+});
+
+Test('a task that asked for no pieces records none, however much text its results carry', () => {
+	const store = new TaskStore();
+	const task = createTask(store, { taskType: 'task_type_llm_gemma_nano_chrome_full', input: 'What is the capital of France?' });
+
+	const afterPiece = store.addStage(task.taskId, { name: 'stage_llm_gemma_nano_chrome_full', value: { newText: 'The', isContinuation: true, done: false } });
+	Assert.equal(afterPiece.newText, undefined);
+	Assert.equal(afterPiece.generatedText, undefined);
+});
+
 Test('the generation settings a task was submitted with reach the worker on every stage of that task', () => {
 	const { drive, registerWorker, registerConsumer, allSentTo } = buildClientMessageHandlerHarness();
 	registerWorker('worker-1', 'worker-one');
@@ -947,6 +1003,94 @@ Test('the generation settings a task was submitted with reach the worker on ever
 	drive('worker-1', { type: 'stage.accepted', taskId, assignmentId: firstAssignment!.assignmentId, attempt: firstAssignment!.attempt });
 	drive('worker-1', { type: 'stage.result', taskId, assignmentId: firstAssignment!.assignmentId, attempt: firstAssignment!.attempt, stage: 'stage_dev_formula_multiply', value: 10 });
 	Assert.deepEqual(assignments()[1]?.generationSettings, { isStreaming: true });
+});
+
+Test('every piece of an answer reaches the consumer that asked for its answer in pieces', () => {
+	const { drive, registerWorker, registerConsumer, allSentTo } = buildClientMessageHandlerHarness();
+	registerWorker('worker-1', 'worker-one', ['stage_llm_gemma_nano_chrome_full']);
+	registerConsumer('consumer-1', 'consumer-one');
+
+	const input: TaskInput = { taskType: 'task_type_llm_gemma_nano_chrome_full', input: 'What is the capital of France?', generationSettings: { isStreaming: true } };
+	const [submitReply] = drive('consumer-1', { type: 'task.submit', requestId: 'request-1', input });
+	const taskId = (submitReply as { task: { taskId: string } }).task.taskId;
+
+	const assignments = () => allSentTo('worker-1').filter((sent): sent is Extract<GatewayMessage, { type: 'stage.assign' }> => sent.type === 'stage.assign');
+	/** Returns one piece of the answer from the worker, the way one run of the stage does. */
+	const returnPiece = (value: unknown): void => {
+		const assignment = assignments().at(-1)!;
+		drive('worker-1', { type: 'stage.accepted', taskId, assignmentId: assignment.assignmentId, attempt: assignment.attempt });
+		drive('worker-1', { type: 'stage.result', taskId, assignmentId: assignment.assignmentId, attempt: assignment.attempt, stage: 'stage_llm_gemma_nano_chrome_full', value: value as never });
+	};
+
+	returnPiece({ newText: 'The', isContinuation: true, done: false });
+	returnPiece({ newText: ' capital', isContinuation: true, done: false });
+	returnPiece({ text: 'The capital', done: true });
+
+	const updates = allSentTo('consumer-1').filter((sent): sent is Extract<GatewayMessage, { type: 'task.updated' }> => sent.type === 'task.updated');
+	// Every piece arrives exactly once. The revision that produced a piece is the only one that
+	// carries it, and it is sent; the revisions that follow it drop it rather than repeating it.
+	Assert.deepEqual(updates.flatMap((sent) => sent.update.newText === undefined ? [] : [sent.update.newText]), ['The', ' capital']);
+	// Joining the pieces gives the same answer the task completed with, which is what a consumer
+	// showing an answer as it is written ends up having shown.
+	const completed = updates.filter((sent) => sent.update.state === 'completed').at(-1);
+	Assert.equal((completed?.update.result as { text: string }).text, 'The capital');
+});
+
+Test('assigning a stage again to the same tab does not first tell that tab to let go of the answer', () => {
+	const { drive, registerWorker, registerConsumer, allSentTo, taskStore, scheduler } = buildClientMessageHandlerHarness();
+	registerWorker('worker-1', 'worker-one', ['stage_llm_gemma_nano_chrome_full']);
+	registerConsumer('consumer-1', 'consumer-one');
+
+	const input: TaskInput = { taskType: 'task_type_llm_gemma_nano_chrome_full', input: 'What is the capital of France?', generationSettings: { isStreaming: true } };
+	const [submitReply] = drive('consumer-1', { type: 'task.submit', requestId: 'request-1', input });
+	const taskId = (submitReply as { task: { taskId: string } }).task.taskId;
+	const assignments = () => allSentTo('worker-1').filter((sent): sent is Extract<GatewayMessage, { type: 'stage.assign' }> => sent.type === 'stage.assign');
+	const first = assignments()[0]!;
+
+	drive('worker-1', { type: 'stage.accepted', taskId, assignmentId: first.assignmentId, attempt: first.attempt });
+	drive('worker-1', { type: 'stage.result', taskId, assignmentId: first.assignmentId, attempt: first.attempt, stage: 'stage_llm_gemma_nano_chrome_full', value: { newText: 'The', isContinuation: true, done: false } });
+	const second = assignments()[1]!;
+	drive('worker-1', { type: 'stage.accepted', taskId, assignmentId: second.assignmentId, attempt: second.attempt });
+
+	// The lease runs out while the tab is still reading its next piece, so the gateway assigns
+	// the stage again. The answer is in that tab's memory, so the retry comes back to it — and
+	// the tab must not first be told to let go of the answer the retry was sent to carry on.
+	const expired = taskStore.get(taskId)!.assignment!;
+	taskStore.update(taskId, { assignment: { ...expired, leaseUntil: new Date(Date.now() - 1_000).toISOString() } });
+	const before = allSentTo('worker-1').length;
+	scheduler.recoverAssignments();
+
+	const sentSince = allSentTo('worker-1').slice(before);
+	Assert.deepEqual(sentSince.filter((sent) => sent.type === 'stage.cancel'), []);
+	const retry = sentSince.find((sent): sent is Extract<GatewayMessage, { type: 'stage.assign' }> => sent.type === 'stage.assign');
+	Assert.equal(retry?.taskId, taskId);
+	Assert.notEqual(retry?.assignmentId, second.assignmentId);
+});
+
+Test('a run that carries an answer on is never placed on a device that is not holding it', () => {
+	const { drive, registerWorker, registerConsumer, allSentTo, taskStore, scheduler } = buildClientMessageHandlerHarness();
+	registerWorker('worker-1', 'worker-one', ['stage_llm_gemma_nano_chrome_full']);
+	registerConsumer('consumer-1', 'consumer-one');
+
+	const input: TaskInput = { taskType: 'task_type_llm_gemma_nano_chrome_full', input: 'What is the capital of France?', generationSettings: { isStreaming: true } };
+	const [submitReply] = drive('consumer-1', { type: 'task.submit', requestId: 'request-1', input });
+	const taskId = (submitReply as { task: { taskId: string } }).task.taskId;
+	const first = allSentTo('worker-1').find((sent): sent is Extract<GatewayMessage, { type: 'stage.assign' }> => sent.type === 'stage.assign')!;
+
+	drive('worker-1', { type: 'stage.accepted', taskId, assignmentId: first.assignmentId, attempt: first.attempt });
+	drive('worker-1', { type: 'stage.result', taskId, assignmentId: first.assignmentId, attempt: first.attempt, stage: 'stage_llm_gemma_nano_chrome_full', value: { newText: 'The', isContinuation: true, done: false } });
+
+	// A second tab appears while the first one is holding the answer. The answer is in the first
+	// tab's memory and nowhere else, so the run that carries it on cannot be given to the second,
+	// where it could only fail — and a failed stage fails the whole task. The task waits instead,
+	// which the submission deadline bounds.
+	registerWorker('worker-2', 'worker-two', ['stage_llm_gemma_nano_chrome_full']);
+	taskStore.update(taskId, { state: 'queued', assignment: undefined });
+	drive('worker-1', { type: 'worker.state', state: 'draining' });
+	scheduler.scheduleQueuedTasks();
+
+	Assert.deepEqual(allSentTo('worker-2').filter((sent) => sent.type === 'stage.assign'), []);
+	Assert.equal(taskStore.get(taskId)?.state, 'queued');
 });
 
 Test('a task submitted without generation settings puts no settings field on the assignment', () => {

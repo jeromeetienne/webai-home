@@ -177,6 +177,11 @@ export class TaskStore {
 		}
 		const next = {
 			...task,
+			// The text a revision produced describes that one revision and not the task, so it is
+			// dropped here and set again only by an update that carries one. Without this, the
+			// revision that assigns the next stage would repeat the piece the revision before it
+			// reported, and a consumer joining the pieces would see every one of them twice.
+			newText: undefined,
 			...update,
 			revision: task.revision + 1,
 			updatedAt: this.now().toISOString(),
@@ -194,6 +199,11 @@ export class TaskStore {
 	 * memory. The device is read from the assignment the result completes, so no caller has to
 	 * pass it in.
 	 *
+	 * A task that asked for its answer in pieces also has the piece this stage produced recorded
+	 * against the revision this creates, and added to everything the task has produced so far.
+	 * A task that asked for nothing of the kind records neither, so it costs the same as it did
+	 * before pieces existed.
+	 *
 	 * @param taskId - The task identifier to update.
 	 * @param stage - The completed stage result to append.
 	 * @returns The updated task.
@@ -205,13 +215,61 @@ export class TaskStore {
 			throw new Error(`Task ${taskId} was not found`);
 		}
 		const workerDeviceId = task.assignment?.workerDeviceId;
+		const newText = TaskStore.producedText(task, stage);
+		const generatedText = TaskStore.accumulatedText(task, stage, newText);
 		return this.update(taskId, {
 			completedStages: [...task.completedStages, stage],
 			assignment: undefined,
 			currentStageAttempts: 0,
+			...(newText === undefined ? {} : { newText }),
+			...(generatedText === undefined ? {} : { generatedText }),
 			...(workerDeviceId === undefined ? {} : { stageWorkerDeviceIds: { ...(task.stageWorkerDeviceIds ?? {}), [stage.name]: workerDeviceId } }),
 			...(assignmentId === undefined ? {} : { acknowledgedAssignmentIds: [...(task.acknowledgedAssignmentIds ?? []), assignmentId] }),
 		});
+	}
+
+	/**
+	 * Reads the text one stage result produced, for a task that asked for its answer in pieces.
+	 *
+	 * The stage payload is the authority on what that stage produced, and it states it in one
+	 * field, `newText`, whether the generation is finished or not. The whole answer, which the
+	 * last result also carries in `text`, is deliberately not read here: adding it to the pieces
+	 * already reported would report the entire answer a second time.
+	 *
+	 * @param task The task the result belongs to, read for what it asked to be sent.
+	 * @param stage The completed stage result.
+	 * @returns The text produced, or `undefined` when the task asked for no pieces or the stage
+	 * produced no text.
+	 */
+	/**
+	 * Works out what a task's answer amounts to once one more stage result has arrived.
+	 *
+	 * The pieces are joined as they come, which is what a consumer that missed some revisions
+	 * needs. The result that finishes the answer replaces that joining with the whole answer it
+	 * carries, rather than adding to it. The device that generated the answer is the authority on
+	 * what the answer is, and its pieces are only its own account of how the answer grew: a piece
+	 * can restate what came before it instead of adding to it, which the sharded task's own
+	 * helper explains it cannot always avoid. Joining is therefore how the answer is followed
+	 * while it is being written, and the finished answer is what it is.
+	 *
+	 * @param task The task as it stands before this result.
+	 * @param stage The completed stage result.
+	 * @param newText The text this result reported producing, if any.
+	 * @returns What the task has generated so far, or `undefined` to leave it as it was.
+	 */
+	private static accumulatedText(task: Task, stage: StageResult, newText: string | undefined): string | undefined {
+		if (task.input.generationSettings?.isStreaming !== true) return undefined;
+		if (typeof stage.value === 'object' && stage.value !== null && stage.value.done === true && typeof stage.value.text === 'string') return stage.value.text;
+		if (newText === undefined) return undefined;
+		return (task.generatedText ?? '') + newText;
+	}
+
+	private static producedText(task: Task, stage: StageResult): string | undefined {
+		if (task.input.generationSettings?.isStreaming !== true) return undefined;
+		if (typeof stage.value !== 'object' || stage.value === null) return undefined;
+		const newText = stage.value.newText;
+		if (typeof newText !== 'string' || newText === '') return undefined;
+		return newText;
 	}
 
 	private requestKey(consumerDeviceId: string, requestId: string): string {

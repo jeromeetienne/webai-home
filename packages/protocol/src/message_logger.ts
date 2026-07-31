@@ -15,10 +15,13 @@ export type LogDirection = 'received' | 'sent';
  * therefore never written to a log file.
  *
  * `input`, `value`, and `result` are the task input, a stage input value, and the task
- * output. `text`, `inputIds`, `tensors`, and `dataBase64` are the parts of a language-model
- * stage payload. `token` is the authentication token sent in the `authenticate` message.
+ * output. `text`, `newText`, `inputIds`, `tensors`, and `dataBase64` are the parts of a
+ * language-model stage payload, and `generatedText` is the answer a task has produced so far.
+ * An answer sent one piece at a time is exactly as much the consumer's own data as the same
+ * answer sent whole, so `newText` and `generatedText` belong here for the same reason `text`
+ * does. `token` is the authentication token sent in the `authenticate` message.
  */
-const redactedKeyNames = new Set(['input', 'value', 'result', 'text', 'inputIds', 'tensors', 'dataBase64', 'token']);
+const redactedKeyNames = new Set(['input', 'value', 'result', 'text', 'newText', 'generatedText', 'inputIds', 'tensors', 'dataBase64', 'token']);
 
 /** The marker written in place of a redacted value. */
 const redactedMarker = '[redacted]';

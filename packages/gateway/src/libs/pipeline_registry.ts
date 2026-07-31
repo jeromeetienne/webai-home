@@ -116,12 +116,13 @@ export const builtinPipelineSpecifications: PipelineSpecification[] = [
 	},
 	{
 		// Chrome's built-in language model is asked for an answer once and then delivers it in
-		// pieces. One run of this stage reads every piece of one answer and returns the whole
-		// answer, so a task normally finishes on the first run rather than taking one run and
-		// two gateway messages per piece (https://github.com/webai-at-home/webai-at-home/issues/77).
-		// The pipeline still repeats until a stage result reports generation finished, which is
-		// what ends the task on that first run, and is what a request asking for a streamed
-		// answer will run on once this server can serve one. The lease is longer than the
+		// pieces, and how many runs of this stage those pieces are read in follows from what the
+		// consumer asked for (https://github.com/webai-at-home/webai-at-home/issues/77). A task
+		// that asked for nothing has one run read every piece and return the whole answer, so it
+		// finishes on its first run. A task that asked for its answer in pieces has one run read
+		// one piece, so it takes a run and two gateway messages per piece, plus one final run that
+		// finds the answer finished. The pipeline repeats until a stage result reports generation
+		// finished, which is what ends the task either way. The lease is longer than the
 		// gateway default because creating the model session on a device that has just
 		// downloaded the model is slow; a run that outlasts even that lease is carried by the
 		// stage heartbeats the worker browser sends while it is generating.

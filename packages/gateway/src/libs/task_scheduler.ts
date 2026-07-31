@@ -79,7 +79,15 @@ export class TaskScheduler {
 		const device = preferred ?? (retryReason === undefined
 			? this.deviceRegistry.findWorker(stage, excluded) ?? this.deviceRegistry.findWorker(stage)
 			: this.deviceRegistry.findWorker(stage, excluded));
-		if (device === undefined) {
+		// A value that carries a generation on can only be run by the device holding that
+		// generation, because the generation is in that device's memory and nowhere else. Sending
+		// it anywhere else produces a stage that fails at once, and a failed stage fails the whole
+		// task, so a task part-way through an answer would be lost the moment its device was busy.
+		// Waiting instead gives the device holding the answer a chance to come back, and the
+		// submission deadline is what stops the wait being unbounded.
+		const holder = existing.stageWorkerDeviceIds?.[stage];
+		const isMisplacedContinuation = TaskScheduler.continuesGeneration(value) && device !== undefined && holder !== undefined && device.deviceId !== holder;
+		if (device === undefined || isMisplacedContinuation) {
 			this.taskStore.update(taskId, { state: 'queued', assignment: undefined });
 			this.broadcastTask(taskId);
 			return;
@@ -89,7 +97,13 @@ export class TaskScheduler {
 			// A worker no longer learns that its assignment was superseded from a task
 			// snapshot, because task updates are not sent to workers any more. Tell the
 			// superseded worker directly, so it can drop any state it holds for the task.
-			const supersededSocket = this.hub.socketMap.get(existing.assignment.workerDeviceId);
+			//
+			// Except when the replacement is going back to that same worker. The point of telling
+			// it is that it should let go of what it holds, and the very next message asks it to
+			// carry on from exactly that. Cancelling first would destroy an answer held in the
+			// browser's memory a moment before the run that was sent to continue it arrives, and
+			// that run would then fail for want of the answer the cancellation just threw away.
+			const supersededSocket = existing.assignment.workerDeviceId === device.deviceId ? undefined : this.hub.socketMap.get(existing.assignment.workerDeviceId);
 			if (supersededSocket !== undefined) {
 				this.hub.send(supersededSocket, { type: 'stage.cancel', taskId, assignmentId: existing.assignment.assignmentId, attempt: existing.assignment.attempt, reason: retryReason ?? 'assignment_superseded' }, this.hub.counterpartFor(existing.assignment.workerDeviceId));
 			}
@@ -217,5 +231,18 @@ export class TaskScheduler {
 	mayReadTask(deviceId: string, taskId: string): boolean {
 		const task = this.taskStore.get(taskId);
 		return task?.consumerDeviceId === deviceId || this.hub.taskObserverDeviceIds.get(taskId)?.has(deviceId) === true;
+	}
+
+	/**
+	 * Reports whether a stage input value carries on a generation another device is holding.
+	 *
+	 * The gateway reads nothing else about a stage value, and it reads this only to decide where
+	 * the value may be sent, never what it means.
+	 *
+	 * @param value The stage input value about to be assigned.
+	 * @returns `true` when the value continues a generation rather than starting one.
+	 */
+	private static continuesGeneration(value: StagePayload): boolean {
+		return typeof value === 'object' && value !== null && value.isContinuation === true;
 	}
 }

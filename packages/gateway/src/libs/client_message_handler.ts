@@ -495,6 +495,12 @@ export class ClientMessageHandler {
 			return;
 		}
 		const updated = this.taskStore.addStage(task.taskId, { name: message.stage, value: message.value }, message.assignmentId);
+		// A piece of an answer belongs to the revision that produced it and to no other, so it is
+		// sent from here. Every revision that follows this one — the assignment of the next stage,
+		// and the completion of the task — has already dropped it, and would otherwise be the
+		// first thing broadcast after the piece existed. Only a task that asked for its answer in
+		// pieces ever has one, so no other task is broadcast any more often than before.
+		if (updated.newText !== undefined) this.scheduler.broadcastTask(updated.taskId);
 		this.announcer.releaseWorkerAssignment(deviceId);
 		const upcoming = TaskStore.nextStage(updated);
 		if (upcoming === undefined) {
