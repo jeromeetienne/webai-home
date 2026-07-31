@@ -22,6 +22,21 @@ The two ports the underlying issue names are `8787` and `8788`; `8789` was added
 - [`docker/`](docker) — the container image definition: the [`Dockerfile`](docker/Dockerfile), its matching [`Dockerfile.dockerignore`](docker/Dockerfile.dockerignore), the [`docker-entrypoint.sh`](docker/docker-entrypoint.sh) it runs, and [`docker-compose.yml`](docker/docker-compose.yml).
 - [`src/`](src) — code the image runs that is not one of the existing packages: [`static_server.mjs`](src/static_server.mjs), the worker page's static file server.
 
+## npm scripts
+
+[`package.json`](package.json) wraps the `docker` and `docker compose` commands used throughout this document, each already pointed at [`docker/docker-compose.yml`](docker/docker-compose.yml), so none of these need the `-f` path spelled out. Run them from this directory, or from anywhere in the repository with `--workspace @webai/docker-server`:
+
+| Script | Runs | Does |
+| --- | --- | --- |
+| `npm run build` | `docker compose -f docker/docker-compose.yml build` | Builds the image (see [Build](#build)) |
+| `npm run start` | `docker compose -f docker/docker-compose.yml up -d` | Starts the container in the background (see [Start](#start)) |
+| `npm run stop` | `docker compose -f docker/docker-compose.yml down` | Stops and removes the container (see [Shutdown](#shutdown)) |
+| `npm run restart` | `docker compose -f docker/docker-compose.yml restart` | Restarts the running container without rebuilding it |
+| `npm run logs` | `docker compose -f docker/docker-compose.yml logs -f` | Follows both programs' startup and error output (see [Logs](#logs)) |
+| `npm test` | prints a pointer to this file | There is nothing to automate here; this only exists so the repository's root `npm test` (which runs every workspace's `test` script) does not fail on this package |
+
+`npm run start` reads its environment variables and port mapping from [`docker/docker-compose.yml`](docker/docker-compose.yml) rather than from a command line, so edit that file (or override with `docker compose run -e ...`) to change them — see [Configuration](#configuration).
+
 ## Build
 
 Build from the repository root, because the image needs the whole npm workspace (the root `package.json`, the root lockfile is not used — see the note in the [`Dockerfile`](docker/Dockerfile) — and every package's source):
