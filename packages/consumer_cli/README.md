@@ -10,10 +10,12 @@ From the repository root, with the central gateway running:
 
 ```sh
 npm run dev --workspace @webai/consumer-cli -- 5
+```
 
 Set the registered consumer name with `--name`, for example:
 
-`npm run dev --workspace @webai/consumer-cli -- --name dev-formula-consumer 5`
+```sh
+npm run dev --workspace @webai/consumer-cli -- --name dev-formula-consumer 5
 ```
 
 Use `--url` to connect to another WebSocket endpoint:
@@ -21,6 +23,15 @@ Use `--url` to connect to another WebSocket endpoint:
 ```sh
 npm run dev --workspace @webai/consumer-cli -- 5 --url ws://localhost:9000
 ```
+
+The command line options are:
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `-u, --url <url>` | `ws://localhost:8787` | Gateway WebSocket address. |
+| `-t, --type <type>` | `dev_formula` | `dev_formula`, `llm_qwen3_0_6b_sharded`, or `llm_gemma_nano_chrome_full`. |
+| `-n, --name <name>` | `consumer` | Name registered with the gateway. |
+| `-s, --stream` | off | Ask a language-model task to return answer pieces while it runs. |
 
 Use `-t/--type` to choose the task type:
 
@@ -37,6 +48,9 @@ Use `-s/--stream` to ask for the answer in pieces as it is produced, rather than
 ```sh
 npm run dev --workspace @webai/consumer-cli -- "hello there" --type llm_gemma_nano_chrome_full --stream
 ```
+
+`--stream` is not valid for `dev_formula`, which always returns one numeric
+result. The command writes gateway messages to `packages/consumer_cli/logs`.
 
 ## Public exports
 
@@ -58,4 +72,11 @@ This is the only supported entry point; `./libs/consumer_client` and `./libs/tas
 
 ```sh
 npm run build --workspace @webai/consumer-cli
+```
+
+For local checks, also run:
+
+```sh
+npm run typecheck --workspace @webai/consumer-cli
+npm run test --workspace @webai/consumer-cli
 ```

@@ -1,15 +1,22 @@
-# Worker browser
+# `@webai/worker-webpage`
 
 Build and serve the worker browser independently from the central gateway:
 
 ```sh
-npm run build
-npm start
+npm run build --workspace @webai/worker-webpage
+npm run start --workspace @webai/worker-webpage
 ```
 
-During development, use `npm run dev`. The page connects to the central gateway at
-`http://localhost:8787` by default. Use `?gatewayUrl=http://host:port` to connect to a
-different central gateway.
+During development, use `npm run dev --workspace @webai/worker-webpage`. Vite
+serves the page on port `8789` by default. The page connects to the central
+gateway at `http://localhost:8787` and authenticates with
+`development-token` by default. Use `?gatewayUrl=http://host:port` and
+`?authToken=token` to connect to a different gateway.
+
+Use `?workerName=name` to choose the registered worker name. Use repeated
+`?enabledStages=stage_name` parameters to restrict the stages offered by a
+worker. When no stage parameters are provided, the page advertises all
+available built-in stages.
 
 Worker pages can receive multiple enabled stages through repeated URL parameters. For example:
 

@@ -1,4 +1,4 @@
-# webai-at-home
+# WebAI@Home
 
 ## Goal
 
@@ -51,11 +51,11 @@ deadline makes volunteer computing practical:
 ## Current state
 
 This repository contains early experiments and a minimal distributed pipeline.
-The current gateway prototype runs three kinds of task: two simple formula
-stages, a Qwen3-0.6B model split into three shards across three worker browser
-tabs, and the Gemma Nano model built into Chrome running in one worker browser
-tab. The ONNX experiments test running model work directly in browsers,
-including a small Iris classifier and larger model experiments.
+The current gateway prototype runs three task types: a development formula,
+the Qwen3-0.6B model split into three shards across three worker browser tabs,
+and the Gemma Nano model built into Chrome running in one worker browser tab.
+The ONNX experiments test running model work directly in browsers, including a
+small Iris classifier and larger model experiments.
 
 The central research questions are still open, especially result verification,
 browser tab throttling, volunteer and coordinator trust, and reliable model
@@ -63,38 +63,47 @@ partitioning across very different devices.
 
 ## Repository layout
 
-- `packages/gateway` — coordinator HTTP and WebSocket gateway, scheduling, and
+- [`packages/gateway`](packages/gateway/README.md) — coordinator HTTP and WebSocket gateway, scheduling, and
   home and worker pages.
-- `packages/protocol` — shared message and task definitions with validation.
-- `packages/consumer_cli` — command-line client for submitting test tasks.
-- `packages/consumer_openai` — OpenAI-compatible server, so a program that already talks
+- [`packages/protocol`](packages/protocol/README.md) — shared message and task definitions with validation.
+- [`packages/consumer_cli`](packages/consumer_cli/README.md) — command-line client for submitting test tasks.
+- [`packages/consumer_openai`](packages/consumer_openai/README.md) — OpenAI-compatible server, so a program that already talks
   to OpenAI can use the cluster by changing its base address.
-- `packages/flow_viewer` — flow_viewer for inspecting recorded message traffic.
-- `packages/onnx_experiments` — browser experiments for ONNX Runtime Web.
-- `packages/tiny_iris_classifier` — small end-to-end browser inference example.
-- `packages/docker_server` — Linux Docker image that runs the gateway and `consumer_openai` together.
+- [`packages/flow_viewer`](packages/flow_viewer/README.md) — flow viewer for inspecting recorded message traffic.
+- [`packages/_onnx_experiments`](packages/_onnx_experiments/README.md) — browser experiments for ONNX Runtime Web.
+- [`packages/_tiny_iris_classifier`](packages/_tiny_iris_classifier/README.md) — small end-to-end browser inference example.
+- [`packages/docker_server`](packages/docker_server/README.md) — Linux Docker image that runs the gateway and `consumer_openai` together.
+- [`packages/worker_webpage`](packages/worker_webpage/README.md) — browser page that connects workers to the gateway.
 
 ## Documentation
 
-- `docs/tasks-and-stages.md` — every kind of task the cluster can run and every
+- [`docs/tasks-and-stages.md`](docs/tasks-and-stages.md) — every kind of task the cluster can run and every
   stage each one needs.
-- `docs/protocol-by-role.md` — the messages the gateway, the consumers, and the
+- [`docs/protocol-by-role.md`](docs/protocol-by-role.md) — the messages the gateway, the consumers, and the
   workers exchange.
-- `docs/naming-scheme.md` — how every task, task type, pipeline, and stage name
+- [`docs/naming-scheme.md`](docs/naming-scheme.md) — how every task, task type, pipeline, and stage name
   is built.
+- [`docs/readme-audit-89.md`](docs/readme-audit-89.md) — the README audit checklist and validation record for issue #89.
 
 ## Run the prototype
 
 ```sh
 npm install
-npm run dev:gateway
+npm run dev --workspace @webai/gateway
 npm run dev --workspace @webai/consumer-cli -- 5
 ```
 
-Start the standalone worker browser with `npm run dev --workspace @webai/worker-webpage`, then open its displayed URL in two browser tabs and
-`http://localhost:8787/home` in a gateway home browser tab. The prototype
-currently runs a formula pipeline whose first stage multiplies by `2` and
-whose second stage adds `7`.
+Start the worker browser page with `npm run dev --workspace @webai/worker-webpage`.
+Open the worker page in two browser tabs, then open
+`http://localhost:8787/home` in another browser tab. The development formula
+pipeline multiplies the input by `2` and then adds `7`, so input `5` produces
+`17`. The gateway uses the development bearer token `development-token` by
+default; pass the same token in the worker page's `authToken` query parameter
+when it is not using that default.
+
+The root build and test scripts cover the protocol, gateway, command-line
+consumer, and OpenAI-compatible consumer. Package READMEs document the
+additional browser, Docker, flow viewer, and experiment commands.
 
 ## Long-term direction
 

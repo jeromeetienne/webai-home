@@ -11,7 +11,7 @@ A small end-to-end example that trains an Iris classifier in Python, exports the
 ## Train and verify the model
 
 ```bash
-cd packages/tiny_iris_classifier/training
+cd packages/_tiny_iris_classifier/training
 
 # Use Python 3.13 or another installed Python version from 3.10 to 3.13.
 python3.13 -m venv .venv
@@ -88,7 +88,7 @@ The Vite configuration serves the ONNX Runtime Web WebAssembly files correctly i
 ## Project structure
 
 ```text
-tiny_iris_classifier/
+_tiny_iris_classifier/
 ├── training/
 │   ├── requirements.txt
 │   ├── requirements-lock.txt

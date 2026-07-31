@@ -69,7 +69,7 @@ COPY --from=build /repo/packages/gateway/web/dist packages/gateway/web/dist
 COPY --from=build /repo/packages/consumer_openai/package.json packages/consumer_openai/package.json
 COPY --from=build /repo/packages/consumer_openai/dist packages/consumer_openai/dist
 
-COPY --from=build /repo/packages/worker/dist packages/worker/dist
+COPY --from=build /repo/packages/worker_webpage/dist packages/worker_webpage/dist
 
 COPY packages/docker_server/src/static_server.mjs packages/docker_server/src/static_server.mjs
 COPY packages/docker_server/docker/docker-entrypoint.sh docker-entrypoint.sh
