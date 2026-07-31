@@ -62,7 +62,7 @@ fi
 node packages/consumer_openai/dist/cli.js "${consumer_openai_args[@]}" &
 consumer_openai_pid=$!
 
-node packages/docker_server/src/static_server.mjs packages/worker/dist "$WORKER_PORT" &
+node packages/docker_server/src/static_server.mjs packages/worker_webpage/dist "$WORKER_PORT" &
 worker_pid=$!
 
 set +e

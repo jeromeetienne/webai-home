@@ -1,5 +1,5 @@
 {
-  "name": "@webai/worker",
+  "name": "@webai/worker-webpage",
   "version": "0.1.0",
   "private": true,
   "type": "module",

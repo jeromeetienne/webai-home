@@ -1,10 +1,10 @@
 # Docker image: Gateway, consumer_openai, and the worker page
 
-A Linux Docker image that runs [`packages/gateway`](../gateway) and the OpenAI-compatible server from [`packages/consumer_openai`](../consumer_openai) together in one container, plus the built browser page from [`packages/worker`](../worker), served as static files so a worker browser tab can be opened straight from the container.
+A Linux Docker image that runs [`packages/gateway`](../gateway) and the OpenAI-compatible server from [`packages/consumer_openai`](../consumer_openai) together in one container, plus the built browser page from [`packages/worker_webpage`](../worker_webpage), served as static files so a worker browser tab can be opened straight from the container.
 
 The command line consumer package (`packages/consumer_cli`) is included only as a library, because `packages/consumer_openai` depends on it (`ConsumerClient`, `TaskInputFactory`, `taskTypeNames`). Its own command line program is never started in this image.
 
-`packages/worker` is a browser page, not a server, so it cannot itself run inside the container as a worker. A completion request only returns an answer once at least one browser tab, running on some machine outside the container, has that page open and is connected to the gateway.
+`packages/worker_webpage` is a browser page, not a server, so it cannot itself run inside the container as a worker. A completion request only returns an answer once at least one browser tab, running on some machine outside the container, has that page open and is connected to the gateway.
 
 ## Ports
 
@@ -12,9 +12,9 @@ The command line consumer package (`packages/consumer_cli`) is included only as 
 | --- | --- |
 | `8787` | Gateway HTTP and WebSocket server ([`packages/gateway`](../gateway)) |
 | `8788` | OpenAI-compatible HTTP server ([`packages/consumer_openai`](../consumer_openai)) |
-| `8789` | The built worker browser page ([`packages/worker`](../worker)), served as static files |
+| `8789` | The built worker browser page ([`packages/worker_webpage`](../worker_webpage)), served as static files |
 
-The two ports the underlying issue names are `8787` and `8788`; `8789` was added afterward so the worker browser page a real end-to-end test needs is reachable from this same image, without running a separate `npm run dev --workspace @webai/worker` on the host.
+The two ports the underlying issue names are `8787` and `8788`; `8789` was added afterward so the worker browser page a real end-to-end test needs is reachable from this same image, without running a separate `npm run dev --workspace @webai/worker-webpage` on the host.
 
 ## Layout
 
@@ -104,7 +104,7 @@ curl http://localhost:8788/v1/chat/completions \
 ## Open the gateway and connect a worker
 
 - The gateway's home page: `http://localhost:8787/home`
-- The worker browser page, built from `packages/worker` and served from this same container: `http://localhost:8789/?gatewayUrl=http://localhost:8787&authToken=<GATEWAY_AUTH_TOKEN>`
+- The worker browser page, built from `packages/worker_webpage` and served from this same container: `http://localhost:8789/?gatewayUrl=http://localhost:8787&authToken=<GATEWAY_AUTH_TOKEN>`
 
 `dev_formula` uses two pipeline stages, so open the worker page in two separate browser tabs (on the host machine, or any machine that can reach the published ports) before sending a request.
 

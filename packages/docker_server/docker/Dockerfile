@@ -22,24 +22,24 @@ COPY packages/protocol/package.json packages/protocol/package.json
 COPY packages/consumer_cli/package.json packages/consumer_cli/package.json
 COPY packages/gateway/package.json packages/gateway/package.json
 COPY packages/consumer_openai/package.json packages/consumer_openai/package.json
-COPY packages/worker/package.json packages/worker/package.json
+COPY packages/worker_webpage/package.json packages/worker_webpage/package.json
 RUN npm install
 
 COPY packages/protocol packages/protocol
 COPY packages/consumer_cli packages/consumer_cli
 COPY packages/gateway packages/gateway
 COPY packages/consumer_openai packages/consumer_openai
-COPY packages/worker packages/worker
+COPY packages/worker_webpage packages/worker_webpage
 
 # `@webai/consumer-cli` is built because `@webai/consumer_openai` imports its library code
 # (`ConsumerClient`, `TaskInputFactory`, `taskTypeNames`) — its own command line program is
-# never started in this image. `@webai/worker` is a browser page built with Vite, served as
+# never started in this image. `@webai/worker-webpage` is a browser page built with Vite, served as
 # static files by src/static_server.mjs below, not run as a Node program.
 RUN npm run build --workspace @webai/protocol \
 	&& npm run build --workspace @webai/consumer-cli \
 	&& npm run build --workspace @webai/gateway \
 	&& npm run build --workspace @webai/consumer-openai \
-	&& npm run build --workspace @webai/worker
+	&& npm run build --workspace @webai/worker-webpage
 
 # Drops every devDependency (Vite, TypeScript, esbuild, and the rest) the finished build no
 # longer needs, so the runtime stage below copies over a `node_modules` this same install

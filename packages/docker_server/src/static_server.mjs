@@ -1,6 +1,6 @@
-// Serves the worker browser page's built files (`packages/worker/dist`), so a browser worker
+// Serves the worker browser page's built files (`packages/worker_webpage/dist`), so a browser worker
 // tab can be opened straight from this container instead of running `npm run dev --workspace
-// @webai/worker` on the host. Plain Node — no dependency of its own, since this script's only
+// @webai/worker-webpage` on the host. Plain Node — no dependency of its own, since this script's only
 // job is serving a handful of static files by content-hashed name.
 //
 // Usage: node static_server.mjs <root-directory> <port>

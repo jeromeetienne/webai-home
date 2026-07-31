@@ -10,8 +10,8 @@
     {
       "name": "worker-page",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--workspace", "@webai/worker", "--", "--port", "5299", "--strictPort"],
-      "port": 5299
+      "runtimeArgs": ["run", "dev", "--workspace", "@webai/worker-webpage", "--", "--port", "8789", "--strictPort"],
+      "port": 8789
     },
     {
       "name": "log-visu",

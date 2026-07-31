@@ -85,4 +85,17 @@ export default defineConfig({
 			},
 		},
 	},
+	/**
+	 * Matches `WORKER_PORT`'s default in the Docker image
+	 * (see packages/docker_server/docker/docker-entrypoint.sh), so the worker page is reachable
+	 * on the same port whether it is started locally or inside the container.
+	 */
+	server: {
+		port: 8789,
+		strictPort: true,
+	},
+	preview: {
+		port: 8789,
+		strictPort: true,
+	},
 });

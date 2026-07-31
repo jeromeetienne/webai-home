@@ -91,7 +91,7 @@ npm run dev:gateway
 npm run dev --workspace @webai/consumer-cli -- 5
 ```
 
-Start the standalone worker browser with `npm run dev --workspace @webai/worker`, then open its displayed URL in two browser tabs and
+Start the standalone worker browser with `npm run dev --workspace @webai/worker-webpage`, then open its displayed URL in two browser tabs and
 `http://localhost:8787/home` in a gateway home browser tab. The prototype
 currently runs a formula pipeline whose first stage multiplies by `2` and
 whose second stage adds `7`.
