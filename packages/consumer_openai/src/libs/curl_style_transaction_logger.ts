@@ -22,7 +22,7 @@ export type TransactionAuthOutcome = 'not_required' | 'ok' | 'failed';
 export type TransactionOutcome = 'completed' | 'failed' | 'cancelled';
 
 /** What kind of body the response carried. */
-export type TransactionResponseType = 'chat.completion' | 'error' | 'none';
+export type TransactionResponseType = 'chat.completion' | 'chat.completion.chunk' | 'error' | 'none';
 
 /** Everything this server has learned about one `POST /v1/chat/completions` transaction, by the time its response has closed. */
 export type HttpTransactionInput = {
@@ -204,7 +204,10 @@ export class CurlStyleTransactionLogger {
 	private static responseLinesOf(transaction: HttpTransactionInput): string[] {
 		if (transaction.callerDisconnected === true && transaction.responseType === 'none') return ['< (no response: the caller disconnected before one was sent)'];
 		const reason = Http.STATUS_CODES[transaction.status] ?? 'Unknown Status';
-		const lines = [`< HTTP/1.1 ${transaction.status} ${reason}`, '< content-type: application/json', '<'];
+		// A streamed answer is sent as server-sent events, not as one JSON body, so it states its
+		// own content type rather than the one every other response here carries.
+		const contentType = transaction.responseType === 'chat.completion.chunk' ? 'text/event-stream; charset=utf-8' : 'application/json';
+		const lines = [`< HTTP/1.1 ${transaction.status} ${reason}`, `< content-type: ${contentType}`, '<'];
 		lines.push(...CurlStyleTransactionLogger.bodyLinesOf('<', transaction.responseBody));
 		return lines;
 	}

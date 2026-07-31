@@ -88,21 +88,6 @@ export class OpenaiError extends Error {
 	}
 
 	/**
-	 * The request asks for the answer to be streamed, which this server does not do yet.
-	 *
-	 * @returns The failure to answer with, as HTTP 400.
-	 */
-	static streamingRefused(): OpenaiError {
-		return new OpenaiError(
-			400,
-			'invalid_request_error',
-			'This server does not stream an answer yet, so a request must ask for the whole answer at once. Send the request again without the stream field, or with it set to false. Streaming needs the central gateway to report the text generated so far on each task revision, which it does not do today.',
-			'stream',
-			'streaming_not_supported',
-		);
-	}
-
-	/**
 	 * The request names a model this server does not offer.
 	 *
 	 * @param modelId The model identifier the request asked for.

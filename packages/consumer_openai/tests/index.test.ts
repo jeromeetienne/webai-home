@@ -99,7 +99,6 @@ Test('lists the models in the shape an OpenAI client reads', () => {
 
 Test('answers each kind of failure with the status an OpenAI client expects', () => {
 	Assert.equal(OpenaiError.invalidRequest('bad body').status, 400);
-	Assert.equal(OpenaiError.streamingRefused().status, 400);
 	Assert.equal(OpenaiError.unusableMessages('not a number').status, 400);
 	Assert.equal(OpenaiError.authenticationFailed().status, 401);
 	Assert.equal(OpenaiError.unknownModel('gpt-4o', ModelCatalog.modelIds).status, 404);
@@ -114,10 +113,6 @@ Test('answers each kind of failure with the status an OpenAI client expects', ()
 });
 
 Test('names the field at fault and the failure kind in the body', () => {
-	const streaming = OpenaiError.streamingRefused().body;
-	Assert.equal(streaming.error.type, 'invalid_request_error');
-	Assert.equal(streaming.error.param, 'stream');
-	Assert.equal(streaming.error.code, 'streaming_not_supported');
 	const unknownModel = OpenaiError.unknownModel('gpt-4o', ModelCatalog.modelIds).body;
 	Assert.equal(unknownModel.error.param, 'model');
 	Assert.equal(unknownModel.error.code, 'model_not_found');
@@ -410,20 +405,138 @@ const listeningServer = async (overrides: Partial<ClusterTaskRunnerOptions> = {}
 	};
 };
 
-Test('refuses a streamed request over the full request-response flow, rather than running a task for it', async () => {
+/**
+ * Reads a server-sent event stream to its end and returns the `data:` lines it carried.
+ *
+ * @param response The streamed response.
+ * @returns Each `data:` line's text, in the order it arrived, including the closing `[DONE]`.
+ */
+const streamedDataLines = async (response: Response): Promise<string[]> => {
+	const text = await response.text();
+	return text.split('\n').filter((line) => line.startsWith('data: ')).map((line) => line.slice('data: '.length));
+};
+
+Test('answers a streamed request as the answer is written, and asks the cluster for the pieces', async () => {
 	const server = await listeningServer();
 	try {
-		const response = await fetch(`${server.url}/v1/chat/completions`, {
+		const responsePromise = fetch(`${server.url}/v1/chat/completions`, {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({ model: 'dev_formula', messages: [{ role: 'user', content: '5' }], stream: true }),
+			body: JSON.stringify({ model: 'llm_gemma_nano_chrome_full', messages: [{ role: 'user', content: 'What is the capital of France?' }], stream: true }),
 		});
-		Assert.equal(response.status, 400);
-		const body = await response.json() as { error: { type: string; param: string | null; code: string | null } };
-		Assert.equal(body.error.code, 'streaming_not_supported');
-		Assert.equal(body.error.param, 'stream');
-		// Refused before a task is ever submitted, so the gateway sees no `task.submit` for it.
-		Assert.equal(server.cluster.runner.tasksInFlight, 0);
+
+		// Asking for a stream is what makes the cluster report pieces at all, so the submission
+		// has to carry that request. Without it the task would be answered in one piece and this
+		// server would have nothing to send until the answer was finished.
+		await waitUntil(() => server.cluster.lastSentBody()['type'] === 'task.submit');
+		const submitted = server.cluster.lastSentBody();
+		Assert.deepEqual((submitted['input'] as { generationSettings: unknown }).generationSettings, { isStreaming: true });
+		const requestId = submitted['requestId'] as string;
+
+		server.cluster.receive({ type: 'task.accepted', requestId, task: { taskId: 'task-stream-1', requestId, state: 'queued' } });
+		server.cluster.receive({ type: 'task.updated', update: { taskId: 'task-stream-1', revision: 2, state: 'running', completedStageCount: 1, currentStageAttempts: 1, newText: 'The ' } });
+		server.cluster.receive({ type: 'task.updated', update: { taskId: 'task-stream-1', revision: 3, state: 'running', completedStageCount: 2, currentStageAttempts: 1, newText: 'capital.' } });
+		server.cluster.receive({ type: 'task.updated', update: { taskId: 'task-stream-1', revision: 4, state: 'completed', completedStageCount: 3, currentStageAttempts: 0, result: { text: 'The capital.', done: true } } });
+
+		const response = await responsePromise;
+		Assert.equal(response.status, 200);
+		Assert.match(response.headers.get('content-type') ?? '', /text\/event-stream/);
+
+		const lines = await streamedDataLines(response);
+		Assert.equal(lines.at(-1), '[DONE]');
+		const chunks = lines.slice(0, -1).map((line) => JSON.parse(line) as { object: string; id: string; choices: { delta: { role?: string; content?: string }; finish_reason: string | null }[] });
+		// Every chunk says what it is and belongs to the same answer, which is how a reader tells
+		// one answer's chunks from another's.
+		Assert.deepEqual([...new Set(chunks.map((chunk) => chunk.object))], ['chat.completion.chunk']);
+		Assert.equal(new Set(chunks.map((chunk) => chunk.id)).size, 1);
+		// The role is stated once, before any text; the answer stops once, after all of it.
+		Assert.deepEqual(chunks.map((chunk) => chunk.choices[0]?.delta.role ?? null), ['assistant', null, null, null]);
+		Assert.deepEqual(chunks.map((chunk) => chunk.choices[0]?.finish_reason ?? null), [null, null, null, 'stop']);
+		// Joining the pieces gives the answer, which is the whole point of sending them.
+		Assert.equal(chunks.map((chunk) => chunk.choices[0]?.delta.content ?? '').join(''), 'The capital.');
+	} finally {
+		server.close();
+	}
+});
+
+Test('a request that asks for no stream asks the cluster for no pieces, and is answered in one piece', async () => {
+	const server = await listeningServer();
+	try {
+		const responsePromise = fetch(`${server.url}/v1/chat/completions`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ model: 'llm_gemma_nano_chrome_full', messages: [{ role: 'user', content: 'What is the capital of France?' }] }),
+		});
+
+		await waitUntil(() => server.cluster.lastSentBody()['type'] === 'task.submit');
+		const submitted = server.cluster.lastSentBody();
+		// The submission is exactly what it was before pieces existed: no settings field at all.
+		Assert.equal('generationSettings' in (submitted['input'] as object), false);
+		const requestId = submitted['requestId'] as string;
+
+		server.cluster.receive({ type: 'task.accepted', requestId, task: { taskId: 'task-whole-1', requestId, state: 'queued' } });
+		server.cluster.receive({ type: 'task.updated', update: { taskId: 'task-whole-1', revision: 2, state: 'completed', completedStageCount: 1, currentStageAttempts: 0, result: { text: 'The capital.', done: true } } });
+
+		const response = await responsePromise;
+		Assert.equal(response.status, 200);
+		Assert.match(response.headers.get('content-type') ?? '', /application\/json/);
+		const body = await response.json() as { object: string; choices: { message: { content: string } }[] };
+		Assert.equal(body.object, 'chat.completion');
+		Assert.equal(body.choices[0]?.message.content, 'The capital.');
+	} finally {
+		server.close();
+	}
+});
+
+Test('a streamed answer whose task reported no pieces is still sent, rather than arriving empty', async () => {
+	const server = await listeningServer();
+	try {
+		const responsePromise = fetch(`${server.url}/v1/chat/completions`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ model: 'llm_gemma_nano_chrome_full', messages: [{ role: 'user', content: 'What is the capital of France?' }], stream: true }),
+		});
+
+		await waitUntil(() => server.cluster.lastSentBody()['type'] === 'task.submit');
+		const requestId = server.cluster.lastSentBody()['requestId'] as string;
+		server.cluster.receive({ type: 'task.accepted', requestId, task: { taskId: 'task-nopieces-1', requestId, state: 'queued' } });
+		// A worker built before pieces existed produces its whole answer in one run and reports
+		// none, so the answer has to be sent as one piece rather than the caller being told it
+		// was empty.
+		server.cluster.receive({ type: 'task.updated', update: { taskId: 'task-nopieces-1', revision: 2, state: 'completed', completedStageCount: 1, currentStageAttempts: 0, result: { text: 'The capital.', done: true } } });
+
+		const lines = await streamedDataLines(await responsePromise);
+		const chunks = lines.slice(0, -1).map((line) => JSON.parse(line) as { choices: { delta: { content?: string } }[] });
+		Assert.equal(chunks.map((chunk) => chunk.choices[0]?.delta.content ?? '').join(''), 'The capital.');
+		Assert.equal(lines.at(-1), '[DONE]');
+	} finally {
+		server.close();
+	}
+});
+
+Test('a failure after the stream has begun is written into the stream, since the status is already gone', async () => {
+	const server = await listeningServer();
+	try {
+		const responsePromise = fetch(`${server.url}/v1/chat/completions`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ model: 'llm_gemma_nano_chrome_full', messages: [{ role: 'user', content: 'What is the capital of France?' }], stream: true }),
+		});
+
+		await waitUntil(() => server.cluster.lastSentBody()['type'] === 'task.submit');
+		const requestId = server.cluster.lastSentBody()['requestId'] as string;
+		server.cluster.receive({ type: 'task.accepted', requestId, task: { taskId: 'task-fail-1', requestId, state: 'queued' } });
+		server.cluster.receive({ type: 'task.updated', update: { taskId: 'task-fail-1', revision: 2, state: 'running', completedStageCount: 1, currentStageAttempts: 1, newText: 'The ' } });
+		server.cluster.receive({ type: 'task.updated', update: { taskId: 'task-fail-1', revision: 3, state: 'failed', completedStageCount: 1, currentStageAttempts: 1, error: 'a stage failed' } });
+
+		const response = await responsePromise;
+		// The answer began, so the status says the answer began. There is no way to take that back.
+		Assert.equal(response.status, 200);
+		const lines = await streamedDataLines(response);
+		Assert.equal(lines.at(-1), '[DONE]');
+		const last = JSON.parse(lines.at(-2)!) as { error?: { message: string } };
+		Assert.equal(last.error === undefined, false);
+		Assert.match(last.error!.message, /a stage failed/);
 	} finally {
 		server.close();
 	}
@@ -603,16 +716,46 @@ Test('audits a validation failure with the exact status and error code the calle
 		const response = await fetch(`${server.url}/v1/chat/completions`, {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({ model: 'dev_formula', messages: [{ role: 'user', content: '5' }], stream: true }),
+			body: JSON.stringify({ model: 'gpt-4o', messages: [{ role: 'user', content: '5' }] }),
 		});
-		Assert.equal(response.status, 400);
+		Assert.equal(response.status, 404);
 
 		await waitUntil(() => server.transactions().length >= 1);
 		const [block] = server.transactions();
 		Assert.equal(fieldOf(block, 'Outcome'), 'failed');
-		Assert.match(block, /^< HTTP\/1\.1 400 Bad Request$/m);
+		Assert.match(block, /^< HTTP\/1\.1 404 Not Found$/m);
 		Assert.equal(fieldOf(block, 'Gateway request'), undefined);
-		Assert.match(block, /^<\s+"code": "streaming_not_supported"$/m);
+		Assert.match(block, /^<\s+"code": "model_not_found"$/m);
+	} finally {
+		server.close();
+	}
+});
+
+Test('audits a streamed answer as one transaction, naming the task it ran', async () => {
+	const server = await listeningServer();
+	try {
+		const responsePromise = fetch(`${server.url}/v1/chat/completions`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ model: 'llm_gemma_nano_chrome_full', messages: [{ role: 'user', content: 'What is the capital of France?' }], stream: true }),
+		});
+
+		await waitUntil(() => server.cluster.lastSentBody()['type'] === 'task.submit');
+		const requestId = server.cluster.lastSentBody()['requestId'] as string;
+		server.cluster.receive({ type: 'task.accepted', requestId, task: { taskId: 'task-audit-stream-1', requestId, state: 'queued' } });
+		server.cluster.receive({ type: 'task.updated', update: { taskId: 'task-audit-stream-1', revision: 2, state: 'running', completedStageCount: 1, currentStageAttempts: 1, newText: 'The capital.' } });
+		server.cluster.receive({ type: 'task.updated', update: { taskId: 'task-audit-stream-1', revision: 3, state: 'completed', completedStageCount: 2, currentStageAttempts: 0, result: { text: 'The capital.', done: true } } });
+		await responsePromise;
+
+		await waitUntil(() => server.transactions().length >= 1);
+		const [block] = server.transactions();
+		Assert.equal(fieldOf(block, 'Outcome'), 'completed');
+		Assert.equal(fieldOf(block, 'Gateway task'), 'task-audit-stream-1');
+		Assert.match(block, /^< HTTP\/1\.1 200 OK$/m);
+		// A streamed answer was sent as server-sent events, not as one JSON body, so the log
+		// records the content type that was actually sent rather than the one every other
+		// response here carries.
+		Assert.match(block, /^< content-type: text\/event-stream/m);
 	} finally {
 		server.close();
 	}
