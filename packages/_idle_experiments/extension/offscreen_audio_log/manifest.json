@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "Idle-time offscreen audio experiment",
+  "version": "0.1.0",
+  "description": "Measures whether a chrome.offscreen document playing a quiet tone keeps its timers and CPU throughput steady while Chrome is backgrounded. Built for webai-at-home issue #83; not a production extension.",
+  "permissions": ["offscreen", "storage"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html"
+  }
+}

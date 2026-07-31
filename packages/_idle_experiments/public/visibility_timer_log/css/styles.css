@@ -20,6 +20,9 @@ h1 em { font-style: normal; color: #6fae8f; }
 .experiment-name { font-size: 20px; font-weight: 600; letter-spacing: -.02em; }
 .experiment-summary { color: #9aa6a0; font-size: 14px; line-height: 1.5; }
 .card-action { font-family: 'DM Mono', monospace; text-transform: uppercase; letter-spacing: .08em; font-size: 11px; color: #6fae8f; margin-top: 4px; }
+.experiment-card.is-extension { cursor: default; }
+.experiment-card.is-extension:hover { border-color: #29332e; }
+.experiment-card.is-extension .card-action { color: #7d8b84; text-transform: none; letter-spacing: 0; font-family: 'DM Mono', monospace; font-size: 12px; }
 
 .status-bar { display: flex; gap: 12px; flex-wrap: wrap; margin: 8px 0 32px; }
 .badge { display: inline-flex; align-items: center; gap: 8px; border: 1px solid #2c3833; border-radius: 20px; padding: 9px 14px; color: #b7c1bc; }
