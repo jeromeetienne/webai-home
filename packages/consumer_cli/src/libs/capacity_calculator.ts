@@ -107,7 +107,7 @@ export class CapacityCalculator {
 		const highestOther = others.reduce((highest, current) => (current.capacity > highest.capacity ? current : highest));
 		return {
 			capacity: bottleneck.capacity,
-			reason: `${bottleneck.stageName} (${bottleneck.capacity} available slots vs ${highestOther.capacity} on ${highestOther.stageName})`,
+			reason: `${bottleneck.stageName} (${bottleneck.capacity} available slot${bottleneck.capacity === 1 ? '' : 's'} vs ${highestOther.capacity} on ${highestOther.stageName})`,
 		};
 	}
 }

@@ -4,6 +4,18 @@ Command-line client for the central gateway: submitting tasks, reading the worke
 
 The program has three subcommands: `submit` sends one task and shows its updates until it completes or fails, `status` reports the connected workers and their free capacity, and `capacity` estimates how many concurrent runs of a task type the cluster can currently support.
 
+## Run with `npx`
+
+Once this package has been built (`npm run build --workspace @webai/consumer-cli`), its `consumer_cli` binary is linked into the repository's own `node_modules/.bin`, so `npx` runs it from anywhere inside the project without the `npm run dev --workspace ... --` prefix the examples below use:
+
+```sh
+npx consumer_cli status
+npx consumer_cli submit 5
+npx consumer_cli capacity dev_formula
+```
+
+If the `npx consumer_cli` command is not found, run `npm install` from the repository root once, so npm links the `bin` entry declared in this package's `package.json`.
+
 ## Shared options
 
 Every subcommand accepts:
