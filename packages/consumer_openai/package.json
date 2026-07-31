@@ -11,9 +11,10 @@
     "example:list_models": "tsx examples/list_models.ts",
     "example:chat_completion_dev_formula": "tsx examples/chat_completion_dev_formula.ts",
     "example:chat_completion_system_message": "tsx examples/chat_completion_system_message.ts",
-    "example:chat_completion_streaming": "tsx examples/chat_completion_streaming.ts",
     "example:chat_completion_llm_gemma_nano_chrome_full": "tsx examples/chat_completion_llm_gemma_nano_chrome_full.ts",
-    "example:chat_completion_llm_qwen3_0_6b_sharded": "tsx examples/chat_completion_llm_qwen3_0_6b_sharded.ts"
+    "example:chat_completion_streaming_llm_gemma_nano_chrome_full": "tsx examples/chat_completion_streaming_llm_gemma_nano_chrome_full.ts",
+    "example:chat_completion_llm_qwen3_0_6b_sharded": "tsx examples/chat_completion_llm_qwen3_0_6b_sharded.ts",
+    "example:chat_completion_streaming_llm_qwen3_0_6b_sharded": "tsx examples/chat_completion_streaming_llm_qwen3_0_6b_sharded.ts"
   },
   "dependencies": {
     "@webai/consumer-cli": "0.1.0",

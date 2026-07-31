@@ -2,12 +2,20 @@ import OpenAI from 'openai';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
-//	Shows an answer arriving as it is written
+//	Shows the Chrome built-in model's answer arriving as it is written
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
 // Run with:
-//   npm run example:chat_completion_streaming --workspace @webai/consumer-openai
+//   npm run example:chat_completion_streaming_llm_gemma_nano_chrome_full --workspace @webai/consumer-openai
+//
+// The model `llm_gemma_nano_chrome_full` is the Gemma Nano language model built into the Chrome
+// browser. Nothing about the model is downloaded or held by this project: the worker browser tab
+// asks the browser for the answer through the browser's own prompt interface.
+//
+// It needs the gateway running and one worker browser tab open in a recent Chrome whose own
+// language model is ready, for example the page
+// http://localhost:8787/debug_iframe_llm_gemma_nano_chrome_full.
 //
 // A request that asks for `stream: true` is answered as the answer is written, as server-sent
 // events: one chunk per piece of the answer, ended by a `[DONE]` line. Joining the pieces gives
@@ -15,10 +23,7 @@ import OpenAI from 'openai';
 //
 // Asking for a stream is what makes the cluster send pieces at all. It costs a scheduling round
 // for every piece, so a request that does not ask for one is answered with the fewest messages
-// the pipeline can manage — which is why it is asked for rather than always done.
-//
-// This needs a central gateway running and at least one worker browser tab offering the stage of
-// the model asked for here.
+// the pipeline can manage, which `examples/chat_completion_llm_gemma_nano_chrome_full.ts` shows.
 
 const client = new OpenAI({
 	baseURL: process.env.WEBAI_OPENAI_BASE_URL ?? 'http://localhost:8788/v1',
