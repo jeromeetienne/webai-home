@@ -18,7 +18,8 @@ import OpenAI, { APIError } from 'openai';
 // http://localhost:8787/debug_iframe_llm_gemma_nano_chrome_full.
 //
 // The whole answer is generated before this server answers, one piece of the answer per stage
-// run, so expect to wait. This server does not stream an answer yet.
+// run, so expect to wait. Ask for `stream: true` to be answered as the answer is written instead,
+// which `examples/chat_completion_streaming_llm_gemma_nano_chrome_full.ts` shows.
 
 const client = new OpenAI({
 	baseURL: process.env.WEBAI_OPENAI_BASE_URL ?? 'http://localhost:8788/v1',

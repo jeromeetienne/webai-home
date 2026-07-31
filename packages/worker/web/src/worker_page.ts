@@ -1,4 +1,4 @@
-import type { StageName, StagePayload, ClientMessage } from '@webai/protocol';
+import type { StageName, StagePayload, ClientMessage, GenerationSettings } from '@webai/protocol';
 import { SessionRenewal } from '@webai/protocol/session_renewal';
 import { StageDevFormulaHelper } from './stage_dev_formula_helper';
 import { StageLlmQwen3_0_6bHelper } from './stage_llm_qwen3_0_6b_helper';
@@ -46,6 +46,8 @@ type GatewayMessage = {
 	computation?: string;
 	/** The assigned stage's position in its pipeline, counted from zero. */
 	stageIndex?: number;
+	/** What the consumer asked for about how its answer is generated, carried unchanged from the submission. */
+	generationSettings?: GenerationSettings;
 	/** The pipeline specifications the gateway has loaded, in reply to `pipelines.get`. */
 	pipelines?: { stages: { name: string; computation: string }[] }[];
 	/** When the authenticated session expires, in reply to `authenticate`. */
@@ -249,6 +251,12 @@ export class WorkerPage {
 		this.socket.addEventListener('close', (): void => {
 			if (this.socket !== undefined && this.socket !== openedSocket) return;
 			LeaseHeartbeat.stop();
+			// An answer being read one piece at a time stays open between runs, and only a run
+			// assigned over this connection can carry it on. With the connection gone, no run can
+			// arrive, so the model is stopped now rather than left producing an answer for as long
+			// as this page stays open. The gateway will place the task somewhere it can be started
+			// again.
+			StageLlmGemmaNanoChromeHelper.clearEveryGeneration();
 			this.isRegistered = false;
 			if (this.sessionRenewalTimer !== undefined) window.clearTimeout(this.sessionRenewalTimer);
 			this.sessionRenewalTimer = undefined;
@@ -342,7 +350,12 @@ export class WorkerPage {
 		if (message.type === 'stage.cancel' && message.taskId !== undefined) {
 			LeaseHeartbeat.stop(message.assignmentId);
 			StageLlmQwen3_0_6bHelper.clearTask(message.taskId);
-			StageLlmGemmaNanoChromeHelper.clearTask(message.taskId);
+			// Both helpers hold what they hold against the task, but only the built-in model
+			// helper is told which assignment is being cancelled. One tab can hold two runs of the
+			// same task at once, when a lease expires and the gateway assigns the stage again to
+			// the same tab, and only the superseded one is being cancelled here; naming it is what
+			// stops this from ending an answer the replacement run is still reading.
+			if (message.assignmentId !== undefined) StageLlmGemmaNanoChromeHelper.clearGeneration(message.taskId, message.assignmentId);
 			return;
 		}
 		// The gateway answers each lease heartbeat with a later expiry. Nothing has to be
@@ -408,7 +421,7 @@ export class WorkerPage {
 		 */
 		const runComputation = (): Promise<StagePayload> => {
 			if (StageLlmQwen3_0_6bHelper.implementsComputation(computation)) return StageLlmQwen3_0_6bHelper.compute(message.stageIndex ?? 0, taskId, value as Exclude<StagePayload, number>);
-			if (StageLlmGemmaNanoChromeHelper.implementsComputation(computation)) return StageLlmGemmaNanoChromeHelper.compute(taskId, value as Exclude<StagePayload, number>);
+			if (StageLlmGemmaNanoChromeHelper.implementsComputation(computation)) return StageLlmGemmaNanoChromeHelper.compute(taskId, assignmentId, value as Exclude<StagePayload, number>, message.generationSettings);
 			return Promise.resolve(StageDevFormulaHelper.compute(computation, value as number));
 		};
 		runComputation()
@@ -431,7 +444,7 @@ export class WorkerPage {
 				// for it: a shard's key-value cache, or an answer the browser's own language
 				// model is still producing. Both are left alone when no such state exists.
 				StageLlmQwen3_0_6bHelper.clearTask(taskId);
-				StageLlmGemmaNanoChromeHelper.clearTask(taskId);
+				StageLlmGemmaNanoChromeHelper.clearGeneration(taskId, assignmentId);
 				const failedMessage: ClientMessage = {
 					type: 'stage.failed',
 					taskId,

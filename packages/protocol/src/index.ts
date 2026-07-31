@@ -26,13 +26,48 @@ export const TaskType = z.enum(['task_type_dev_formula', 'task_type_llm_qwen3_0_
 /** The kinds of work a consumer may submit. */
 export type TaskType = z.infer<typeof TaskType>;
 
-/** The work submitted with a task: its kind, and the value that kind carries. */
+/**
+ * What a consumer asks for about how its answer is generated, rather than what the answer is
+ * about.
+ *
+ * These settings are stated once, when the task is submitted, and the gateway carries them
+ * unchanged to the worker on every `stage.assign` of that task. The gateway does not read
+ * them: which of them a stage honours is decided by the code that runs the stage, because a
+ * setting means different things to a stage that drives a browser's built-in model and to a
+ * stage that runs one shard of a model this project ships.
+ *
+ * The object refuses a field it does not recognise, rather than dropping it. A setting that is
+ * silently dropped changes the answer a consumer receives without telling it anything went
+ * wrong, so a consumer that asks for a setting this protocol version does not define has its
+ * submission refused and can decide for itself whether to submit again without it.
+ *
+ * That holds only where both sides know this block exists. A gateway built before it did has
+ * no `generationSettings` field on its task input at all, and its task input members are not
+ * strict, so it drops the whole block silently and answers as though nothing had been asked
+ * for. Nothing catches that today, because no stage yet honours a setting and so no answer yet
+ * differs; the moment one does, the protocol version is what has to say so.
+ */
+export const GenerationSettingsSchema = z.object({
+	/**
+	 * Whether the consumer wants the answer in pieces as it is produced, rather than in one
+	 * result once it is finished.
+	 *
+	 * Asking for pieces costs a scheduling round for every piece, so it is a per-task choice
+	 * rather than how the cluster always behaves. A task that does not ask for it is answered
+	 * with the fewest messages the pipeline can manage.
+	 */
+	isStreaming: z.boolean().optional(),
+}).strict();
+/** What a consumer asks for about how its answer is generated. */
+export type GenerationSettings = z.infer<typeof GenerationSettingsSchema>;
+
+/** The work submitted with a task: its kind, the value that kind carries, and how to generate it. */
 export const TaskInput = z.discriminatedUnion('taskType', [
-	z.object({ taskType: z.literal('task_type_dev_formula'), input: z.number().finite() }),
-	z.object({ taskType: z.literal('task_type_llm_qwen3_0_6b_sharded'), input: z.string() }),
-	z.object({ taskType: z.literal('task_type_llm_gemma_nano_chrome_full'), input: z.string() }),
+	z.object({ taskType: z.literal('task_type_dev_formula'), input: z.number().finite(), generationSettings: GenerationSettingsSchema.optional() }),
+	z.object({ taskType: z.literal('task_type_llm_qwen3_0_6b_sharded'), input: z.string(), generationSettings: GenerationSettingsSchema.optional() }),
+	z.object({ taskType: z.literal('task_type_llm_gemma_nano_chrome_full'), input: z.string(), generationSettings: GenerationSettingsSchema.optional() }),
 ]);
-/** The work submitted with a task: its kind, and the value that kind carries. */
+/** The work submitted with a task: its kind, the value that kind carries, and how to generate it. */
 export type TaskInput = z.infer<typeof TaskInput>;
 
 /** One step of a pipeline: what it computes, what it accepts and returns, and how it is placed. */
@@ -108,7 +143,27 @@ export type EncodedTensor = {
  */
 export type LlmStagePayload = {
 	tensors?: Record<string, EncodedTensor>;
+	/**
+	 * A whole piece of text, rather than a part of one: the prompt on the value handed to a
+	 * task's first stage, and the complete answer on the result that finishes the task.
+	 *
+	 * A result that leaves the generation unfinished never carries this. Such a result carries
+	 * `newText` instead, which is only what that one run produced. That is what keeps the
+	 * bytes on the connection from growing with the square of the number of tokens generated:
+	 * an answer that is re-sent in full once per token is sent once for every token that
+	 * precedes it.
+	 */
 	text?: string;
+	/**
+	 * The text this one stage run produced, beyond everything the runs before it produced.
+	 *
+	 * A run that produced nothing new leaves it out rather than stating it as empty, and the run
+	 * that finds a generation already finished produces nothing new by definition. So a consumer
+	 * joining these in order receives every piece exactly once, but must not wait for one on the
+	 * result that finishes the task: that result carries the whole answer in `text` instead, and
+	 * carries a piece only when the run that ended the generation also added to it.
+	 */
+	newText?: string;
 	/** Token identifiers for the sequence positions covered by this stage payload's tensors. */
 	inputIds?: number[];
 	/** Position of the first token in `inputIds` within the full generated sequence. */
@@ -117,10 +172,11 @@ export type LlmStagePayload = {
 	 * Set on a payload that continues a generation already under way in the memory of the
 	 * device that produced the previous result, instead of starting a new one.
 	 *
-	 * The Chrome built-in language-model task needs this because its prompt and its partial
-	 * answers are both carried in `text`, so the two cannot be told apart by shape. A worker
-	 * that receives a continuation and holds no generation for the task refuses the stage
-	 * instead of reading the partial answer as a new prompt.
+	 * The Chrome built-in language-model task needs this. Nothing else tells the two apart:
+	 * the stage is a single stage that runs again and again, so a run that starts an answer and
+	 * a run that carries one on receive the same stage under a different assignment. A worker
+	 * that receives a continuation and holds no generation for the task refuses the stage,
+	 * rather than starting a second answer to a prompt it no longer has.
 	 */
 	isContinuation?: boolean;
 	/** Set by the final shard once generation should stop (end-of-sequence token or the token limit reached). */
@@ -140,6 +196,7 @@ const StagePayloadSchema = z.union([
 	z.object({
 		tensors: z.record(z.string().max(500), z.object({ dims: z.array(z.number().int()).max(8), type: z.string().max(100), dataBase64: z.string().max(8_000_000) })).optional(),
 		text: z.string().max(100_000).optional(),
+		newText: z.string().max(100_000).optional(),
 		inputIds: z.array(z.number().int()).max(100_000).optional(),
 		position: z.number().int().nonnegative().optional(),
 		isContinuation: z.boolean().optional(),
@@ -161,6 +218,32 @@ export type Task = {
 	input: TaskInput;
 	state: TaskState;
 	completedStages: StageResult[];
+	/**
+	 * The text produced by the revision this record is currently at, and by no earlier one.
+	 *
+	 * Unlike every other field here, this describes one revision rather than the task, so it is
+	 * dropped by the next revision that does not set it again. It is filled only for a task
+	 * that asked for its answer in pieces.
+	 */
+	newText?: string | undefined;
+	/**
+	 * Everything the task's answer has produced so far.
+	 *
+	 * Filled only for a task that asked for its answer in pieces. It is how anyone reading the
+	 * whole task can see an answer part-way through, rather than having to have followed every
+	 * revision from the start: it appears on a task snapshot, so a reader that missed the
+	 * revisions carrying the pieces can read what it missed instead of losing it.
+	 *
+	 * The pieces are joined as they arrive, and the result that finishes the answer replaces
+	 * that joining with the whole answer it carries. A piece is only the device's own account of
+	 * how the answer grew, and one can restate what came before it rather than adding to it, so
+	 * this is exact once the task is finished and an account of it before then.
+	 *
+	 * Reaching it after a dropped connection needs an observer grant made before the drop. A
+	 * consumer that reconnects is issued a new device identifier and is a stranger to its own
+	 * task, which is a limitation of the protocol rather than of this field.
+	 */
+	generatedText?: string;
 	result?: StagePayload;
 	error?: string;
 	createdAt: string;
@@ -247,7 +330,7 @@ export type TaskUpdateAssignment = Omit<StageAssignment, 'value'>;
  * history internally to make retry decisions, but it is not part of the protocol,
  * because every attempt carries a full stage input value and the list only ever grows.
  */
-export type TaskSnapshot = Omit<Task, 'assignmentAttempts' | 'events' | 'assignment'> & {
+export type TaskSnapshot = Omit<Task, 'assignmentAttempts' | 'events' | 'assignment' | 'newText'> & {
 	assignment?: TaskUpdateAssignment | undefined;
 	recentEvents: TaskEvent[];
 };
@@ -275,6 +358,19 @@ export type TaskUpdate = {
 	/** How many assignments have been attempted for the stage that is currently pending. */
 	currentStageAttempts: number;
 	assignment?: TaskUpdateAssignment | undefined;
+	/**
+	 * The text produced since the previous revision of this task.
+	 *
+	 * Present only on a task that asked for its answer in pieces, through the `isStreaming`
+	 * generation setting, and only on a revision that produced text. Joining these in revision
+	 * order gives the whole answer, so a consumer can show an answer as it is written instead
+	 * of waiting for `result`.
+	 *
+	 * It is the piece and never the answer so far, so a task update does not grow as the answer
+	 * does. A consumer that wants the answer as one piece of text ignores this and reads
+	 * `result` when the task completes.
+	 */
+	newText?: string | undefined;
 	/** The task output. Present only when the task reached the `completed` state. */
 	result?: StagePayload | undefined;
 	error?: string | undefined;
@@ -371,11 +467,26 @@ export type DiagnosticsBatch = z.infer<typeof DiagnosticsBatchSchema>;
  * does not support at the moment a connection authenticates. A peer therefore learns
  * straight away whether it can talk to the other side, instead of discovering it through a
  * validation failure on some later message.
+ *
+ * Version 2 changed what a language-model stage result carries while a generation is still
+ * running: the text produced by that one run, in `newText`, where version 1 carried the whole
+ * answer so far in `text`. A gateway of version 1 does not accept a version 2 frame, so a
+ * worker built after the change is refused by a gateway built before it at the moment it
+ * authenticates, rather than having its first result refused for a shape that gateway's stage
+ * payload schema does not allow.
  */
-export const protocolVersion = 1;
+export const protocolVersion = 2;
 
-/** The protocol versions the gateway accepts. */
-export const supportedProtocolVersions: number[] = [1];
+/**
+ * The protocol versions the gateway accepts.
+ *
+ * Version 1 is still accepted. A version 1 worker returns the whole answer so far in `text`
+ * on every result rather than the piece in `newText`, so a task it runs completes with the
+ * right answer and simply reports no pieces along the way. The consumer of such a task sees
+ * an answer that arrives all at once, which is what it would see from a task that never asked
+ * for pieces.
+ */
+export const supportedProtocolVersions: number[] = [1, 2];
 
 /**
  * The wrapper around every frame sent in either direction.
@@ -443,9 +554,13 @@ export type GatewayMessage =
 	// that was added after the worker was built.
 	| { type: 'pipelines'; pipelines: PipelineSpecification[] }
 	// "stage.assign" carries "computation" so the worker knows what code to run without
-	// recognising the stage name, and "stageIndex" so a computation with ordered parts, such
-	// as a language-model shard, knows which part of its pipeline it is running.
-	| { type: 'stage.assign'; taskId: string; assignmentId: string; attempt: number; stage: StageName; computation: string; stageIndex: number; value: StagePayload; leaseUntil: string; peerId?: string }
+	// recognising the stage name, "stageIndex" so a computation with ordered parts, such
+	// as a language-model shard, knows which part of its pipeline it is running, and
+	// "generationSettings" so it knows what the consumer asked for about how the answer is
+	// generated. All three ride on the assignment message rather than in "value", because
+	// "value" is what a stage consumes and returns — a plain number for the formula pipeline —
+	// and is stored again with every completed stage and every assignment attempt.
+	| { type: 'stage.assign'; taskId: string; assignmentId: string; attempt: number; stage: StageName; computation: string; stageIndex: number; value: StagePayload; generationSettings?: GenerationSettings | undefined; leaseUntil: string; peerId?: string }
 	| { type: 'stage.cancel'; taskId: string; assignmentId: string; attempt: number; reason: string }
 	| { type: 'stage.lease.extended'; taskId: string; assignmentId: string; attempt: number; leaseUntil: string }
 	| { type: 'stage.result.accepted'; taskId: string; assignmentId: string; attempt: number; revision: number; status: 'assigned' | 'completed' | 'failed' }
@@ -498,3 +613,4 @@ export type DeviceActivity = {
 export const deviceActivityFieldNames = ['lastSeenAt', 'workerState', 'ready', 'activeAssignments'] as const;
 
 export { StagePayloadFactory } from './stage_payload_factory.js';
+export { GeneratedText } from './generated_text.js';

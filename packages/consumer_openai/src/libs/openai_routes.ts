@@ -13,7 +13,7 @@ import type { CurlStyleTransactionLogger, TransactionAuthOutcome, TransactionOut
 import { ModelCatalog } from './model_catalog.js';
 import { OpenaiError } from './openai_error.js';
 import { PromptFlattener } from './prompt_flattener.js';
-import { ChatCompletionRequestSchema, type ChatCompletionResponse, type HealthResponse } from './openai_types.js';
+import { ChatCompletionRequestSchema, type ChatCompletionChunk, type ChatCompletionChunkChoice, type ChatCompletionResponse, type HealthResponse } from './openai_types.js';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -161,30 +161,49 @@ export class OpenaiRoutes {
 		if (parsed.success === false) throw OpenaiRoutes.schemaFailureOf(parsed.error);
 		const body = parsed.data;
 		if (transaction !== undefined) transaction.model = body.model;
-		if (body.stream === true) throw OpenaiError.streamingRefused();
 		const taskTypeName = ModelCatalog.taskTypeNameOf(body.model);
 		if (taskTypeName === undefined) throw OpenaiError.unknownModel(body.model, ModelCatalog.modelIds);
 
 		const prompt = PromptFlattener.flatten(body.messages);
+		const isStreaming = body.stream === true;
 		let taskInput: TaskInput;
 		try {
-			taskInput = TaskInputFactory.createTaskInput(taskTypeName, prompt);
+			// Asking the cluster for the answer in pieces is what makes it report them, and it is
+			// asked only when the caller asked, because a task answered in pieces costs a
+			// scheduling round for every piece. A request that does not ask for a stream submits
+			// exactly what it did before generation settings existed.
+			taskInput = TaskInputFactory.createTaskInput(taskTypeName, prompt, isStreaming ? { isStreaming: true } : undefined);
 		} catch (error: unknown) {
 			throw OpenaiError.unusableMessages(`The model ${body.model} cannot take the text of this request: ${error instanceof Error ? error.message : String(error)}.`);
 		}
 
 		// A caller that hangs up before the answer arrives has its task cancelled, so the
 		// cluster stops running stages for an answer nobody will read.
+		//
+		// The response's `close` event is what says the caller has gone, and the request's is
+		// not. A request emits `close` as soon as its body has been read, which is before this
+		// task is even submitted, so listening there aborted every request the moment it
+		// arrived. Nothing was seen to go wrong, because `run` attaches its own listener to the
+		// signal afterwards and an abort that has already happened is never delivered to a
+		// listener attached later — so no task was ever cancelled, whether or not its caller
+		// was still there. The transaction record below listens on the response for the same
+		// reason.
 		const abortController = new AbortController();
-		request.on('close', () => {
+		response.on('close', () => {
 			if (response.writableEnded === false) abortController.abort();
 		});
 
-		const answer = await this.runner.run(taskInput, body.model, abortController.signal, (ids) => {
+		const onCorrelationIds = (ids: { requestId: string; taskId?: string }): void => {
 			if (transaction === undefined) return;
 			transaction.gatewayRequestId = ids.requestId;
 			if (ids.taskId !== undefined) transaction.gatewayTaskId = ids.taskId;
-		});
+		};
+		if (isStreaming === true) {
+			await this.streamChatCompletion(body.model, taskInput, response, transaction, abortController.signal, onCorrelationIds);
+			return;
+		}
+
+		const answer = await this.runner.run(taskInput, body.model, abortController.signal, onCorrelationIds);
 		const completion: ChatCompletionResponse = {
 			id: `chatcmpl-${Crypto.randomUUID()}`,
 			object: 'chat.completion',
@@ -201,6 +220,94 @@ export class OpenaiRoutes {
 		}
 		if (response.writableEnded === true) return;
 		response.status(200).json(completion);
+	}
+
+	/**
+	 * Answers one chat completion as its answer is written, as server-sent events.
+	 *
+	 * The answer is sent as a sequence of chunks, each on its own `data:` line, ended by a
+	 * `data: [DONE]` line. The first chunk states the role and carries no text; each chunk after
+	 * it carries one piece of the answer as the cluster reports it; the last carries no text and
+	 * says the answer stopped.
+	 *
+	 * A failure is answered differently here from everywhere else in this file. Once the first
+	 * chunk has been written the status line is gone, so there is no HTTP status left to fail
+	 * with: the failure is written into the stream instead, as a `data:` line carrying the same
+	 * error body an ordinary failure would have carried, and the stream is then ended. A failure
+	 * before the first chunk is thrown, and is answered with a status like any other.
+	 *
+	 * @param modelId The model the request asked for, repeated on every chunk.
+	 * @param taskInput The task to run, already asking for its answer in pieces.
+	 * @param response The response to write the stream to.
+	 * @param transaction This request's transaction record, absent only in a test.
+	 * @param abortSignal Reports that whoever sent the request has gone.
+	 * @param onCorrelationIds Told the identifiers this request is submitted under.
+	 * @throws OpenaiError when the task fails before any chunk has been written.
+	 */
+	private async streamChatCompletion(modelId: string, taskInput: TaskInput, response: Express.Response, transaction: ChatCompletionTransaction | undefined, abortSignal: AbortSignal, onCorrelationIds: (ids: { requestId: string; taskId?: string }) => void): Promise<void> {
+		const completionId = `chatcmpl-${Crypto.randomUUID()}`;
+		const created = Math.floor(Date.now() / 1000);
+		let hasWrittenAnything = false;
+		/** Writes one chunk of the answer, opening the stream if this is the first. */
+		const writeChunk = (choice: ChatCompletionChunkChoice): void => {
+			if (response.writableEnded === true) return;
+			if (hasWrittenAnything === false) {
+				hasWrittenAnything = true;
+				// Announced before anything is written, because the headers can no longer be set
+				// afterwards. `no-cache` keeps anything in between from holding the answer back
+				// until it is complete, which would undo the point of sending it in pieces.
+				response.status(200).set({ 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
+				if (transaction !== undefined) {
+					transaction.status = 200;
+					transaction.responseType = 'chat.completion.chunk';
+				}
+			}
+			const chunk: ChatCompletionChunk = { id: completionId, object: 'chat.completion.chunk', created, model: modelId, choices: [choice] };
+			response.write(`data: ${JSON.stringify(chunk)}\n\n`);
+		};
+
+		try {
+			const answer = await this.runner.run(taskInput, modelId, abortSignal, onCorrelationIds, (piece) => {
+				if (hasWrittenAnything === false) writeChunk({ index: 0, delta: { role: 'assistant' }, logprobs: null, finish_reason: null });
+				writeChunk({ index: 0, delta: { content: piece }, logprobs: null, finish_reason: null });
+			});
+			// An answer that produced no pieces at all still has to be sent. That happens when the
+			// stage that ran it produced its whole answer in one go, which is what an older worker
+			// does, so the whole answer is sent as one piece rather than the caller being told the
+			// answer was empty.
+			if (hasWrittenAnything === false) {
+				writeChunk({ index: 0, delta: { role: 'assistant' }, logprobs: null, finish_reason: null });
+				if (answer !== '') writeChunk({ index: 0, delta: { content: answer }, logprobs: null, finish_reason: null });
+			}
+			writeChunk({ index: 0, delta: {}, logprobs: null, finish_reason: 'stop' });
+			if (transaction !== undefined) {
+				transaction.respondedAt = new Date();
+				transaction.outcome = 'completed';
+				transaction.responseBody = { object: 'chat.completion.chunk', answer };
+			}
+			OpenaiRoutes.endStream(response);
+		} catch (failure: unknown) {
+			if (hasWrittenAnything === false) throw failure;
+			const error = failure instanceof OpenaiError ? failure : OpenaiError.taskFailed(failure instanceof Error ? failure.message : String(failure));
+			if (transaction !== undefined) {
+				transaction.respondedAt = new Date();
+				transaction.outcome = 'failed';
+				transaction.responseBody = error.body;
+			}
+			if (response.writableEnded === false) response.write(`data: ${JSON.stringify(error.body)}\n\n`);
+			OpenaiRoutes.endStream(response);
+		}
+	}
+
+	/**
+	 * Ends a stream the way a reader expects, with the line that says no more chunks follow.
+	 *
+	 * @param response The response carrying the stream.
+	 */
+	private static endStream(response: Express.Response): void {
+		if (response.writableEnded === true) return;
+		response.write('data: [DONE]\n\n');
+		response.end();
 	}
 
 	///////////////////////////////////////////////////////////////////////////////

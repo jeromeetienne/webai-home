@@ -37,6 +37,16 @@ Test('builds the task input for every task type a consumer may submit', () => {
 	Assert.throws(() => TaskInputFactory.createTaskInput('llm_gemma_nano_chrome_full', '  '), /Input must be a non-empty string/);
 });
 
+Test('carries the generation settings a consumer asked for, and refuses one the task type cannot honour', () => {
+	// A submission that asks for nothing carries no settings field at all, so it stays exactly
+	// the submission this client sent before generation settings existed.
+	Assert.deepEqual(TaskInputFactory.createTaskInput('llm_gemma_nano_chrome_full', 'hello'), { taskType: 'task_type_llm_gemma_nano_chrome_full', input: 'hello' });
+	Assert.deepEqual(TaskInputFactory.createTaskInput('llm_gemma_nano_chrome_full', 'hello', { isStreaming: true }), { taskType: 'task_type_llm_gemma_nano_chrome_full', input: 'hello', generationSettings: { isStreaming: true } });
+	Assert.deepEqual(TaskInputFactory.createTaskInput('llm_qwen3_0_6b_sharded', 'hello', { isStreaming: true }), { taskType: 'task_type_llm_qwen3_0_6b_sharded', input: 'hello', generationSettings: { isStreaming: true } });
+	Assert.throws(() => TaskInputFactory.createTaskInput('dev_formula', '5', { isStreaming: true }), /cannot produce its answer in pieces/);
+	Assert.deepEqual(TaskInputFactory.createTaskInput('dev_formula', '5', { isStreaming: false }), { taskType: 'task_type_dev_formula', input: 5, generationSettings: { isStreaming: false } });
+});
+
 Test('registers and submits through the shared client', () => {
 	const sent: string[] = [];
 	const socket: TaskSocket = {

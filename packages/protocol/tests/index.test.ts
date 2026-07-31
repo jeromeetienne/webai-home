@@ -3,7 +3,7 @@ import Fs from 'node:fs';
 import Os from 'node:os';
 import Path from 'node:path';
 import Test from 'node:test';
-import { ClientEnvelopeSchema, ClientMessageSchema, DiagnosticsBatchSchema, PipelineSpecificationSchema, PipelineStageSchema, StageName, StagePayloadFactory, TaskInput, TaskState, maximumDiagnosticEntriesPerBatch, maximumSnapshotEventCount, protocolVersion } from '../src/index.js';
+import { ClientEnvelopeSchema, ClientMessageSchema, DiagnosticsBatchSchema, GeneratedText, PipelineSpecificationSchema, PipelineStageSchema, StageName, StagePayloadFactory, TaskInput, TaskState, maximumDiagnosticEntriesPerBatch, maximumSnapshotEventCount, protocolVersion } from '../src/index.js';
 import type { Task, TaskEvent } from '../src/index.js';
 import { MessageLogger } from '../src/message_logger.js';
 import type { LogEntry } from '../src/message_logger.js';
@@ -56,9 +56,46 @@ Test('StagePayloadFactory builds each stage payload shape', () => {
 	const tensors = { '/model/layers.9/input_layernorm/output_0': { dims: [1, 1, 4], type: 'float16', dataBase64: 'AA==' } };
 	Assert.deepEqual(StagePayloadFactory.llmHandoff(tensors, [1, 2, 3], 0), { tensors, inputIds: [1, 2, 3], position: 0 });
 
-	Assert.deepEqual(StagePayloadFactory.llmContinue('The', 464, 20), { text: 'The', inputIds: [464], position: 20, done: false });
-	Assert.deepEqual(StagePayloadFactory.llmPartialText('The capital'), { text: 'The capital', isContinuation: true, done: false });
+	// A result that leaves the generation unfinished carries the piece that run produced and
+	// never the answer so far, so its size does not depend on how much has been generated.
+	Assert.deepEqual(StagePayloadFactory.llmContinue(' capital', 464, 20), { newText: ' capital', inputIds: [464], position: 20, done: false });
+	Assert.deepEqual(StagePayloadFactory.llmPartialText(' capital'), { newText: ' capital', isContinuation: true, done: false });
+	// The one result that finishes a task carries the whole answer, and carries the last piece
+	// beside it when the run that finished the answer produced one.
 	Assert.deepEqual(StagePayloadFactory.llmDone('The capital of France is Paris.'), { text: 'The capital of France is Paris.', done: true });
+	Assert.deepEqual(StagePayloadFactory.llmDone('The capital of France is Paris.', ' Paris.'), { text: 'The capital of France is Paris.', newText: ' Paris.', done: true });
+	// A run that finished an answer without adding to it says nothing about what it produced,
+	// rather than saying it produced an empty piece.
+	Assert.deepEqual(StagePayloadFactory.llmDone('The capital of France is Paris.', ''), { text: 'The capital of France is Paris.', done: true });
+});
+
+Test('an answer is reported only as far as its last finished character', () => {
+	// The ordinary case: each round adds to the answer, and the addition is what is reported.
+	Assert.equal(GeneratedText.reportable('The', 'The capital'), 'The capital');
+	Assert.equal(GeneratedText.addition('The', 'The capital'), ' capital');
+
+	// A character written across two tokens is decoded as a placeholder until the token that
+	// finishes it arrives, and is then replaced rather than added to. Reporting the placeholder
+	// would mean reporting something that has to be taken back, so the unfinished end is held
+	// back and the round that finishes the character reports the whole character at once.
+	Assert.equal(GeneratedText.reportable('Caf', 'Caf�'), 'Caf');
+	Assert.equal(GeneratedText.addition('Caf', GeneratedText.reportable('Caf', 'Caf�')), '');
+	Assert.equal(GeneratedText.reportable('Caf', 'Café'), 'Café');
+	Assert.equal(GeneratedText.addition('Caf', 'Café'), 'é');
+
+	// An emoji takes more than one placeholder while it is being written.
+	Assert.equal(GeneratedText.reportable('Great ', 'Great ��'), 'Great ');
+	Assert.equal(GeneratedText.reportable('Great ', 'Great 🎉 news'), 'Great 🎉 news');
+
+	// A placeholder that is not at the end is one the rounds have settled on, so it is reported
+	// like any other character rather than held back for ever.
+	Assert.equal(GeneratedText.reportable('', 'a�b'), 'a�b');
+
+	// Reporting is one-way. If the answer somehow stops starting with what was already reported,
+	// nothing new is reported rather than text being taken back; the whole answer carried by the
+	// result that ends the task is what puts a reader right.
+	Assert.equal(GeneratedText.reportable('The capital', 'Something else'), 'The capital');
+	Assert.equal(GeneratedText.addition('The capital', 'The capital'), '');
 });
 
 Test('StagePayloadFactory answers every task type with a first stage value', () => {
@@ -70,7 +107,14 @@ Test('StagePayloadFactory answers every task type with a first stage value', () 
 Test('validates every inbound client message shape', () => {
 	Assert.equal(ClientMessageSchema.safeParse({ type: 'task.submit', requestId: 'request-1', input: { taskType: 'task_type_dev_formula', input: 5 } }).success, true);
 	Assert.equal(ClientMessageSchema.safeParse({ type: 'stage.result', taskId: 'task-1', assignmentId: 'assignment-1', attempt: 1, stage: 'stage_dev_formula_multiply', value: 10 }).success, true);
-	Assert.equal(ClientMessageSchema.safeParse({ type: 'stage.result', taskId: 'task-1', assignmentId: 'assignment-1', attempt: 1, stage: 'stage_llm_gemma_nano_chrome_full', value: { text: 'The capital', isContinuation: true, done: false } }).success, true);
+	Assert.equal(ClientMessageSchema.safeParse({ type: 'stage.result', taskId: 'task-1', assignmentId: 'assignment-1', attempt: 1, stage: 'stage_llm_gemma_nano_chrome_full', value: { newText: ' capital', isContinuation: true, done: false } }).success, true);
+	// The generation settings are optional, so every submission written before they existed is
+	// still valid, and a setting the gateway has never heard of is refused rather than dropped:
+	// a dropped setting would change the answer without telling the consumer anything.
+	Assert.equal(ClientMessageSchema.safeParse({ type: 'task.submit', requestId: 'request-1', input: { taskType: 'task_type_llm_gemma_nano_chrome_full', input: 'hello', generationSettings: { isStreaming: true } } }).success, true);
+	Assert.equal(ClientMessageSchema.safeParse({ type: 'task.submit', requestId: 'request-1', input: { taskType: 'task_type_llm_gemma_nano_chrome_full', input: 'hello', generationSettings: {} } }).success, true);
+	Assert.equal(ClientMessageSchema.safeParse({ type: 'task.submit', requestId: 'request-1', input: { taskType: 'task_type_llm_gemma_nano_chrome_full', input: 'hello', generationSettings: { isStreaming: true, temperature: 0.7 } } }).success, false);
+	Assert.equal(ClientMessageSchema.safeParse({ type: 'task.submit', requestId: 'request-1', input: { taskType: 'task_type_llm_gemma_nano_chrome_full', input: 'hello', generationSettings: { isStreaming: 'yes' } } }).success, false);
 	Assert.equal(ClientMessageSchema.safeParse({ type: 'task.submit', input: { taskType: 'task_type_dev_formula', input: 5 } }).success, false);
 	Assert.equal(ClientMessageSchema.safeParse({ type: 'stage.result', taskId: 'task-1', stage: 'stage_dev_formula_multiply', value: 10 }).success, false);
 	Assert.equal(ClientMessageSchema.safeParse({ type: 'register', role: 'consumer', name: 'consumer', unexpected: true }).success, false);
@@ -86,12 +130,38 @@ Test('redacts task inputs and stage values but keeps the task type', () => {
 
 	logger.log('received', counterpart, 'task.submit', { type: 'task.submit', requestId: 'request-1', input: { taskType: 'task_type_llm_qwen3_0_6b_sharded', input: 'What is the capital of France?' } });
 	logger.log('sent', counterpart, 'stage.assign', { type: 'stage.assign', taskId: 'task-1', stage: 'stage_dev_formula_multiply', value: 5 });
+	// The generation settings survive redaction: they say how the cluster was asked to behave
+	// rather than what the consumer said to the model, and a log is read to find that out.
+	logger.log('received', counterpart, 'task.submit', { type: 'task.submit', requestId: 'request-2', input: { taskType: 'task_type_llm_gemma_nano_chrome_full', input: 'What is the capital of France?', generationSettings: { isStreaming: true } } });
 
 	const entries = Fs.readFileSync(logFilePath, 'utf8').trim().split('\n').map((line) => JSON.parse(line) as LogEntry);
 	Fs.rmSync(directoryPath, { recursive: true, force: true });
 
 	Assert.deepEqual(entries[0].payload, { type: 'task.submit', requestId: 'request-1', input: { taskType: 'task_type_llm_qwen3_0_6b_sharded', input: '[redacted]' } });
 	Assert.deepEqual(entries[1].payload, { type: 'stage.assign', taskId: 'task-1', stage: 'stage_dev_formula_multiply', value: '[redacted]' });
+	Assert.deepEqual(entries[2].payload, { type: 'task.submit', requestId: 'request-2', input: { taskType: 'task_type_llm_gemma_nano_chrome_full', input: '[redacted]', generationSettings: { isStreaming: true } } });
+
+	// An answer sent one piece at a time is exactly as much the consumer's own data as the same
+	// answer sent whole, so a piece is redacted like any other part of an answer, wherever it
+	// appears: on the update that reports it, and on the task snapshot that carries the answer
+	// so far for a consumer that reconnected and missed some.
+	const streamed = MessageLogger.redactPayload({ type: 'task.updated', update: { taskId: 'task-1', revision: 7, newText: ' capital', generatedText: 'The capital' } });
+	Assert.deepEqual(streamed, { type: 'task.updated', update: { taskId: 'task-1', revision: 7, newText: '[redacted]', generatedText: '[redacted]' } });
+
+	// Not every value this walk is given has been checked against the protocol first: a relayed
+	// `signal` message carries a body the schema declares as unknown, and a consumer logs a frame
+	// before checking it. So the settings that are kept are walked like any other value rather
+	// than copied across, and anything hidden under them is redacted just the same.
+	const relayed = MessageLogger.redactPayload({
+		type: 'signal',
+		to: 'device-2',
+		data: { input: { taskType: 'task_type_llm_gemma_nano_chrome_full', input: 'a prompt', generationSettings: { isStreaming: true, text: 'A PRIVATE PROMPT', nested: { token: 'A CREDENTIAL' } } } },
+	});
+	Assert.deepEqual(relayed, {
+		type: 'signal',
+		to: 'device-2',
+		data: { input: { taskType: 'task_type_llm_gemma_nano_chrome_full', input: '[redacted]', generationSettings: { isStreaming: true, text: '[redacted]', nested: { token: '[redacted]' } } } },
+	});
 });
 
 Test('redacts the task result, the values inside completed stages, and a relayed message', () => {
@@ -213,6 +283,22 @@ Test('no stage value appears in a task update, and none appears twice', () => {
 	Assert.equal('value' in (update.assignment ?? {}), false);
 	Assert.equal(update.completedStageCount, 5);
 	Assert.equal(update.currentStage, 'stage_llm_qwen3_0_6b_shard1of3');
+	// A task that asked for no pieces reports none, so its updates are exactly what they were
+	// before pieces existed.
+	Assert.equal('newText' in update, false);
+});
+
+Test('a task update carries the text one revision produced, and never the answer so far', () => {
+	const task = buildLlmTask(5);
+	const update = TaskProjection.update({ ...task, newText: ' capital', generatedText: 'The capital' });
+
+	// The piece and not the answer so far: an update stays the same size however long the
+	// answer becomes, which is the whole reason a task update exists apart from the task.
+	Assert.equal(update.newText, ' capital');
+	Assert.equal(JSON.stringify(update).includes('The capital'), false);
+	// Everything generated so far is on the task for a consumer that reconnects and asks for it,
+	// which is a snapshot rather than an update.
+	Assert.equal(TaskProjection.snapshot({ ...task, generatedText: 'The capital' }).generatedText, 'The capital');
 });
 
 Test('the task snapshot drops the attempt history and truncates the change log', () => {

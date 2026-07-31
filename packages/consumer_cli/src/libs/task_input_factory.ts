@@ -1,4 +1,4 @@
-import type { TaskInput } from '@webai/protocol';
+import type { GenerationSettings, TaskInput } from '@webai/protocol';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -39,12 +39,23 @@ export class TaskInputFactory {
 	 * @param type The task type to submit, without the leading `task_type_`.
 	 * @param value The value submitted with the task: a number for the development formula
 	 * task, and a prompt for either language-model task.
+	 * @param generationSettings What to ask for about how the answer is generated. Left out
+	 * entirely when nothing was asked for, so a submission that states no setting carries no
+	 * settings field at all rather than an empty one.
 	 * @returns The task input to submit to the gateway.
 	 */
-	static createTaskInput(type: TaskTypeName, value: string | undefined): TaskInput {
-		if (type === 'dev_formula') return { taskType: 'task_type_dev_formula', input: TaskInputFactory.parseFormulaInput(value) };
-		if (type === 'llm_qwen3_0_6b_sharded') return { taskType: 'task_type_llm_qwen3_0_6b_sharded', input: TaskInputFactory.parseLlmInput(value) };
-		return { taskType: 'task_type_llm_gemma_nano_chrome_full', input: TaskInputFactory.parseLlmInput(value) };
+	static createTaskInput(type: TaskTypeName, value: string | undefined, generationSettings?: GenerationSettings): TaskInput {
+		const settings = generationSettings === undefined ? {} : { generationSettings };
+		if (type === 'dev_formula') {
+			// The development formula task answers with a single number, so there are no pieces to
+			// produce one at a time. Asking for them is refused rather than accepted and ignored,
+			// which would leave the person who asked believing the cluster was doing something it
+			// was not.
+			if (generationSettings?.isStreaming === true) throw new Error('The dev_formula task answers with one number, so it cannot produce its answer in pieces');
+			return { taskType: 'task_type_dev_formula', input: TaskInputFactory.parseFormulaInput(value), ...settings };
+		}
+		if (type === 'llm_qwen3_0_6b_sharded') return { taskType: 'task_type_llm_qwen3_0_6b_sharded', input: TaskInputFactory.parseLlmInput(value), ...settings };
+		return { taskType: 'task_type_llm_gemma_nano_chrome_full', input: TaskInputFactory.parseLlmInput(value), ...settings };
 	}
 
 	///////////////////////////////////////////////////////////////////////////////

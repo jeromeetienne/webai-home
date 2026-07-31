@@ -2,7 +2,7 @@
 
 import * as OnnxRuntimeWeb from 'onnxruntime-web';
 import { Tokenizer } from '@huggingface/tokenizers';
-import { StagePayloadFactory, type EncodedTensor, type LlmStagePayload } from '@webai/protocol';
+import { GeneratedText, StagePayloadFactory, type EncodedTensor, type LlmStagePayload } from '@webai/protocol';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -92,6 +92,18 @@ type TaskGenerationState = {
 	caches: Array<TensorMap | undefined>;
 	/** Token identifiers generated so far, in order. */
 	generatedIds: number[];
+	/**
+	 * The answer as this device last reported it, which is what each round measures its own
+	 * piece against.
+	 *
+	 * A round cannot work out its piece by decoding the token it just generated on its own. A
+	 * token is not a character: one may finish a character another began, and how a token reads
+	 * depends on the tokens around it. The answer is therefore decoded whole every round, as it
+	 * always was, and the piece is what that whole answer has gained since the previous round.
+	 * `GeneratedText` is where the two are compared, including what to do about a character the
+	 * rounds so far have only half written.
+	 */
+	reportedText: string;
 };
 
 /** Loads the qwen3-0.6b shards and runs the assigned shard for each stage of a task's generation loop. */
@@ -165,11 +177,18 @@ export class StageLlmQwen3_0_6bHelper {
 			state.generatedIds.push(nextToken);
 			const text = StageLlmQwen3_0_6bHelper.tokenizer?.decode(state.generatedIds, { skip_special_tokens: true }).trim() ?? '';
 			const done = nextToken === EOS_TOKEN_ID || state.generatedIds.length >= MAX_NEW_TOKENS;
+			// Nothing is held back once the answer is finished: there is no round after this one to
+			// report the rest, so what a reader has been shown must add up to the whole answer.
+			const reportable = done ? text : GeneratedText.reportable(state.reportedText, text);
+			const newText = GeneratedText.addition(state.reportedText, reportable);
+			state.reportedText = reportable;
 			if (done) {
 				StageLlmQwen3_0_6bHelper.clearTask(taskId);
-				return StagePayloadFactory.llmDone(text);
+				// The whole answer travels once, on the one result that ends the task, and the piece
+				// travels with it so a reader joining the pieces receives the last one as well.
+				return StagePayloadFactory.llmDone(text, newText);
 			}
-			return StagePayloadFactory.llmContinue(text, nextToken, position + inputIds.length);
+			return StagePayloadFactory.llmContinue(newText, nextToken, position + inputIds.length);
 		}
 
 		const boundaryNames = SHARD_BOUNDARIES[shardIndex + 1];
@@ -209,10 +228,11 @@ export class StageLlmQwen3_0_6bHelper {
 
 	/** Creates and stores fresh generation state for a task's first round. */
 	private static startTask(taskId: string): TaskGenerationState {
-		const state: TaskGenerationState = { caches: [undefined, undefined, undefined], generatedIds: [] };
+		const state: TaskGenerationState = { caches: [undefined, undefined, undefined], generatedIds: [], reportedText: '' };
 		StageLlmQwen3_0_6bHelper.stateByTaskId.set(taskId, state);
 		return state;
 	}
+
 
 	/**
 	 * Loads the tokenizer and creates the three ONNX Runtime Web shard sessions once per page.

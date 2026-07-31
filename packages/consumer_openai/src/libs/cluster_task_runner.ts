@@ -58,6 +58,12 @@ type PendingTask = {
 	isSettled: boolean;
 	/** Told the identifier this request was submitted under, and again once a task identifier is assigned, so a caller can record both for auditing. */
 	onCorrelationIds: ((ids: { requestId: string; taskId?: string }) => void) | undefined;
+	/**
+	 * Told each piece of the answer as the cluster reports it, for a request that asked to be
+	 * answered as the answer is written. Absent for a request that asked for the whole answer,
+	 * and never called for one, because such a task reports no pieces at all.
+	 */
+	onPiece: ((piece: string) => void) | undefined;
 };
 
 /** One request waiting for the connection to the central gateway to be registered. */
@@ -138,16 +144,19 @@ export class ClusterTaskRunner {
 	 * @param onCorrelationIds Told the identifier this request is submitted under as soon as it
 	 * is generated, and again once the central gateway assigns a task identifier to it, so a
 	 * caller can record both for auditing without this runner exposing its internal maps.
+	 * @param onPiece Told each piece of the answer as the cluster reports it. It is called only
+	 * for a task submitted asking to be answered as its answer is written, because only such a
+	 * task is reported in pieces. Joining the pieces gives the same text this returns.
 	 * @returns The generated text.
 	 * @throws OpenaiError when the task fails, is refused, or does not finish in time.
 	 */
-	async run(taskInput: TaskInput, modelId: string, abortSignal?: AbortSignal, onCorrelationIds?: (ids: { requestId: string; taskId?: string }) => void): Promise<string> {
+	async run(taskInput: TaskInput, modelId: string, abortSignal?: AbortSignal, onCorrelationIds?: (ids: { requestId: string; taskId?: string }) => void, onPiece?: (piece: string) => void): Promise<string> {
 		if (this.pendingByRequestId.size >= this.options.maximumTasksInFlight) throw OpenaiError.tooManyTasksInFlight(this.options.maximumTasksInFlight);
 		const client = await this.registeredClient();
 		const requestId = Crypto.randomUUID();
 		onCorrelationIds?.({ requestId });
 		return await new Promise<string>((resolve, reject) => {
-			const pending: PendingTask = { requestId, taskId: undefined, taskInput, modelId, resolve, reject, timeoutTimer: undefined, isSettled: false, onCorrelationIds };
+			const pending: PendingTask = { requestId, taskId: undefined, taskInput, modelId, resolve, reject, timeoutTimer: undefined, isSettled: false, onCorrelationIds, onPiece };
 			pending.timeoutTimer = setTimeout(() => {
 				this.giveUp(pending, OpenaiError.requestTimedOut(this.options.requestTimeoutMs), 'this server waited as long as it was willing to');
 			}, this.options.requestTimeoutMs);
@@ -308,6 +317,10 @@ export class ClusterTaskRunner {
 	private onTaskUpdated(update: TaskUpdate): void {
 		const pending = this.pendingByTaskId.get(update.taskId);
 		if (pending === undefined) return;
+		// A revision carries text only for a task that asked to be answered as its answer is
+		// written, and only for the revision that produced that text, so each piece is passed on
+		// exactly once and a task that asked for the whole answer passes on nothing.
+		if (update.newText !== undefined && pending.isSettled === false) pending.onPiece?.(update.newText);
 		this.settleFromTaskState(pending, update.state, update.result, update.error);
 	}
 

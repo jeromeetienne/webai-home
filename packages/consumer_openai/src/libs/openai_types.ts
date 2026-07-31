@@ -86,6 +86,35 @@ export type ChatCompletionResponse = {
 	choices: ChatCompletionChoice[];
 };
 
+/**
+ * One answer inside a chunk of a chat completion sent as the answer is written.
+ *
+ * `delta` carries only what this chunk adds. The first chunk of an answer states the role and
+ * adds no text, every chunk after it adds text and states no role, and the last chunk adds
+ * nothing and says why the answer stopped. A reader joins the `content` it is given in order.
+ */
+export type ChatCompletionChunkChoice = {
+	index: number;
+	delta: { role?: 'assistant'; content?: string };
+	logprobs: null;
+	finish_reason: 'stop' | null;
+};
+
+/**
+ * One chunk of a chat completion sent as the answer is written.
+ *
+ * The stream is a sequence of these, each on its own `data:` line, ended by a `data: [DONE]`
+ * line. `id`, `created`, and `model` repeat on every chunk and are the same throughout one
+ * answer, which is what lets a reader tell one answer's chunks from another's.
+ */
+export type ChatCompletionChunk = {
+	id: string;
+	object: 'chat.completion.chunk';
+	created: number;
+	model: string;
+	choices: ChatCompletionChunkChoice[];
+};
+
 /** One model in the list returned by `GET /v1/models`. */
 export type ModelDescription = {
 	id: string;

@@ -37,7 +37,7 @@ The server listens on port 8788, and an OpenAI client is pointed at `http://loca
 
 ## Endpoints
 
-- `POST /v1/chat/completions` — runs one cluster task and answers with the generated text.
+- `POST /v1/chat/completions` — runs one cluster task and answers with the generated text, either in one piece or as the answer is written.
 - `GET /v1/models` — lists the models the cluster offers.
 - `GET /health` — reports whether this server holds a registered connection to the central gateway and how many requests are waiting for a task. It answers 200 when the connection is up and 503 when it is not, and it requires no key.
 
@@ -63,7 +63,7 @@ The examples in [`examples/`](./examples) use the official `openai` package on n
 npm run example:chat_completion_dev_formula --workspace @webai/consumer-openai
 ```
 
-The others are `example:list_models`, `example:chat_completion_system_message`, `example:chat_completion_streaming_refused`, `example:chat_completion_llm_gemma_nano_chrome_full`, and `example:chat_completion_llm_qwen3_0_6b_sharded`. Each file says at the top what the cluster has to have running for it to work. Every example reads `WEBAI_OPENAI_BASE_URL` and `OPENAI_API_KEY` from the environment when they are set.
+The others are `example:list_models`, `example:chat_completion_system_message`, `example:chat_completion_llm_gemma_nano_chrome_full`, `example:chat_completion_streaming_llm_gemma_nano_chrome_full`, `example:chat_completion_llm_qwen3_0_6b_sharded`, and `example:chat_completion_streaming_llm_qwen3_0_6b_sharded`. Each file says at the top what the cluster has to have running for it to work. Every example reads `WEBAI_OPENAI_BASE_URL` and `OPENAI_API_KEY` from the environment when they are set.
 
 Without the `openai` package, the same two endpoints with `curl`:
 
@@ -82,13 +82,24 @@ A task in this cluster carries one piece of text, so a conversation of several m
 - A request carrying one message sends that message's content unchanged, so the worker browser tab receives exactly what the caller wrote. This is also what makes `dev_formula` usable, because that task type accepts a number and nothing else.
 - A request carrying several messages sends them labelled with their roles, one message per line, followed by a final `assistant:` line that invites the answer.
 
+## Asking for the answer as it is written
+
+A request that sets `stream: true` is answered as server-sent events: one chunk per piece of the answer, each on its own `data:` line as a `chat.completion.chunk`, ended by a `data: [DONE]` line. The first chunk states the role and carries no text, and the last carries no text and says the answer stopped. Joining the pieces gives the same text the request would have been answered with in one piece.
+
+```sh
+curl -N http://localhost:8788/v1/chat/completions -H 'Content-Type: application/json' -d '{"model":"llm_gemma_nano_chrome_full","messages":[{"role":"user","content":"What is the capital of France?"}],"stream":true}'
+```
+
+Asking for a stream is what makes the cluster send pieces at all. The cluster does not stream internally by default: a task that asked for nothing has its answer produced in as few stage runs as the pipeline can manage, and one that asked for pieces costs a scheduling round for every piece. That is why it is a per-request choice rather than how the cluster always behaves, and it is the work of [issue #77](https://github.com/webai-at-home/webai-at-home/issues/77).
+
+A failure before the first chunk is answered with an HTTP status and an error body, like any other failure. A failure after the first chunk cannot be: the status line has already gone. Such a failure is written into the stream instead, as a `data:` line carrying the same error body, and the stream is then ended.
+
 ## What this server deliberately does not do
 
 This is a first version. It serves the two endpoints above rather than the whole OpenAI completion interface, and the following are left out on purpose rather than by oversight:
 
-- **It does not stream an answer.** A request that asks for streaming is refused with HTTP 400 naming the `stream` field. The reason is in the cluster: the central gateway sends a consumer a slim revision of a task as the task advances, and that revision carries no partial output text, because sending the whole task on every revision would make the bytes on the connection grow with the square of the number of tokens generated. Streaming therefore needs the gateway to report the text generated so far, which is a change to `@webai/protocol` and the gateway and is follow-up work.
 - **It reports no `usage` field.** The gateway reports no token counts to a consumer, so this server has none to report and states none rather than inventing them.
-- **It ignores every generation setting.** `temperature`, `top_p`, `max_tokens`, `n`, `stop`, `tools`, `logprobs`, and the rest are accepted in the body and then ignored, because the cluster's task input carries only a prompt. The generation limits are the worker browser tab's own: 160 tokens for the sharded Qwen3-0.6B task, and 400 pieces of an answer for the Chrome built-in task.
+- **It ignores every generation setting except `stream`.** `temperature`, `top_p`, `max_tokens`, `n`, `stop`, `tools`, `logprobs`, and the rest are accepted in the body and then ignored, because the cluster's task input carries only a prompt and whether the answer is wanted in pieces. The generation limits are the worker browser tab's own: 160 tokens for the sharded Qwen3-0.6B task, and 400 pieces of an answer for the Chrome built-in task.
 - **It refuses a message whose content is a list of parts**, which is what a request carrying an image or audio sends, rather than joining the parts together. It also refuses the `tool` role, because it ignores the tool settings of a request and so could not continue a conversation containing the answer of a tool.
 - **It keeps no conversation state.** One request is one cluster task, and the whole conversation is sent with every request.
 
@@ -99,7 +110,6 @@ Every failure is answered with the OpenAI error shape, `{ "error": { "message", 
 | What happened | Status | `code` |
 | --- | --- | --- |
 | The body is not valid JSON, a field is missing, or a message's content is not a single piece of text | 400 | none |
-| The request asks for the answer to be streamed | 400 | `streaming_not_supported` |
 | The chosen model cannot take the text of the request, such as text that is not a number for `dev_formula` | 400 | none |
 | A key is required and the request did not present it | 401 | `invalid_api_key` |
 | The request names a model this server does not offer | 404 | `model_not_found` |
