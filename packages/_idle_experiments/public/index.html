@@ -27,6 +27,18 @@
           <span class="experiment-summary">Runs the same real ONNX Runtime Web model over and over, logging each generation's speed against this tab's visibility and focus.</span>
           <span class="card-action">Open experiment <span>↗</span></span>
         </a>
+        <a class="experiment-card" href="./web_worker_cpu_log/">
+          <span class="card-index">03</span>
+          <span class="experiment-name">Web Worker CPU offload log</span>
+          <span class="experiment-summary">Runs the same fixed CPU workload on the main thread and on a dedicated Worker at the same time, so the two can be compared directly.</span>
+          <span class="card-action">Open experiment <span>↗</span></span>
+        </a>
+        <a class="experiment-card" href="./silent_audio_log/">
+          <span class="card-index">04</span>
+          <span class="experiment-name">Silent audio trick log</span>
+          <span class="experiment-summary">Same calibration measurement as experiment 01, plus a very quiet continuous tone, to test the audio-keeps-a-tab-active trick.</span>
+          <span class="card-action">Open experiment <span>↗</span></span>
+        </a>
       </div>
       <p class="footnote">Nothing here downloads a model or talks to a server. Every measurement stays in the page.</p>
     </main>

@@ -26,5 +26,9 @@ npm run preview --workspace @webai/idle-experiments
 
 - [`public/visibility_timer_log`](public/visibility_timer_log) — logs `document.visibilityState` and focus changes, how far a nominal 1-second timer drifts from 1 second, how many animation frames land between ticks, and how long a fixed amount of raw computation takes, once a second, for as long as the page is open. No model, no server: open it, move the window around, and read the log.
 - [`public/qwen3_generation_log`](public/qwen3_generation_log) — loads Qwen3-0.6B-ONNX through ONNX Runtime Web (own copy of the loading and generation logic, not shared with `@webai/onnx-experiments`) and generates a short answer to the same fixed prompt over and over, logging each cycle's duration and tokens/second against this tab's visibility and focus at the time. The first load downloads about 570 MB, cached afterward in IndexedDB. Uses WebGPU when available, WebAssembly otherwise.
+- [`public/web_worker_cpu_log`](public/web_worker_cpu_log) — runs the identical fixed CPU workload from `visibility_timer_log` on both the main thread and a dedicated Web Worker at the same time, logging both into one combined log so their throughput and timer drift can be compared directly under the same backgrounding conditions.
+- [`public/silent_audio_log`](public/silent_audio_log) — the same calibration measurement as `visibility_timer_log`, plus a button that starts a very quiet, continuous tone, to test whether a tab that is audibly playing audio is throttled differently from a silent one.
+
+Every experiment after the first is a variation on the same calibration measurement, so results can be compared across pages under the same conditions: run one page focused, backgrounded, and corner-window-visible, then repeat with another page to see whether the mitigation it tests actually changes the numbers.
 
 The experiment pages are measurements and demonstrations, not production code.

@@ -33,6 +33,8 @@ export default defineConfig({
         home: resolve(import.meta.dirname, 'public/index.html'),
         visibilityTimerLog: resolve(import.meta.dirname, 'public/visibility_timer_log/index.html'),
         qwen3GenerationLog: resolve(import.meta.dirname, 'public/qwen3_generation_log/index.html'),
+        webWorkerCpuLog: resolve(import.meta.dirname, 'public/web_worker_cpu_log/index.html'),
+        silentAudioLog: resolve(import.meta.dirname, 'public/silent_audio_log/index.html'),
       },
     },
   },
