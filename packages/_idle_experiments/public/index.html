@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Browser idle-time and background-tab-throttling experiments." />
+    <link rel="stylesheet" href="/visibility_timer_log/css/styles.css" />
+    <title>Idle-time field tests</title>
+  </head>
+  <body class="home-page">
+    <main class="shell home-shell">
+      <p class="eyebrow">WebAI / idle-time experiments</p>
+      <h1>What does a browser tab<br /><em>actually do when it is idle?</em></h1>
+      <p class="intro">Small, self-contained pages that measure what Chrome does to a tab's timers, animation frames, and raw
+        compute speed as it moves between focused, visible-but-unfocused, and backgrounded. Each page runs on its own,
+        with no server and no connection to the rest of this repository.</p>
+      <div class="experiment-grid">
+        <a class="experiment-card" href="./visibility_timer_log/">
+          <span class="card-index">01</span>
+          <span class="experiment-name">Visibility &amp; timer calibration log</span>
+          <span class="experiment-summary">Logs visibility state, focus state, timer drift, animation-frame rate, and raw CPU throughput over time.</span>
+          <span class="card-action">Open experiment <span>↗</span></span>
+        </a>
+      </div>
+      <p class="footnote">Nothing here downloads a model or talks to a server. Every measurement stays in the page.</p>
+    </main>
+  </body>
+</html>

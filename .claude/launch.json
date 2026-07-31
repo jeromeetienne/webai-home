@@ -24,6 +24,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "flow_viewer", "--workspace", "@webai/flow-viewer", "--", "--port", "5599", "--no-open", "--no-autoplay"],
       "port": 5599
+    },
+    {
+      "name": "idle-experiments",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--workspace", "@webai/idle-experiments", "--", "--port", "5183", "--strictPort"],
+      "port": 5183
     }
   ]
 }
