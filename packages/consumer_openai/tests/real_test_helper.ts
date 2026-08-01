@@ -86,9 +86,12 @@ export class RealTestHelper {
 	 * servers and a headless browser, then waits for two ready `dev_formula` workers.
 	 */
 	async setup(): Promise<void> {
+		// Registered before anything is started so a Ctrl-C during setup still tears down whatever
+		// processes and browser have been created so far, instead of leaking them.
 		process.on('SIGINT', this.signalHandler);
 		process.on('SIGTERM', this.signalHandler);
 
+		// Fail fast on a port conflict, before spending time on the build below.
 		await this._assertPortAvailable(8787);
 		await this._assertPortAvailable(8788);
 		await this._assertPortAvailable(8789);
@@ -102,6 +105,8 @@ export class RealTestHelper {
 			throw new Error(`Building @webai/protocol and @webai/consumer-cli failed:\n${build.stderr}`);
 		}
 
+		// Started without awaiting each one, so all three come up concurrently; readiness is
+		// confirmed afterward by polling their health endpoints below.
 		this._start('node', ['--import', 'tsx', 'packages/gateway/src/cli.ts']);
 		this._start('npm', [
 			'run', 'dev',
@@ -120,6 +125,7 @@ export class RealTestHelper {
 			args: ['--window-size=800,600'],
 		});
 		const page = await this.browser.newPage();
+		// The gateway's debug page opens the two dev_formula worker tabs itself.
 		await page.goto(this.debugUrl);
 
 		await this._waitFor('two ready dev_formula workers', async () => {
@@ -127,12 +133,15 @@ export class RealTestHelper {
 			return status !== false && status.workerCount === 2 && status.readyCount === 2 ? status : false;
 		});
 
-		// wait 10 seconds
+		// Extra settling time after the workers report ready. The exact reason is undocumented;
+		// it was added alongside the switch to launching Chrome through Puppeteer.
 		await new Promise((resolve) => setTimeout(resolve, 10_000));
 	}
 
 	/** Stops every process this helper started and closes the Puppeteer browser. */
 	async teardown(): Promise<void> {
+		// Guards against running twice: a test's own cleanup and the SIGINT/SIGTERM handler can
+		// both call teardown for the same run.
 		if (this.tornDown) {
 			return;
 		}

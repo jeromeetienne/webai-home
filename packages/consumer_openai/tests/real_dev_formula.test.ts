@@ -27,7 +27,6 @@ import { RealTestHelper } from './real_test_helper.js';
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
-const expectedResult = '17';
 const realTestHelper = new RealTestHelper({
 	headless: process.env.REAL_TEST_HEADED !== 'true',
 	...(process.env.REAL_TEST_SLOW !== undefined
@@ -71,5 +70,7 @@ NodeTest.test('answers 17 for input 5, through a real browser worker cluster and
 			content: '5',
 		}],
 	});
+	const expectedResult = '17';
+
 	Assert.equal(completion.choices[0]?.message.content, expectedResult);
 });
