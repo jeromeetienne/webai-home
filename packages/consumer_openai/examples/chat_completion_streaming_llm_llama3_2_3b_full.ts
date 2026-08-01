@@ -15,8 +15,8 @@ import OpenAI from 'openai';
 //
 // Unlike every other model here, its worker is not a browser tab. It needs the gateway running
 // and one worker process from `@webai/worker-openai-api`, started with:
-//   ollama pull llama3.2:3b
-//   npm run dev --workspace @webai/worker-openai-api
+//   lms server start
+//   npm run sample:lmstudio --workspace @webai/worker-openai-api
 //
 // A request that asks for `stream: true` is answered as the answer is written, as server-sent
 // events: one chunk per piece of the answer, ended by a `[DONE]` line. Joining the pieces gives

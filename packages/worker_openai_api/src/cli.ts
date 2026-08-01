@@ -43,8 +43,8 @@ export class Cli {
 			.option('-u, --url <url>', 'central gateway WebSocket URL', 'ws://localhost:8787')
 			.option('-a, --auth-token <token>', 'bearer token for the central gateway (falls back to the WEBAI_AUTH_TOKEN environment variable, then to a development default)')
 			.option('-n, --name <name>', 'worker name, which the gateway shows in its device list', 'openai-api-worker')
-			.option('-b, --base-url <url>', "base URL of the local server's OpenAI-compatible API", 'http://localhost:11434/v1')
-			.option('-m, --model <model>', 'the model the local server is asked for', 'llama3.2:3b')
+			.option('-b, --base-url <url>', "base URL of the local server's OpenAI-compatible API", 'http://localhost:1234/v1')
+			.option('-m, --model <model>', 'the model the local server is asked for', 'llama-3.2-3b-instruct')
 			.option('-s, --stage-names <name...>', 'restrict this worker to these stages, instead of every stage it can run');
 
 		program.parse(args, { from: 'user' });

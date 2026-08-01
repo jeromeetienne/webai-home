@@ -20,12 +20,13 @@ import { RealTestHelper } from './real_test_helper.js';
 // carried out by a Node.js command line process that forwards the prompt to a language-model server running on
 // the same device, rather than by a worker browser tab. There is no debug page to open and nothing to watch.
 //
-// It needs a server speaking the OpenAI-compatible API running locally with the model already pulled:
+// It needs a server speaking the OpenAI-compatible API running locally with the model already downloaded. By
+// default that is LM Studio, whose local server is started from the LM Studio application or with:
 //
-//   ollama pull llama3.2:3b
+//   lms server start
 //
-// Set WEBAI_LOCAL_MODEL_BASE_URL to point at a different server, for example http://localhost:1234/v1 for
-// LM Studio, and WEBAI_LOCAL_MODEL to ask for a different model. Both must agree with each other: the worker
+// Set WEBAI_LOCAL_MODEL_BASE_URL to point at a different server, for example http://localhost:11434/v1 for
+// Ollama, and WEBAI_LOCAL_MODEL to ask for a different model. Both must agree with each other: the worker
 // refuses to advertise its stage unless the server named actually holds the model named.
 //
 // No mock stands in for the local server or for its inference: this test exercises the real gateway, the real
@@ -38,8 +39,8 @@ import { RealTestHelper } from './real_test_helper.js';
 ///////////////////////////////////////////////////////////////////////////////
 
 /** The local server the worker forwards prompts to, and the model it asks that server for. */
-const localModelBaseUrl = process.env.WEBAI_LOCAL_MODEL_BASE_URL ?? 'http://localhost:11434/v1';
-const localModelId = process.env.WEBAI_LOCAL_MODEL ?? 'llama3.2:3b';
+const localModelBaseUrl = process.env.WEBAI_LOCAL_MODEL_BASE_URL ?? 'http://localhost:1234/v1';
+const localModelId = process.env.WEBAI_LOCAL_MODEL ?? 'llama-3.2-3b-instruct';
 
 const realTestHelper = new RealTestHelper({
 	expectedWorkerCount: 1,
@@ -64,7 +65,7 @@ const assertLocalModelIsAvailable = async (): Promise<void> => {
 	const response = await fetch(`${localModelBaseUrl}/models`, {
 		signal: AbortSignal.timeout(10_000),
 	}).catch((error: unknown) => {
-		throw new Error(`This test needs a server speaking the OpenAI-compatible API at ${localModelBaseUrl}, which could not be reached: ${error instanceof Error ? error.message : String(error)}. Start Ollama, or set WEBAI_LOCAL_MODEL_BASE_URL to another one.`);
+		throw new Error(`This test needs a server speaking the OpenAI-compatible API at ${localModelBaseUrl}, which could not be reached: ${error instanceof Error ? error.message : String(error)}. Start LM Studio's local server, for example with "lms server start", or set WEBAI_LOCAL_MODEL_BASE_URL to another one.`);
 	});
 	if (response.ok === false) {
 		throw new Error(`The server at ${localModelBaseUrl} answered its model list with status ${response.status}.`);
@@ -72,7 +73,7 @@ const assertLocalModelIsAvailable = async (): Promise<void> => {
 	const body = await response.json() as { data?: { id: string }[] };
 	const modelIds = (body.data ?? []).map((entry) => entry.id);
 	if (modelIds.includes(localModelId) === false) {
-		throw new Error(`The server at ${localModelBaseUrl} does not offer ${localModelId}. Pull it first, for example with "ollama pull ${localModelId}", or set WEBAI_LOCAL_MODEL to one it has. The models it offers are: ${modelIds.length === 0 ? 'none' : modelIds.join(', ')}.`);
+		throw new Error(`The server at ${localModelBaseUrl} does not offer ${localModelId}. Download it first, for example with "lms get ${localModelId}", or set WEBAI_LOCAL_MODEL to one it has. The models it offers are: ${modelIds.length === 0 ? 'none' : modelIds.join(', ')}.`);
 	}
 };
 
