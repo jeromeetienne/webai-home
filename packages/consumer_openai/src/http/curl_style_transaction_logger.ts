@@ -48,7 +48,7 @@ export type HttpTransactionInput = {
 	/** Whether, and how, the request's key was checked. */
 	authOutcome: TransactionAuthOutcome;
 	/** The identifier the task was submitted to the central gateway under, once one exists. */
-	gatewayRequestId: string | undefined;
+	gatewayTaskRequestId: string | undefined;
 	/** The task identifier the central gateway assigned, once one exists. */
 	gatewayTaskId: string | undefined;
 	/** How the transaction ended. */
@@ -184,8 +184,8 @@ export class CurlStyleTransactionLogger {
 			lines.push(`Model: ${transaction.model}`);
 		}
 		lines.push(`Auth: ${transaction.authOutcome}`);
-		if (transaction.gatewayRequestId !== undefined) {
-			lines.push(`Gateway request: ${transaction.gatewayRequestId}`);
+		if (transaction.gatewayTaskRequestId !== undefined) {
+			lines.push(`Gateway request: ${transaction.gatewayTaskRequestId}`);
 		}
 		if (transaction.gatewayTaskId !== undefined) {
 			lines.push(`Gateway task: ${transaction.gatewayTaskId}`);

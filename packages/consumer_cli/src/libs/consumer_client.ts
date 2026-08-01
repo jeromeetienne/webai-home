@@ -45,7 +45,7 @@ export type ConsumerClientCallbacks = {
 	 *
 	 * A program that submits one task at a time needs no more than the text, but a program
 	 * that keeps several submissions in flight on one connection needs the `code` to decide
-	 * how to answer and the `requestId` to know which submission failed. An error the client
+	 * how to answer and the `taskRequestId` to know which submission failed. An error the client
 	 * itself raises, such as a frame that could not be read, is reported with the same shape
 	 * and the code `INVALID_MESSAGE`.
 	 */
@@ -86,7 +86,7 @@ export class ConsumerClient {
 	) {
 		socket.onopen = (): void => {
 			this.callbacks.onConnectionChange?.(true);
-			this.send({ type: 'authenticate', token: this.authenticationToken });
+			this.send({ type: 'deviceAuthenticate', token: this.authenticationToken });
 		};
 		socket.onmessage = (event): void => {
 			this.handleMessage(typeof event.data === 'string' ? event.data : event.data.toString());
@@ -105,13 +105,13 @@ export class ConsumerClient {
 	 * Submits one task to the central gateway.
 	 *
 	 * @param input The task type and the value it carries.
-	 * @param requestId The identifier the gateway echoes on its answer.
+	 * @param taskRequestId The identifier the gateway echoes on its answer.
 	 * @returns The identifier this submission was sent under.
 	 */
-	submit(input: TaskInput, requestId: string = crypto.randomUUID()): string {
+	submit(input: TaskInput, taskRequestId: string = crypto.randomUUID()): string {
 		if (this.isRegistered === false) throw new Error('The consumer is not connected');
-		this.send({ type: 'task.submit', requestId, input });
-		return requestId;
+		this.send({ type: 'task.submit', taskRequestId, input });
+		return taskRequestId;
 	}
 
 	/**
@@ -145,8 +145,8 @@ export class ConsumerClient {
 	 * Sends one message inside the wrapper every frame travels in.
 	 *
 	 * @param message The message to send.
-	 * @returns The identifier of the frame, which the gateway echoes as `inReplyTo` on its
-	 * answer. Keep it to match an answer to this request.
+	 * @returns The identifier of the frame, which the gateway echoes as `inReplyToMessageId` on
+	 * its answer. Keep it to match an answer to this request.
 	 */
 	private send(message: ClientMessage): string {
 		const frame = Envelope.fromClient(message);
@@ -174,15 +174,15 @@ export class ConsumerClient {
 			return;
 		}
 		this.callbacks.onMessage?.('received', message);
-		if (message.type === 'authenticated') {
+		if (message.type === 'deviceAuthenticated') {
 			// The gateway enforces the expiry it advertises, so a consumer waiting on a task
 			// for longer than one session has to authenticate again to keep its connection
 			// usable. Registration only happens on the first one; a renewal must not repeat it.
 			this.scheduleSessionRenewal(message.expiresAt);
-			if (this.isRegistered === false) this.send({ type: 'register', role: 'consumer', name: this.name });
+			if (this.isRegistered === false) this.send({ type: 'deviceRegister', role: 'consumer', name: this.name });
 			return;
 		}
-		if (message.type === 'registered') {
+		if (message.type === 'deviceRegistered') {
 			this.isRegistered = true;
 			this.callbacks.onRegistered?.(message.deviceId);
 			return;
@@ -230,7 +230,7 @@ export class ConsumerClient {
 		this.clearSessionRenewal();
 		if (expiresAt === undefined) return;
 		this.sessionRenewalTimer = setTimeout((): void => {
-			this.send({ type: 'authenticate', token: this.authenticationToken });
+			this.send({ type: 'deviceAuthenticate', token: this.authenticationToken });
 		}, SessionRenewal.renewAfterMs(expiresAt));
 		// A pending renewal must not be the only reason this process stays alive.
 		this.sessionRenewalTimer.unref?.();

@@ -50,7 +50,7 @@ type ChatCompletionTransaction = {
 	/** Whether, and how, the request's key was checked. */
 	authOutcome: TransactionAuthOutcome | undefined;
 	/** The identifier the task was submitted to the central gateway under, once one exists. */
-	gatewayRequestId: string | undefined;
+	gatewayTaskRequestId: string | undefined;
 	/** The task identifier the central gateway assigned, once one exists. */
 	gatewayTaskId: string | undefined;
 	/** When this request was answered or failed, once it has been. */
@@ -246,11 +246,11 @@ export class OpenaiRoutes {
 			}
 		});
 
-		const onCorrelationIds = (ids: { requestId: string; taskId?: string }): void => {
+		const onCorrelationIds = (ids: { taskRequestId: string; taskId?: string }): void => {
 			if (transaction === undefined) {
 				return;
 			}
-			transaction.gatewayRequestId = ids.requestId;
+			transaction.gatewayTaskRequestId = ids.taskRequestId;
 			if (ids.taskId !== undefined) {
 				transaction.gatewayTaskId = ids.taskId;
 			}
@@ -326,7 +326,7 @@ export class OpenaiRoutes {
 		response: Express.Response,
 		transaction: ChatCompletionTransaction | undefined,
 		abortSignal: AbortSignal,
-		onCorrelationIds: (ids: { requestId: string; taskId?: string }) => void,
+		onCorrelationIds: (ids: { taskRequestId: string; taskId?: string }) => void,
 	): Promise<void> {
 		const completionId = `chatcmpl-${Crypto.randomUUID()}`;
 		const created = Math.floor(Date.now() / 1000);
@@ -561,7 +561,7 @@ export class OpenaiRoutes {
 			receivedAt: new Date(),
 			model: undefined,
 			authOutcome: undefined,
-			gatewayRequestId: undefined,
+			gatewayTaskRequestId: undefined,
 			gatewayTaskId: undefined,
 			respondedAt: undefined,
 			outcome: undefined,
@@ -585,7 +585,7 @@ export class OpenaiRoutes {
 				requestBody: request.body,
 				model: transaction.model,
 				authOutcome: transaction.authOutcome ?? 'not_required',
-				gatewayRequestId: transaction.gatewayRequestId,
+				gatewayTaskRequestId: transaction.gatewayTaskRequestId,
 				gatewayTaskId: transaction.gatewayTaskId,
 				outcome: isCallerDisconnected ? 'cancelled' : (transaction.outcome ?? 'failed'),
 				status: isCallerDisconnected ? 0 : (transaction.status ?? 0),

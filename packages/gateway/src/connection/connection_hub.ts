@@ -17,7 +17,7 @@ type ErrorCode = Extract<GatewayMessage, { type: 'error' }>['code'];
 /** What an error message may say beyond its code and text. */
 type ErrorOptions = {
 	taskId?: string;
-	requestId?: string;
+	taskRequestId?: string;
 	details?: Record<string, unknown>;
 	retryable?: boolean;
 };
@@ -67,12 +67,12 @@ export class ConnectionHub {
 	 * @param socket The WebSocket that should receive the message.
 	 * @param message The gateway message to serialize and send.
 	 * @param counterpart Who the message is being sent to.
-	 * @param inReplyTo The identifier of the client request this message answers. Leave it out
-	 * for a message the gateway pushes on its own initiative; that absence is what tells a client
-	 * the message is a push rather than an answer.
+	 * @param inReplyToMessageId The identifier of the client request this message answers. Leave
+	 * it out for a message the gateway pushes on its own initiative; that absence is what tells a
+	 * client the message is a push rather than an answer.
 	 */
-	send(socket: WebSocket, message: GatewayMessage, counterpart: LogCounterpart, inReplyTo?: string): void {
-		const frame = Envelope.fromGateway(message, inReplyTo);
+	send(socket: WebSocket, message: GatewayMessage, counterpart: LogCounterpart, inReplyToMessageId?: string): void {
+		const frame = Envelope.fromGateway(message, inReplyToMessageId);
 		if ([...this.observerDeviceIds].some((deviceId): boolean => this.socketMap.get(deviceId) === socket) === false) {
 			this.gatewayMessageLogger.log('sent', counterpart, message.type, message, frame.ts, frame);
 		}
@@ -88,22 +88,23 @@ export class ConnectionHub {
 	 * caused it whenever that request is known.
 	 *
 	 * @param socket The connection to answer.
-	 * @param inReplyTo The identifier of the request that caused the error, when it is known.
+	 * @param inReplyToMessageId The identifier of the request that caused the error, when it is
+	 * known.
 	 * @param counterpart Who the error is being sent to.
 	 * @param code The stable error code.
 	 * @param message The description to send with it.
 	 * @param options What the error may say beyond its code and text.
 	 */
-	sendError(socket: WebSocket, inReplyTo: string | undefined, counterpart: LogCounterpart, code: ErrorCode, message: string, options: ErrorOptions = {}): void {
+	sendError(socket: WebSocket, inReplyToMessageId: string | undefined, counterpart: LogCounterpart, code: ErrorCode, message: string, options: ErrorOptions = {}): void {
 		this.send(socket, {
 			type: 'error',
 			code,
 			message,
 			retryable: options.retryable ?? false,
 			...(options.taskId === undefined ? {} : { taskId: options.taskId }),
-			...(options.requestId === undefined ? {} : { requestId: options.requestId }),
+			...(options.taskRequestId === undefined ? {} : { taskRequestId: options.taskRequestId }),
 			...(options.details === undefined ? {} : { details: options.details }),
-		}, counterpart, inReplyTo);
+		}, counterpart, inReplyToMessageId);
 	}
 
 	/**
@@ -123,12 +124,12 @@ export class ConnectionHub {
 	 * gateway's own point of view.
 	 *
 	 * @param deviceId The device identifier assigned to the WebSocket connection.
-	 * @param registerMessage The client's own `register` message, when this is being resolved
-	 * for that message itself, before the device has been added to the registry.
+	 * @param registerMessage The client's own `deviceRegister` message, when this is being
+	 * resolved for that message itself, before the device has been added to the registry.
 	 * @returns The counterpart to record in a log entry.
 	 */
 	counterpartFor(deviceId: string, registerMessage?: ClientMessage): LogCounterpart {
-		if (registerMessage?.type === 'register') return { role: registerMessage.role, deviceId };
+		if (registerMessage?.type === 'deviceRegister') return { role: registerMessage.role, deviceId };
 		if (this.observerDeviceIds.has(deviceId)) return { role: 'observer', deviceId };
 		const device = this.deviceRegistry.get(deviceId);
 		return { role: device?.deviceRole ?? 'unknown', deviceId };

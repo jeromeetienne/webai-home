@@ -186,7 +186,7 @@ Outcome: completed
 ==================================================
 ```
 
-`Gateway request` is the same `requestId` a `task.submit` in the message log above carries, and `Gateway task` is the `taskId` a `task.accepted` in that same file assigns, so a transaction here can be followed into the gateway traffic that answered it. `Outcome` is `completed`, `failed`, or `cancelled`; a request whose caller disconnects before an answer arrives, whether by closing the connection or because `--request-timeout-ms` was reached, prints `< (no response: the caller disconnected before one was sent)` and `Outcome: cancelled`, told apart from a request this server actively refused or failed to serve.
+`Gateway request` is the same `taskRequestId` a `task.submit` in the message log above carries, and `Gateway task` is the `taskId` a `task.accepted` in that same file assigns, so a transaction here can be followed into the gateway traffic that answered it. `Outcome` is `completed`, `failed`, or `cancelled`; a request whose caller disconnects before an answer arrives, whether by closing the connection or because `--request-timeout-ms` was reached, prints `< (no response: the caller disconnected before one was sent)` and `Outcome: cancelled`, told apart from a request this server actively refused or failed to serve.
 
 **Nothing is redacted.** Every header is written as received, the `Authorization` header included, and both bodies are written as sent. That is the point of this log: a block says what a caller actually asked for and what it actually received, which is what makes it worth keeping for an audit, and what lets a block be read, compared with `diff`, and replayed as the request it describes.
 

@@ -66,7 +66,7 @@ export class ObserverClient {
 	) {
 		socket.onopen = (): void => {
 			this.callbacks.onConnectionChange?.(true);
-			this.send({ type: 'authenticate', token: this.authenticationToken });
+			this.send({ type: 'deviceAuthenticate', token: this.authenticationToken });
 		};
 		socket.onmessage = (event): void => {
 			this.handleMessage(typeof event.data === 'string' ? event.data : event.data.toString());
@@ -123,8 +123,8 @@ export class ObserverClient {
 			this.reportOwnError('The central gateway sent a frame with no message in it');
 			return;
 		}
-		if (message.type === 'authenticated') {
-			// A renewal answers with "authenticated" too, and must not observe a second time.
+		if (message.type === 'deviceAuthenticated') {
+			// A renewal answers with "deviceAuthenticated" too, and must not observe a second time.
 			this.scheduleSessionRenewal(message.expiresAt);
 			if (this.isObserving === false) {
 				this.isObserving = true;
@@ -210,7 +210,7 @@ export class ObserverClient {
 		this.clearSessionRenewal();
 		if (expiresAt === undefined) return;
 		this.sessionRenewalTimer = setTimeout((): void => {
-			this.send({ type: 'authenticate', token: this.authenticationToken });
+			this.send({ type: 'deviceAuthenticate', token: this.authenticationToken });
 		}, SessionRenewal.renewAfterMs(expiresAt));
 		// A pending renewal must not be the only reason this process stays alive.
 		this.sessionRenewalTimer.unref?.();

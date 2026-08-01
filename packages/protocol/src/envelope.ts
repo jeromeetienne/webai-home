@@ -11,7 +11,7 @@ export type ClientFrame = {
 	v: number;
 	id: string;
 	ts: string;
-	inReplyTo?: string;
+	inReplyToMessageId?: string;
 	body: ClientMessage;
 };
 
@@ -38,12 +38,12 @@ export class Envelope {
 	 * Wraps a message the gateway is sending to a client.
 	 *
 	 * @param body The message to send.
-	 * @param inReplyTo The `id` of the request this answers. Leave it out for an unsolicited
-	 * message the gateway pushes on its own initiative.
+	 * @param inReplyToMessageId The `id` of the request this answers. Leave it out for an
+	 * unsolicited message the gateway pushes on its own initiative.
 	 * @returns The frame to serialise and send.
 	 */
-	static fromGateway(body: GatewayMessage, inReplyTo?: string): GatewayEnvelope {
-		return { v: protocolVersion, id: Envelope.newId(), ts: new Date().toISOString(), ...(inReplyTo === undefined ? {} : { inReplyTo }), body };
+	static fromGateway(body: GatewayMessage, inReplyToMessageId?: string): GatewayEnvelope {
+		return { v: protocolVersion, id: Envelope.newId(), ts: new Date().toISOString(), ...(inReplyToMessageId === undefined ? {} : { inReplyToMessageId }), body };
 	}
 
 	/**

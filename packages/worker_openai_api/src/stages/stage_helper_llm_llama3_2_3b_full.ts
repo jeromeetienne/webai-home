@@ -49,7 +49,7 @@ type TaskGenerationState = {
 	 * it, and only the run named here may, so the run that was replaced cannot release the
 	 * generation its replacement is reading.
 	 */
-	owningAssignmentId: string;
+	owningStageAssignmentId: string;
 	/**
 	 * What has been read from the local server but not yet returned as a stage result.
 	 *
@@ -158,7 +158,7 @@ export class StageHelperLlmLlama3_2_3bFull {
 	 * for.
 	 *
 	 * @param taskId The task this run belongs to, which names the answer being produced for it.
-	 * @param assignmentId The assignment this run is carrying out, which decides whether this run
+	 * @param stageAssignmentId The assignment this run is carrying out, which decides whether this run
 	 * is the one allowed to release the answer it is reading.
 	 * @param payload The prompt submitted with the task, or, on a run that carries an answer on, a
 	 * value saying so and nothing else.
@@ -174,7 +174,7 @@ export class StageHelperLlmLlama3_2_3bFull {
 	 */
 	static async compute(
 		taskId: string,
-		assignmentId: string,
+		stageAssignmentId: string,
 		payload: LlmStagePayload,
 		generationSettings: GenerationSettings | undefined,
 		openaiApiClient: OpenaiApiClient,
@@ -182,8 +182,8 @@ export class StageHelperLlmLlama3_2_3bFull {
 	): Promise<LlmStagePayload> {
 		const wantsPieces = generationSettings?.isStreaming === true;
 		const state = payload.isContinuation === true
-			? StageHelperLlmLlama3_2_3bFull.heldGeneration(taskId, assignmentId)
-			: StageHelperLlmLlama3_2_3bFull.newGeneration(taskId, assignmentId);
+			? StageHelperLlmLlama3_2_3bFull.heldGeneration(taskId, stageAssignmentId)
+			: StageHelperLlmLlama3_2_3bFull.newGeneration(taskId, stageAssignmentId);
 		// A run that returns a piece leaves the answer open behind it, so it is the one kind of
 		// run that must not release what it was reading. Every other way out of this method — the
 		// finished answer, and every failure — releases it.
@@ -201,7 +201,7 @@ export class StageHelperLlmLlama3_2_3bFull {
 				state.text += piece.value;
 				state.unreportedText += piece.value;
 				state.pieceCount += 1;
-				StageHelperLlmLlama3_2_3bFull.refuseIfReplaced(state, assignmentId);
+				StageHelperLlmLlama3_2_3bFull.refuseIfReplaced(state, stageAssignmentId);
 				if (wantsPieces === true) {
 					leavesAnswerOpen = true;
 					const reported = state.unreportedText;
@@ -210,11 +210,11 @@ export class StageHelperLlmLlama3_2_3bFull {
 					return StagePayloadFactory.llmPartialText(reported);
 				}
 			}
-			StageHelperLlmLlama3_2_3bFull.refuseIfReplaced(state, assignmentId);
+			StageHelperLlmLlama3_2_3bFull.refuseIfReplaced(state, stageAssignmentId);
 			return StagePayloadFactory.llmDone(state.text);
 		} finally {
 			if (leavesAnswerOpen === false) {
-				StageHelperLlmLlama3_2_3bFull.clearGeneration(taskId, assignmentId);
+				StageHelperLlmLlama3_2_3bFull.clearGeneration(taskId, stageAssignmentId);
 			}
 		}
 	}
@@ -238,11 +238,11 @@ export class StageHelperLlmLlama3_2_3bFull {
 	 * one currently reading it.
 	 *
 	 * @param taskId The task whose answer should be released.
-	 * @param assignmentId The assignment asking to release it.
+	 * @param stageAssignmentId The assignment asking to release it.
 	 */
-	static clearGeneration(taskId: string, assignmentId: string): void {
+	static clearGeneration(taskId: string, stageAssignmentId: string): void {
 		const state = StageHelperLlmLlama3_2_3bFull.stateByTaskId.get(taskId);
-		if (state === undefined || state.owningAssignmentId !== assignmentId) {
+		if (state === undefined || state.owningStageAssignmentId !== stageAssignmentId) {
 			return;
 		}
 		StageHelperLlmLlama3_2_3bFull.stateByTaskId.delete(taskId);
@@ -250,7 +250,7 @@ export class StageHelperLlmLlama3_2_3bFull {
 	}
 
 	/** Creates and stores fresh generation state for a task's first round. */
-	private static newGeneration(taskId: string, assignmentId: string): TaskGenerationState {
+	private static newGeneration(taskId: string, stageAssignmentId: string): TaskGenerationState {
 		// A task asks for its answer once, so anything still held for this task is left over from
 		// an attempt that was given up on without being cancelled.
 		const abandoned = StageHelperLlmLlama3_2_3bFull.stateByTaskId.get(taskId);
@@ -260,7 +260,7 @@ export class StageHelperLlmLlama3_2_3bFull {
 		const state: TaskGenerationState = {
 			abortController: undefined,
 			reader: undefined,
-			owningAssignmentId: assignmentId,
+			owningStageAssignmentId: stageAssignmentId,
 			unreportedText: '',
 			idleTimer: undefined,
 			text: '',
@@ -275,12 +275,12 @@ export class StageHelperLlmLlama3_2_3bFull {
 	 * Finds the answer this worker is holding open for a task, so this run can read on from it.
 	 *
 	 * @param taskId The task whose answer is being carried on.
-	 * @param assignmentId The assignment whose run is carrying it on, which becomes the one
+	 * @param stageAssignmentId The assignment whose run is carrying it on, which becomes the one
 	 * allowed to release the answer.
 	 * @returns The state holding the answer so far.
 	 * @throws If this worker holds no answer for the task.
 	 */
-	private static heldGeneration(taskId: string, assignmentId: string): TaskGenerationState {
+	private static heldGeneration(taskId: string, stageAssignmentId: string): TaskGenerationState {
 		const state = StageHelperLlmLlama3_2_3bFull.stateByTaskId.get(taskId);
 		if (state === undefined) {
 			throw new Error('This stage was asked to carry on an answer, but this worker is not holding one for that task.');
@@ -289,7 +289,7 @@ export class StageHelperLlmLlama3_2_3bFull {
 			clearTimeout(state.idleTimer);
 		}
 		state.idleTimer = undefined;
-		state.owningAssignmentId = assignmentId;
+		state.owningStageAssignmentId = stageAssignmentId;
 		return state;
 	}
 
@@ -297,11 +297,11 @@ export class StageHelperLlmLlama3_2_3bFull {
 	 * Stops a run that has been replaced from answering for an assignment it no longer holds.
 	 *
 	 * @param state The answer this run was reading.
-	 * @param assignmentId The assignment this run is carrying out.
+	 * @param stageAssignmentId The assignment this run is carrying out.
 	 * @throws If another run has taken the answer over.
 	 */
-	private static refuseIfReplaced(state: TaskGenerationState, assignmentId: string): void {
-		if (state.owningAssignmentId === assignmentId) {
+	private static refuseIfReplaced(state: TaskGenerationState, stageAssignmentId: string): void {
+		if (state.owningStageAssignmentId === stageAssignmentId) {
 			return;
 		}
 		throw new Error('This run was replaced by a later one while it was waiting for the local server, so its answer belongs to that run.');

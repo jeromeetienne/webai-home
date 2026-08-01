@@ -170,12 +170,12 @@ export class MonitorPage {
 			if (expiresAt === undefined) return;
 			sessionRenewalTimer = window.setTimeout((): void => {
 				if (socketEl.readyState !== WebSocket.OPEN) return;
-				socketEl.send(JSON.stringify(Envelope.fromClient({ type: 'authenticate', token: gatewayAuthenticationToken })));
+				socketEl.send(JSON.stringify(Envelope.fromClient({ type: 'deviceAuthenticate', token: gatewayAuthenticationToken })));
 			}, SessionRenewal.renewAfterMs(expiresAt));
 		};
 
 		socketEl.addEventListener('open', (): void => {
-			const authenticateMessage = { type: 'authenticate' as const, token: gatewayAuthenticationToken };
+			const authenticateMessage = { type: 'deviceAuthenticate' as const, token: gatewayAuthenticationToken };
 			socketEl.send(JSON.stringify(Envelope.fromClient(authenticateMessage)));
 			statusEl.textContent = 'Authenticating with the central gateway.';
 			statusBadgeEl.textContent = 'Authenticating';
@@ -185,13 +185,13 @@ export class MonitorPage {
 			const frame = JSON.parse(event.data as string) as { body?: GatewayMessage };
 			const message = frame.body;
 			if (message === undefined) return;
-			if (message.type === 'authenticated') {
+			if (message.type === 'deviceAuthenticated') {
 				statusEl.textContent = 'Connected to the central gateway.';
 				statusBadgeEl.textContent = 'Connected';
 				statusBadgeEl.className = 'badge rounded-pill text-bg-success';
 				// This dashboard stays open indefinitely and the gateway enforces the expiry it
 				// just advertised, so the session is renewed before that moment. A renewal is
-				// answered with "authenticated" too, and must not start observing a second time.
+				// answered with "deviceAuthenticated" too, and must not start observing a second time.
 				scheduleSessionRenewal(message.expiresAt);
 				if (isObserving === false) {
 					isObserving = true;

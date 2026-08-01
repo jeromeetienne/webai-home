@@ -1,5 +1,5 @@
 // npm imports
-import type { AssignmentRetryReason, StageAssignment, StageName, StagePayload, StageResult, Task, TaskInput } from '@webai/protocol';
+import type { StageAssignment, StageAssignmentRetryReason, StageName, StagePayload, StageResult, Task, TaskInput } from '@webai/protocol';
 import Fs from 'node:fs';
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -11,7 +11,7 @@ import Fs from 'node:fs';
 /** Stores task state for the lifetime of the gateway process. */
 export class TaskStore {
 	private readonly tasks = new Map<string, Task>();
-	private readonly taskIdByConsumerRequest = new Map<string, string>();
+	private readonly taskIdByConsumerTaskRequest = new Map<string, string>();
 	/**
 	 * @param now Where the current time is read from. Tests pass their own.
 	 * @param submissionTimeoutMs How long a queued task may wait before it is failed.
@@ -28,27 +28,27 @@ export class TaskStore {
 	 * @param input - The validated input submitted for the task.
 	 * @returns The newly created task.
 	 */
-	create(input: TaskInput, consumerDeviceId = 'consumer-unknown', requestId: string = crypto.randomUUID(), consumerPrincipal?: string, pipeline?: Pick<Task, 'pipelineId' | 'pipelineVersion' | 'pipelineStages' | 'pipelineRepeatsUntilDone'>): Task {
+	create(input: TaskInput, consumerDeviceId = 'consumer-unknown', taskRequestId: string = crypto.randomUUID(), consumerAuthIdentity?: string, pipeline?: Pick<Task, 'pipelineId' | 'pipelineVersion' | 'pipelineStages' | 'pipelineRepeatsUntilDone'>): Task {
 		const now = this.now().toISOString();
 		const task: Task = {
 			taskId: `task-${crypto.randomUUID()}`,
-			requestId,
+			taskRequestId,
 			consumerDeviceId,
-			...(consumerPrincipal === undefined ? {} : { consumerPrincipal }),
+			...(consumerAuthIdentity === undefined ? {} : { consumerAuthIdentity }),
 			...(pipeline ?? {}),
 			input,
 			state: 'queued',
 			completedStages: [],
-			assignmentAttempts: [],
+			stageAssignmentAttempts: [],
 			currentStageAttempts: 0,
 			events: [],
-			revision: 1,
+			taskRevision: 1,
 			submissionDeadlineAt: new Date(this.now().getTime() + this.submissionTimeoutMs).toISOString(),
 			createdAt: now,
 			updatedAt: now,
 		};
 		this.tasks.set(task.taskId, task);
-		this.taskIdByConsumerRequest.set(this.requestKey(consumerDeviceId, requestId), task.taskId);
+		this.taskIdByConsumerTaskRequest.set(this.taskRequestKey(consumerDeviceId, taskRequestId), task.taskId);
 		this.persist();
 		return task;
 	}
@@ -57,11 +57,11 @@ export class TaskStore {
 	 * Finds the task a consumer already created with one request identifier.
 	 *
 	 * @param consumerDeviceId The consumer that submitted it.
-	 * @param requestId The identifier that consumer gave its submission.
+	 * @param taskRequestId The identifier that consumer gave its submission.
 	 * @returns The existing task, or `undefined` when that request is new.
 	 */
-	findByRequest(consumerDeviceId: string, requestId: string): Task | undefined {
-		const taskId = this.taskIdByConsumerRequest.get(this.requestKey(consumerDeviceId, requestId));
+	findByTaskRequest(consumerDeviceId: string, taskRequestId: string): Task | undefined {
+		const taskId = this.taskIdByConsumerTaskRequest.get(this.taskRequestKey(consumerDeviceId, taskRequestId));
 		return taskId === undefined ? undefined : this.tasks.get(taskId);
 	}
 
@@ -72,12 +72,12 @@ export class TaskStore {
 	 * lease duration, which is the gateway's `--lease-ms` value. A stage that states its own
 	 * lease in its pipeline specification passes that value here instead.
 	 */
-	assign(taskId: string, workerDeviceId: string, stage: StageName, value: StagePayload, retryReason?: AssignmentRetryReason, leaseMs: number = this.leaseMs): Task {
+	assign(taskId: string, workerDeviceId: string, stage: StageName, value: StagePayload, retryReason?: StageAssignmentRetryReason, leaseMs: number = this.leaseMs): Task {
 		const task = this.get(taskId);
 		if (task === undefined) throw new Error(`Task ${taskId} was not found`);
-		const assignment: StageAssignment = {
+		const stageAssignment: StageAssignment = {
 			workerDeviceId,
-			assignmentId: `assignment-${crypto.randomUUID()}`,
+			stageAssignmentId: `stageAssignment-${crypto.randomUUID()}`,
 			attempt: task.currentStageAttempts + 1,
 			stage,
 			value,
@@ -86,10 +86,10 @@ export class TaskStore {
 		};
 		return this.update(taskId, {
 			state: 'assigned',
-			assignment,
-			assignmentAttempts: [...task.assignmentAttempts, assignment],
-			currentStageAttempts: assignment.attempt,
-			events: [...task.events, { type: retryReason === undefined ? 'assignment_created' : 'assignment_retried', timestamp: this.now().toISOString(), reason: retryReason, assignmentId: assignment.assignmentId, attempt: assignment.attempt }],
+			stageAssignment,
+			stageAssignmentAttempts: [...task.stageAssignmentAttempts, stageAssignment],
+			currentStageAttempts: stageAssignment.attempt,
+			events: [...task.events, { type: retryReason === undefined ? 'stage_assignment_created' : 'stage_assignment_retried', timestamp: this.now().toISOString(), reason: retryReason, stageAssignmentId: stageAssignment.stageAssignmentId, attempt: stageAssignment.attempt }],
 		});
 	}
 
@@ -102,10 +102,10 @@ export class TaskStore {
 	 */
 	acceptAssignment(taskId: string): Task {
 		const task = this.required(taskId);
-		if (task.assignment === undefined) throw new Error(`Task ${taskId} has no active assignment`);
+		if (task.stageAssignment === undefined) throw new Error(`Task ${taskId} has no active assignment`);
 		const acceptedAt = this.now().toISOString();
-		const assignment = { ...task.assignment, acceptedAt };
-		return this.update(taskId, { state: 'running', assignment, assignmentAttempts: task.assignmentAttempts.map((item) => item.assignmentId === assignment.assignmentId ? assignment : item), events: [...task.events, { type: 'assignment_accepted', timestamp: acceptedAt, assignmentId: assignment.assignmentId, attempt: assignment.attempt }] });
+		const stageAssignment = { ...task.stageAssignment, acceptedAt };
+		return this.update(taskId, { state: 'running', stageAssignment, stageAssignmentAttempts: task.stageAssignmentAttempts.map((item) => item.stageAssignmentId === stageAssignment.stageAssignmentId ? stageAssignment : item), events: [...task.events, { type: 'stage_assignment_accepted', timestamp: acceptedAt, stageAssignmentId: stageAssignment.stageAssignmentId, attempt: stageAssignment.attempt }] });
 	}
 
 	/**
@@ -123,13 +123,13 @@ export class TaskStore {
 	 */
 	renewLease(taskId: string, leaseMs: number): string | undefined {
 		const task = this.get(taskId);
-		if (task?.assignment === undefined) return undefined;
+		if (task?.stageAssignment === undefined) return undefined;
 		const leaseUntil = new Date(this.now().getTime() + leaseMs).toISOString();
-		const assignment = { ...task.assignment, leaseUntil };
+		const stageAssignment = { ...task.stageAssignment, leaseUntil };
 		this.tasks.set(taskId, {
 			...task,
-			assignment,
-			assignmentAttempts: task.assignmentAttempts.map((item) => item.assignmentId === assignment.assignmentId ? assignment : item),
+			stageAssignment,
+			stageAssignmentAttempts: task.stageAssignmentAttempts.map((item) => item.stageAssignmentId === stageAssignment.stageAssignmentId ? stageAssignment : item),
 		});
 		this.persist();
 		return leaseUntil;
@@ -144,7 +144,7 @@ export class TaskStore {
 	 */
 	cancel(taskId: string, reason: string): Task {
 		const task = this.required(taskId);
-		return this.update(taskId, { state: 'cancelled', error: reason, assignment: undefined, events: [...task.events, { type: 'task_cancelled', timestamp: this.now().toISOString(), reason }] });
+		return this.update(taskId, { state: 'cancelled', error: reason, stageAssignment: undefined, events: [...task.events, { type: 'task_cancelled', timestamp: this.now().toISOString(), reason }] });
 	}
 
 	/**
@@ -183,7 +183,7 @@ export class TaskStore {
 			// reported, and a consumer joining the pieces would see every one of them twice.
 			newText: undefined,
 			...update,
-			revision: task.revision + 1,
+			taskRevision: task.taskRevision + 1,
 			updatedAt: this.now().toISOString(),
 		};
 		this.tasks.set(taskId, next);
@@ -209,22 +209,22 @@ export class TaskStore {
 	 * @returns The updated task.
 	 * @throws Error when the task identifier is not stored.
 	 */
-	addStage(taskId: string, stage: StageResult, assignmentId?: string): Task {
+	addStage(taskId: string, stage: StageResult, stageAssignmentId?: string): Task {
 		const task = this.tasks.get(taskId);
 		if (task === undefined) {
 			throw new Error(`Task ${taskId} was not found`);
 		}
-		const workerDeviceId = task.assignment?.workerDeviceId;
+		const workerDeviceId = task.stageAssignment?.workerDeviceId;
 		const newText = TaskStore.producedText(task, stage);
 		const generatedText = TaskStore.accumulatedText(task, stage, newText);
 		return this.update(taskId, {
 			completedStages: [...task.completedStages, stage],
-			assignment: undefined,
+			stageAssignment: undefined,
 			currentStageAttempts: 0,
 			...(newText === undefined ? {} : { newText }),
 			...(generatedText === undefined ? {} : { generatedText }),
 			...(workerDeviceId === undefined ? {} : { stageWorkerDeviceIds: { ...(task.stageWorkerDeviceIds ?? {}), [stage.name]: workerDeviceId } }),
-			...(assignmentId === undefined ? {} : { acknowledgedAssignmentIds: [...(task.acknowledgedAssignmentIds ?? []), assignmentId] }),
+			...(stageAssignmentId === undefined ? {} : { acknowledgedStageAssignmentIds: [...(task.acknowledgedStageAssignmentIds ?? []), stageAssignmentId] }),
 		});
 	}
 
@@ -272,8 +272,8 @@ export class TaskStore {
 		return newText;
 	}
 
-	private requestKey(consumerDeviceId: string, requestId: string): string {
-		return `${consumerDeviceId}\u0000${requestId}`;
+	private taskRequestKey(consumerDeviceId: string, taskRequestId: string): string {
+		return `${consumerDeviceId}\u0000${taskRequestId}`;
 	}
 
 	private required(taskId: string): Task {
@@ -286,19 +286,19 @@ export class TaskStore {
 	private restore(): void {
 		if (this.stateFilePath === undefined || this.stateFilePath === '' || Fs.existsSync(this.stateFilePath) === false) return;
 		const document = JSON.parse(Fs.readFileSync(this.stateFilePath, 'utf8')) as { schemaVersion: number; tasks: Task[] };
-		if (document.schemaVersion !== 1 || Array.isArray(document.tasks) === false) throw new Error(`Unsupported task state schema in ${this.stateFilePath}`);
+		if (document.schemaVersion !== 2 || Array.isArray(document.tasks) === false) throw new Error(`Unsupported task state schema in ${this.stateFilePath}`);
 		for (const task of document.tasks) {
-			const restored = { ...task, currentStageAttempts: task.currentStageAttempts ?? task.assignment?.attempt ?? 0 };
+			const restored = { ...task, currentStageAttempts: task.currentStageAttempts ?? task.stageAssignment?.attempt ?? 0 };
 			// A task written by a gateway that built its stage sequence internally carries no
 			// pipeline, so it can never be advanced now that the sequence comes from the task's
 			// own pipeline. Failing it makes that visible instead of leaving it stuck for ever.
 			if (TaskStore._isUnadvanceable(restored)) {
 				restored.state = 'failed';
 				restored.error = 'NO_PIPELINE_ON_RESTORED_TASK';
-				restored.assignment = undefined;
+				restored.stageAssignment = undefined;
 			}
 			this.tasks.set(restored.taskId, restored);
-			this.taskIdByConsumerRequest.set(this.requestKey(restored.consumerDeviceId, restored.requestId), restored.taskId);
+			this.taskIdByConsumerTaskRequest.set(this.taskRequestKey(restored.consumerDeviceId, restored.taskRequestId), restored.taskId);
 		}
 	}
 
@@ -317,7 +317,7 @@ export class TaskStore {
 	private persist(): void {
 		if (this.stateFilePath === undefined || this.stateFilePath === '') return;
 		const temporaryPath = `${this.stateFilePath}.tmp`;
-		Fs.writeFileSync(temporaryPath, JSON.stringify({ schemaVersion: 1, tasks: this.list() }), 'utf8');
+		Fs.writeFileSync(temporaryPath, JSON.stringify({ schemaVersion: 2, tasks: this.list() }), 'utf8');
 		Fs.renameSync(temporaryPath, this.stateFilePath);
 	}
 

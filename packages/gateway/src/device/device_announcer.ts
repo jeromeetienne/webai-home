@@ -58,7 +58,7 @@ export class DeviceAnnouncer {
 		if (change === undefined) return;
 		if ('deviceId' in change && 'device' in change === false) {
 			this.pendingActivityDeviceIds.delete(change.deviceId);
-			this.hub.sendToDeviceSubscribers({ type: 'device.left', deviceId: change.deviceId, revision: change.revision });
+			this.hub.sendToDeviceSubscribers({ type: 'device.left', deviceId: change.deviceId, deviceListRevision: change.deviceListRevision });
 			return;
 		}
 		const deviceChange = change as DeviceRegistryChange;
@@ -69,7 +69,7 @@ export class DeviceAnnouncer {
 			if (this.activityTimer === undefined) this.activityTimer = setTimeout((): void => this.flushDeviceActivity(), this.coalesceMs);
 			return;
 		}
-		this.hub.sendToDeviceSubscribers({ type: deviceChange.kind === 'joined' ? 'device.joined' : 'device.updated', device: deviceChange.device, revision: deviceChange.revision });
+		this.hub.sendToDeviceSubscribers({ type: deviceChange.kind === 'joined' ? 'device.joined' : 'device.updated', device: deviceChange.device, deviceListRevision: deviceChange.deviceListRevision });
 	}
 
 	/**
@@ -118,7 +118,7 @@ export class DeviceAnnouncer {
 			.map((device) => DeviceAnnouncer.deviceActivityOf(device));
 		this.pendingActivityDeviceIds.clear();
 		if (devices.length === 0 || this.hub.deviceSubscriberIds.size === 0) return;
-		this.hub.sendToDeviceSubscribers({ type: 'device.activity', devices, revision: this.deviceRegistry.membershipRevision() });
+		this.hub.sendToDeviceSubscribers({ type: 'device.activity', devices, deviceListRevision: this.deviceRegistry.currentDeviceListRevision() });
 	}
 
 	/**

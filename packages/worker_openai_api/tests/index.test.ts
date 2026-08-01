@@ -219,15 +219,15 @@ Test('authenticates, asks for the pipelines, and registers with the stages it ca
 		modelId: 'llama3.2:3b',
 	});
 	socket.onopen?.();
-	Assert.deepEqual(socket.sent.map((message) => message.type), ['authenticate']);
-	receive(socket, { type: 'authenticated', principal: 'principal-test', expiresAt: new Date(Date.now() + 3_600_000).toISOString() });
-	Assert.deepEqual(socket.sent.map((message) => message.type), ['authenticate', 'pipelines.get']);
+	Assert.deepEqual(socket.sent.map((message) => message.type), ['deviceAuthenticate']);
+	receive(socket, { type: 'deviceAuthenticated', authIdentity: 'authIdentity-test', expiresAt: new Date(Date.now() + 3_600_000).toISOString() });
+	Assert.deepEqual(socket.sent.map((message) => message.type), ['deviceAuthenticate', 'pipelines.get']);
 	receive(socket, { type: 'pipelines', pipelines: loadedPipelines as never });
 	// The model list is read before registering, so the registration is sent on a later turn.
 	await new Promise((resolve) => setImmediate(resolve));
 	const register = socket.sent.at(-1);
-	Assert.equal(register?.type, 'register');
-	Assert.deepEqual(register?.type === 'register' ? register.stageNames : [], ['stage_llm_llama3_2_3b_full']);
+	Assert.equal(register?.type, 'deviceRegister');
+	Assert.deepEqual(register?.type === 'deviceRegister' ? register.stageNames : [], ['stage_llm_llama3_2_3b_full']);
 });
 
 Test('registers with no stage, and closes, when the local server does not hold the model', async () => {
@@ -240,10 +240,10 @@ Test('registers with no stage, and closes, when the local server does not hold t
 		modelId: 'llama3.2:3b',
 	});
 	socket.onopen?.();
-	receive(socket, { type: 'authenticated', principal: 'principal-test', expiresAt: new Date(Date.now() + 3_600_000).toISOString() });
+	receive(socket, { type: 'deviceAuthenticated', authIdentity: 'authIdentity-test', expiresAt: new Date(Date.now() + 3_600_000).toISOString() });
 	receive(socket, { type: 'pipelines', pipelines: loadedPipelines as never });
 	await new Promise((resolve) => setImmediate(resolve));
-	Assert.equal(socket.sent.some((message) => message.type === 'register'), false);
+	Assert.equal(socket.sent.some((message) => message.type === 'deviceRegister'), false);
 	Assert.equal(socket.closeReason, 'No stage to run');
 });
 
@@ -261,7 +261,7 @@ Test('reports nothing for an assignment the gateway cancelled while its run was 
 	receive(socket, {
 		type: 'stage.assign',
 		taskId: 'task-cancel',
-		assignmentId: 'assignment-cancel',
+		stageAssignmentId: 'assignment-cancel',
 		attempt: 1,
 		stage: 'stage_llm_llama3_2_3b_full',
 		computation: 'llm_llama3_2_3b_full',
@@ -272,7 +272,7 @@ Test('reports nothing for an assignment the gateway cancelled while its run was 
 	receive(socket, {
 		type: 'stage.cancel',
 		taskId: 'task-cancel',
-		assignmentId: 'assignment-cancel',
+		stageAssignmentId: 'assignment-cancel',
 		attempt: 1,
 		reason: 'the consumer cancelled the task',
 	});
@@ -303,7 +303,7 @@ Test('accepts an assignment, and reports a computation it cannot run as a stage 
 	receive(socket, {
 		type: 'stage.assign',
 		taskId: 'task-test',
-		assignmentId: 'assignment-test',
+		stageAssignmentId: 'assignment-test',
 		attempt: 1,
 		stage: 'stage_dev_formula_add',
 		computation: 'dev_formula_add',

@@ -19,7 +19,7 @@ export type LogDirection = 'received' | 'sent';
  * language-model stage payload, and `generatedText` is the answer a task has produced so far.
  * An answer sent one piece at a time is exactly as much the consumer's own data as the same
  * answer sent whole, so `newText` and `generatedText` belong here for the same reason `text`
- * does. `token` is the authentication token sent in the `authenticate` message.
+ * does. `token` is the authentication token sent in the `deviceAuthenticate` message.
  */
 const redactedKeyNames = new Set(['input', 'value', 'result', 'text', 'newText', 'generatedText', 'inputIds', 'tensors', 'dataBase64', 'token']);
 
@@ -53,15 +53,15 @@ export type LogEntry = {
 	/** The message's `type` field, e.g. "task.submit" or "stage.assign". */
 	messageType: string;
 	/** The full message body. */
-	payload: unknown;
+	messagePayload: unknown;
 	/** The identifier of the frame this message travelled in. */
 	messageId?: string;
 	/** The identifier of the request this message answers, when it answers one. */
-	inReplyTo?: string;
+	inReplyToMessageId?: string;
 	/** The protocol version the frame stated. */
 	protocolVersion?: number;
 	/** Exact UTF-8 byte size of the JSON message body when the entry was recorded. */
-	payloadBytes?: number;
+	messagePayloadBytes?: number;
 	/** Exact UTF-8 byte size of the message envelope and body when recorded. */
 	messageBytes?: number;
 };
@@ -88,7 +88,7 @@ export class MessageLogger {
 	 * @param logFilePath Path to the JSON Lines file this logger appends to. Its parent
 	 * directory is created automatically if it does not already exist.
 	 */
-	constructor(logFilePath: string, private readonly maximumPayloadBytes = 16_384) {
+	constructor(logFilePath: string, private readonly maximumMessagePayloadBytes = 16_384) {
 		this.logFilePath = logFilePath;
 		Fs.mkdirSync(Path.dirname(logFilePath), { recursive: true });
 	}
@@ -99,7 +99,7 @@ export class MessageLogger {
 	 * @param direction Whether the message was received from, or sent to, the counterpart.
 	 * @param counterpart The other side of the message.
 	 * @param messageType The message's `type` field.
-	 * @param payload The full message body.
+	 * @param messagePayload The full message body.
 	 * @param timestamp The moment the message was received or sent. Defaults to now; the
 	 * caller normally passes the `ts` the frame itself states, and a worker-relayed entry
 	 * passes the moment it actually happened in the browser.
@@ -110,21 +110,23 @@ export class MessageLogger {
 		direction: LogDirection,
 		counterpart: LogCounterpart,
 		messageType: string,
-		payload: unknown,
+		messagePayload: unknown,
 		timestamp: string = new Date().toISOString(),
-		frame: { id?: string | undefined; inReplyTo?: string | undefined; v?: number | undefined } = {},
+		frame: { id?: string | undefined; inReplyToMessageId?: string | undefined; v?: number | undefined } = {},
 	): void {
-		const message = typeof payload === 'object' && payload !== null ? payload : { type: messageType, value: payload };
-		const payloadWithoutType = typeof payload === 'object' && payload !== null && Array.isArray(payload) === false
-			? Object.fromEntries(Object.entries(payload as Record<string, unknown>).filter(([key]) => key !== 'type'))
-			: payload;
-		const payloadBytes = Buffer.byteLength(JSON.stringify(payloadWithoutType), 'utf8');
+		const message = typeof messagePayload === 'object' && messagePayload !== null ? messagePayload : { type: messageType, value: messagePayload };
+		const messagePayloadWithoutType = typeof messagePayload === 'object' && messagePayload !== null && Array.isArray(messagePayload) === false
+			? Object.fromEntries(Object.entries(messagePayload as Record<string, unknown>).filter(([key]) => key !== 'type'))
+			: messagePayload;
+		const messagePayloadBytes = Buffer.byteLength(JSON.stringify(messagePayloadWithoutType), 'utf8');
 		const messageBytes = Buffer.byteLength(JSON.stringify(message), 'utf8');
-		const safePayload = payloadBytes > this.maximumPayloadBytes ? { type: messageType, redacted: true, payloadBytes } : MessageLogger.redactPayload(payload);
+		const safeMessagePayload = messagePayloadBytes > this.maximumMessagePayloadBytes
+			? { type: messageType, redacted: true, messagePayloadBytes }
+			: MessageLogger.redactMessagePayload(messagePayload);
 		const entry: LogEntry = {
-			timestamp, direction, counterpart, messageType, payload: safePayload, payloadBytes, messageBytes,
+			timestamp, direction, counterpart, messageType, messagePayload: safeMessagePayload, messagePayloadBytes, messageBytes,
 			...(frame.id === undefined ? {} : { messageId: frame.id }),
-			...(frame.inReplyTo === undefined ? {} : { inReplyTo: frame.inReplyTo }),
+			...(frame.inReplyToMessageId === undefined ? {} : { inReplyToMessageId: frame.inReplyToMessageId }),
 			...(frame.v === undefined ? {} : { protocolVersion: frame.v }),
 		};
 		Fs.appendFileSync(this.logFilePath, `${JSON.stringify(entry)}\n`, 'utf-8');
@@ -135,8 +137,8 @@ export class MessageLogger {
 	 *
 	 * Every property named in `redactedKeyNames` is replaced by the marker `[redacted]`,
 	 * wherever it appears: at the top level of a message, inside a nested object such as the
-	 * `task` of a snapshot, the `update` of a task revision, or the `payload` of a message
-	 * relayed by a worker, and inside an array such as the `completedStages` of a task.
+	 * `task` of a snapshot, the `update` of a task revision, or the `messagePayload` of a
+	 * message relayed by a worker, and inside an array such as the `completedStages` of a task.
 	 *
 	 * When the removed value is a task input — an object carrying a `taskType` discriminator —
 	 * two properties are kept, so a log still shows which kind of task was submitted and how it
@@ -144,20 +146,20 @@ export class MessageLogger {
 	 * generation settings, which are walked by this same function rather than copied, so nothing
 	 * beneath them escapes redaction. Every other property of the value is dropped.
 	 *
-	 * @param payload The message body to redact.
+	 * @param messagePayload The message body to redact.
 	 * @param depth How many levels the walk has already descended. Callers leave this unset.
 	 * @returns A copy of the message body with every redacted property replaced. The original
 	 * is never modified.
 	 */
-	static redactPayload(payload: unknown, depth = 0): unknown {
+	static redactMessagePayload(messagePayload: unknown, depth = 0): unknown {
 		if (depth > maximumRedactionDepth) return redactedMarker;
-		if (Array.isArray(payload)) return payload.map((item) => MessageLogger.redactPayload(item, depth + 1));
-		if (typeof payload !== 'object' || payload === null) return payload;
+		if (Array.isArray(messagePayload)) return messagePayload.map((item) => MessageLogger.redactMessagePayload(item, depth + 1));
+		if (typeof messagePayload !== 'object' || messagePayload === null) return messagePayload;
 
 		const record: Record<string, unknown> = {};
-		for (const [key, original] of Object.entries(payload as Record<string, unknown>)) {
+		for (const [key, original] of Object.entries(messagePayload as Record<string, unknown>)) {
 			if (redactedKeyNames.has(key) === false) {
-				record[key] = MessageLogger.redactPayload(original, depth + 1);
+				record[key] = MessageLogger.redactMessagePayload(original, depth + 1);
 				continue;
 			}
 			const taskInput: Record<string, unknown> | undefined = typeof original === 'object' && original !== null ? original as Record<string, unknown> : undefined;
@@ -174,7 +176,7 @@ export class MessageLogger {
 			// name this function otherwise redacts. Walking it keeps that impossible.
 			const generationSettings = taskInput?.generationSettings;
 			record[key] = typeof taskType === 'string'
-				? { taskType, input: redactedMarker, ...(generationSettings === undefined ? {} : { generationSettings: MessageLogger.redactPayload(generationSettings, depth + 1) }) }
+				? { taskType, input: redactedMarker, ...(generationSettings === undefined ? {} : { generationSettings: MessageLogger.redactMessagePayload(generationSettings, depth + 1) }) }
 				: redactedMarker;
 		}
 		return record;

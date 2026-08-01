@@ -196,9 +196,9 @@ export type StagePayload = number | LlmStagePayload;
 
 const Identifier = z.string().min(1).max(200);
 /** The identifier a consumer gives its own submission, so a repeat submission is recognised. */
-export const RequestId = Identifier;
+export const TaskRequestId = Identifier;
 /** The identifier of one stage assignment, which outlives the attempt that carries it. */
-export const AssignmentId = Identifier;
+export const StageAssignmentId = Identifier;
 const StagePayloadSchema = z.union([
 	z.number().finite(),
 	z.object({
@@ -220,9 +220,9 @@ export type StageResult = {
 /** The complete state of one task, as the gateway holds it. */
 export type Task = {
 	taskId: string;
-	requestId: string;
+	taskRequestId: string;
 	consumerDeviceId: string;
-	consumerPrincipal?: string;
+	consumerAuthIdentity?: string;
 	input: TaskInput;
 	state: TaskState;
 	completedStages: StageResult[];
@@ -256,14 +256,14 @@ export type Task = {
 	error?: string;
 	createdAt: string;
 	updatedAt: string;
-	assignment?: StageAssignment | undefined;
-	assignmentAttempts: StageAssignment[];
+	stageAssignment?: StageAssignment | undefined;
+	stageAssignmentAttempts: StageAssignment[];
 	/** Number of assignments attempted for the stage that is currently pending. */
 	currentStageAttempts: number;
 	events: TaskEvent[];
 	submissionDeadlineAt: string;
 	/** Monotonic task-state revision. Clients ignore older snapshots and resynchronise after gaps. */
-	revision: number;
+	taskRevision: number;
 	/**
 	 * The pipeline this task runs. Every task selects one when it is submitted, so the stage
 	 * sequence is data the task carries rather than a sequence built into the gateway. The
@@ -289,31 +289,31 @@ export type Task = {
 	 * The field stays optional so a task stored by an earlier gateway can still be read back.
 	 */
 	stageWorkerDeviceIds?: Record<StageName, string>;
-	acknowledgedAssignmentIds?: string[];
+	acknowledgedStageAssignmentIds?: string[];
 };
 
 /** The worker-specific identity of the stage that may currently update a task. */
 export type StageAssignment = {
 	workerDeviceId: string;
-	assignmentId: string;
+	stageAssignmentId: string;
 	attempt: number;
 	stage: StageName;
 	value: StagePayload;
 	leaseUntil: string;
 	acceptedAt?: string | undefined;
-	retryReason?: AssignmentRetryReason | undefined;
+	retryReason?: StageAssignmentRetryReason | undefined;
 };
 
 /** Why an assignment was replaced by a later one. */
-export const AssignmentRetryReason = z.enum(['lease_expired', 'worker_disconnected', 'worker_relinquished']);
+export const StageAssignmentRetryReason = z.enum(['lease_expired', 'worker_disconnected', 'worker_relinquished']);
 /** Why an assignment was replaced by a later one. */
-export type AssignmentRetryReason = z.infer<typeof AssignmentRetryReason>;
+export type StageAssignmentRetryReason = z.infer<typeof StageAssignmentRetryReason>;
 /** One entry in a task's change log. */
 export type TaskEvent = {
-	type: 'assignment_created' | 'assignment_accepted' | 'assignment_retried' | 'task_cancelled';
+	type: 'stage_assignment_created' | 'stage_assignment_accepted' | 'stage_assignment_retried' | 'task_cancelled';
 	timestamp: string;
 	reason?: string | undefined;
-	assignmentId?: string | undefined;
+	stageAssignmentId?: string | undefined;
 	attempt?: number | undefined;
 };
 
@@ -338,8 +338,8 @@ export type TaskUpdateAssignment = Omit<StageAssignment, 'value'>;
  * history internally to make retry decisions, but it is not part of the protocol,
  * because every attempt carries a full stage input value and the list only ever grows.
  */
-export type TaskSnapshot = Omit<Task, 'assignmentAttempts' | 'events' | 'assignment' | 'newText'> & {
-	assignment?: TaskUpdateAssignment | undefined;
+export type TaskSnapshot = Omit<Task, 'stageAssignmentAttempts' | 'events' | 'stageAssignment' | 'newText'> & {
+	stageAssignment?: TaskUpdateAssignment | undefined;
 	recentEvents: TaskEvent[];
 };
 
@@ -356,7 +356,7 @@ export type TaskSnapshot = Omit<Task, 'assignmentAttempts' | 'events' | 'assignm
  */
 export type TaskUpdate = {
 	taskId: string;
-	revision: number;
+	taskRevision: number;
 	state: TaskState;
 	updatedAt: string;
 	/** How many stages have completed. This doubles as the index of the stage now running. */
@@ -365,7 +365,7 @@ export type TaskUpdate = {
 	currentStage?: StageName | undefined;
 	/** How many assignments have been attempted for the stage that is currently pending. */
 	currentStageAttempts: number;
-	assignment?: TaskUpdateAssignment | undefined;
+	stageAssignment?: TaskUpdateAssignment | undefined;
 	/**
 	 * The text produced since the previous revision of this task.
 	 *
@@ -387,7 +387,7 @@ export type TaskUpdate = {
 /** Every message a client may send the gateway, told apart by its `type`. */
 export const ClientMessageSchema = z.discriminatedUnion('type', [
 	z.object({ type: z.literal('observe') }).strict(),
-	z.object({ type: z.literal('authenticate'), token: z.string().min(1).max(4_000) }).strict(),
+	z.object({ type: z.literal('deviceAuthenticate'), token: z.string().min(1).max(4_000) }).strict(),
 	z.object({ type: z.literal('task.observe'), taskId: Identifier }).strict(),
 	z.object({ type: z.literal('task.unobserve'), taskId: Identifier }).strict(),
 	z.object({ type: z.literal('task.resync'), taskId: Identifier }).strict(),
@@ -396,16 +396,16 @@ export const ClientMessageSchema = z.discriminatedUnion('type', [
 	z.object({ type: z.literal('devices.resync') }).strict(),
 	z.object({ type: z.literal('devices.subscribe') }).strict(),
 	z.object({ type: z.literal('devices.unsubscribe') }).strict(),
-	z.object({ type: z.literal('register'), role: z.enum(['worker', 'consumer']), name: z.string().min(1).max(200), stageNames: z.array(StageName).max(10).optional(), ready: z.boolean().optional(), maxConcurrentAssignments: z.number().int().min(1).max(100).optional() }).strict(),
-	z.object({ type: z.literal('task.submit'), requestId: RequestId, input: TaskInput, pipelineId: Identifier.optional(), pipelineVersion: z.number().int().positive().optional() }).strict(),
+	z.object({ type: z.literal('deviceRegister'), role: z.enum(['worker', 'consumer']), name: z.string().min(1).max(200), stageNames: z.array(StageName).max(10).optional(), ready: z.boolean().optional(), maxConcurrentAssignments: z.number().int().min(1).max(100).optional() }).strict(),
+	z.object({ type: z.literal('task.submit'), taskRequestId: TaskRequestId, input: TaskInput, pipelineId: Identifier.optional(), pipelineVersion: z.number().int().positive().optional() }).strict(),
 	z.object({ type: z.literal('pipelines.get') }).strict(),
 	z.object({ type: z.literal('task.get'), taskId: Identifier }).strict(),
 	z.object({ type: z.literal('task.history'), taskId: Identifier }).strict(),
-	z.object({ type: z.literal('stage.result'), taskId: Identifier, assignmentId: AssignmentId, attempt: z.number().int().positive(), stage: StageName, value: StagePayloadSchema }).strict(),
-	z.object({ type: z.literal('stage.failed'), taskId: Identifier, assignmentId: AssignmentId, attempt: z.number().int().positive(), stage: StageName, error: z.string().min(1).max(10_000) }).strict(),
-	 z.object({ type: z.literal('stage.accepted'), taskId: Identifier, assignmentId: AssignmentId, attempt: z.number().int().positive() }).strict(),
-	 z.object({ type: z.literal('stage.relinquish'), taskId: Identifier, assignmentId: AssignmentId, attempt: z.number().int().positive() }).strict(),
-	 z.object({ type: z.literal('stage.heartbeat'), taskId: Identifier, assignmentId: AssignmentId, attempt: z.number().int().positive() }).strict(),
+	z.object({ type: z.literal('stage.result'), taskId: Identifier, stageAssignmentId: StageAssignmentId, attempt: z.number().int().positive(), stage: StageName, value: StagePayloadSchema }).strict(),
+	z.object({ type: z.literal('stage.failed'), taskId: Identifier, stageAssignmentId: StageAssignmentId, attempt: z.number().int().positive(), stage: StageName, error: z.string().min(1).max(10_000) }).strict(),
+	 z.object({ type: z.literal('stage.accepted'), taskId: Identifier, stageAssignmentId: StageAssignmentId, attempt: z.number().int().positive() }).strict(),
+	 z.object({ type: z.literal('stage.relinquish'), taskId: Identifier, stageAssignmentId: StageAssignmentId, attempt: z.number().int().positive() }).strict(),
+	 z.object({ type: z.literal('stage.heartbeat'), taskId: Identifier, stageAssignmentId: StageAssignmentId, attempt: z.number().int().positive() }).strict(),
 	 z.object({ type: z.literal('task.cancel'), taskId: Identifier, reason: z.string().min(1).max(10_000) }).strict(),
 	 z.object({ type: z.literal('worker.state'), state: z.enum(['ready', 'draining']), maxConcurrentAssignments: z.number().int().min(1).max(100).optional() }).strict(),
 	z.object({ type: z.literal('signal'), to: Identifier, data: z.unknown() }).strict(),
@@ -482,19 +482,18 @@ export type DiagnosticsBatch = z.infer<typeof DiagnosticsBatchSchema>;
  * worker built after the change is refused by a gateway built before it at the moment it
  * authenticates, rather than having its first result refused for a shape that gateway's stage
  * payload schema does not allow.
- */
-export const protocolVersion = 2;
-
-/**
- * The protocol versions the gateway accepts.
  *
- * Version 1 is still accepted. A version 1 worker returns the whole answer so far in `text`
- * on every result rather than the piece in `newText`, so a task it runs completes with the
- * right answer and simply reports no pieces along the way. The consumer of such a task sees
- * an answer that arrives all at once, which is what it would see from a task that never asked
- * for pieces.
+ * Version 3 renamed a set of message types and fields so each states what it identifies —
+ * `authenticate`/`authenticated` became `deviceAuthenticate`/`deviceAuthenticated`,
+ * `register`/`registered` became `deviceRegister`/`deviceRegistered`, `requestId` became
+ * `taskRequestId`, `assignmentId` became `stageAssignmentId`, `principal` became
+ * `authIdentity`, `inReplyTo` became `inReplyToMessageId`, and `revision` split into
+ * `taskRevision` and `deviceListRevision`. No earlier version is accepted.
  */
-export const supportedProtocolVersions: number[] = [1, 2];
+export const protocolVersion = 3;
+
+/** The protocol versions the gateway accepts. No earlier version is accepted. */
+export const supportedProtocolVersions: number[] = [3];
 
 /**
  * The wrapper around every frame sent in either direction.
@@ -515,9 +514,9 @@ export const EnvelopeSchema = z.object({
 	 *
 	 * Present on every gateway answer to a client request, and absent on every unsolicited
 	 * message the gateway pushes. That is the whole distinction: a push is a frame with no
-	 * `inReplyTo`, rather than a message type that happens to have been chosen for pushes.
+	 * `inReplyToMessageId`, rather than a message type that happens to have been chosen for pushes.
 	 */
-	inReplyTo: Identifier.optional(),
+	inReplyToMessageId: Identifier.optional(),
 });
 
 /** A frame received from a client, once its body has been validated. */
@@ -530,7 +529,7 @@ export type GatewayEnvelope = z.infer<typeof EnvelopeSchema> & { body: GatewayMe
 
 /** The stable codes an error message may carry. */
 export const ProtocolErrorCode = z.enum([
-	'INVALID_MESSAGE', 'NOT_REGISTERED', 'VALIDATION', 'AUTHORISATION', 'TASK_NOT_FOUND', 'REQUEST_ID_CONFLICT',
+	'INVALID_MESSAGE', 'NOT_REGISTERED', 'VALIDATION', 'AUTHORISATION', 'TASK_NOT_FOUND', 'TASK_REQUEST_ID_CONFLICT',
 	'ASSIGNMENT_OWNER_MISMATCH', 'STALE_ASSIGNMENT', 'CAPACITY_EXHAUSTED', 'CANCELLED', 'DEADLINE_EXPIRED',
 	'WORKER_REQUIRED', 'CONSUMER_REQUIRED', 'TASK_OWNER_MISMATCH', 'ASSIGNMENT_STAGE_MISMATCH', 'ASSIGNMENT_NOT_ACCEPTED',
 	'MESSAGE_TOO_LARGE', 'UNSUPPORTED', 'NO_COMPATIBLE_WORKER', 'AUTHENTICATION_REQUIRED', 'RATE_LIMITED',
@@ -543,7 +542,7 @@ export type ProtocolError = {
 	code: ProtocolErrorCode;
 	message: string;
 	details?: Record<string, unknown>;
-	requestId?: string;
+	taskRequestId?: string;
 	taskId?: string;
 	/** Whether retrying unchanged input may succeed. */
 	retryable?: boolean;
@@ -551,9 +550,9 @@ export type ProtocolError = {
 
 /** Every message the gateway may send a client, told apart by its `type`. */
 export type GatewayMessage =
-	| { type: 'authenticated'; principal: string; expiresAt: string }
-	| { type: 'registered'; deviceId: string }
-	| { type: 'task.accepted'; requestId: string; task: TaskSnapshot }
+	| { type: 'deviceAuthenticated'; authIdentity: string; expiresAt: string }
+	| { type: 'deviceRegistered'; deviceId: string }
+	| { type: 'task.accepted'; taskRequestId: string; task: TaskSnapshot }
 	| { type: 'task.snapshot'; task: TaskSnapshot }
 	| { type: 'task.updated'; update: TaskUpdate }
 	| { type: 'task.history'; taskId: string; events: TaskEvent[] }
@@ -568,15 +567,15 @@ export type GatewayMessage =
 	// generated. All three ride on the assignment message rather than in "value", because
 	// "value" is what a stage consumes and returns — a plain number for the formula pipeline —
 	// and is stored again with every completed stage and every assignment attempt.
-	| { type: 'stage.assign'; taskId: string; assignmentId: string; attempt: number; stage: StageName; computation: string; stageIndex: number; value: StagePayload; generationSettings?: GenerationSettings | undefined; leaseUntil: string; peerId?: string }
-	| { type: 'stage.cancel'; taskId: string; assignmentId: string; attempt: number; reason: string }
-	| { type: 'stage.lease.extended'; taskId: string; assignmentId: string; attempt: number; leaseUntil: string }
-	| { type: 'stage.result.accepted'; taskId: string; assignmentId: string; attempt: number; revision: number; status: 'assigned' | 'completed' | 'failed' }
+	| { type: 'stage.assign'; taskId: string; stageAssignmentId: string; attempt: number; stage: StageName; computation: string; stageIndex: number; value: StagePayload; generationSettings?: GenerationSettings | undefined; leaseUntil: string; peerId?: string }
+	| { type: 'stage.cancel'; taskId: string; stageAssignmentId: string; attempt: number; reason: string }
+	| { type: 'stage.lease.extended'; taskId: string; stageAssignmentId: string; attempt: number; leaseUntil: string }
+	| { type: 'stage.result.accepted'; taskId: string; stageAssignmentId: string; attempt: number; taskRevision: number; status: 'assigned' | 'completed' | 'failed' }
 	| { type: 'signal'; from: string; data: unknown }
-	| { type: 'devices'; devices: Device[]; revision: number }
-	| { type: 'device.joined' | 'device.updated'; device: Device; revision: number }
-	| { type: 'device.activity'; devices: DeviceActivity[]; revision: number }
-	| { type: 'device.left'; deviceId: string; revision: number }
+	| { type: 'devices'; devices: Device[]; deviceListRevision: number }
+	| { type: 'device.joined' | 'device.updated'; device: Device; deviceListRevision: number }
+	| { type: 'device.activity'; devices: DeviceActivity[]; deviceListRevision: number }
+	| { type: 'device.left'; deviceId: string; deviceListRevision: number }
 	| ProtocolError;
 
 /** What a connected device is here to do. */
@@ -593,11 +592,11 @@ export type Device = {
 	connectedAt: string;
 	lastSeenAt: string;
 	workerState?: 'ready' | 'draining' | undefined;
-	principal?: string;
+	authIdentity?: string;
 	ready?: boolean;
 	maxConcurrentAssignments?: number;
 	activeAssignments?: number;
-	membershipRevision?: number;
+	deviceListRevision?: number;
 };
 
 /**

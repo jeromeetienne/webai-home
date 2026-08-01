@@ -8,8 +8,8 @@ import Crypto from 'node:crypto';
 
 /** An authenticated session held by one connection. */
 export type Session = {
-	/** Who authenticated, used as the key for the per-principal active-task limit. */
-	principal: string;
+	/** Who authenticated, used as the key for the per-identity active-task limit. */
+	authIdentity: string;
 	/** When this session stops being valid, in milliseconds since the epoch. */
 	expiresAt: number;
 };
@@ -44,24 +44,24 @@ export class SessionRegistry {
 	constructor(private readonly sessionDurationMs = 3_600_000) {}
 
 	/**
-	 * Derives the principal for a credential.
+	 * Derives the authenticated identity for a credential.
 	 *
-	 * The principal used to be the first twelve characters of the token, which meant two
-	 * different tokens sharing a prefix became the same principal, and it also copied most of
+	 * The identity used to be the first twelve characters of the token, which meant two
+	 * different tokens sharing a prefix became the same identity, and it also copied most of
 	 * the credential itself into every task record and log file. It is now a digest of the
 	 * whole credential, so two different tokens cannot collide and no part of the credential
 	 * is readable in what the digest produces.
 	 *
 	 * This derives an identity from the credential the gateway was given. It is not a claim
 	 * that the credential itself is trustworthy: a single shared token still identifies
-	 * everyone who holds it as the same principal, which is exactly what a shared token means.
+	 * everyone who holds it as the same identity, which is exactly what a shared token means.
 	 *
 	 * @param token The credential presented by the client.
-	 * @returns The principal for that credential.
+	 * @returns The authenticated identity for that credential.
 	 */
-	static principalFor(token: string): string {
+	static authIdentityFor(token: string): string {
 		const digest = Crypto.createHash('sha256').update(token, 'utf8').digest('hex');
-		return `principal-${digest.slice(0, 16)}`;
+		return `authIdentity-${digest.slice(0, 16)}`;
 	}
 
 	/**
@@ -73,7 +73,7 @@ export class SessionRegistry {
 	 * @returns The session that was opened.
 	 */
 	open(deviceId: string, token: string, now: number = Date.now()): Session {
-		const session: Session = { principal: SessionRegistry.principalFor(token), expiresAt: now + this.sessionDurationMs };
+		const session: Session = { authIdentity: SessionRegistry.authIdentityFor(token), expiresAt: now + this.sessionDurationMs };
 		this.sessionsByDeviceId.set(deviceId, session);
 		return session;
 	}

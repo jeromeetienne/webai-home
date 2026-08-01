@@ -10,7 +10,7 @@ import type { LogSource, TimeRangeMs, TimelineEvent } from './types.js';
 /** One set of measured totals, for the whole capture or for one group within it. */
 export type StatisticsTotals = {
 	messageCount: number;
-	payloadBytes: number;
+	messagePayloadBytes: number;
 	messageBytes: number;
 	duplicateBytes: number;
 	usefulBytes: number;
@@ -58,13 +58,13 @@ export class Statistics {
 
 		for (const event of events) {
 			if (event.timestampMs < range.fromMs || event.timestampMs > range.toMs) continue;
-			const payloadKey = JSON.stringify(event.logEntry.payload);
-			const payloadBytes = event.logEntry.payloadBytes ?? new TextEncoder().encode(payloadKey).byteLength;
-			const duplicateBytes = seenPayloads.has(payloadKey) ? payloadBytes : 0;
+			const payloadKey = JSON.stringify(event.logEntry.messagePayload);
+			const messagePayloadBytes = event.logEntry.messagePayloadBytes ?? new TextEncoder().encode(payloadKey).byteLength;
+			const duplicateBytes = seenPayloads.has(payloadKey) ? messagePayloadBytes : 0;
 			seenPayloads.set(payloadKey, (seenPayloads.get(payloadKey) ?? 0) + 1);
 			const route = `${event.fromActorId} → ${event.toActorId}`;
 			const worker = event.toActorId.startsWith('worker:') ? event.toActorId : event.fromActorId.startsWith('worker:') ? event.fromActorId : '—';
-			const stage = (event.logEntry.payload as { stage?: unknown }).stage;
+			const stage = (event.logEntry.messagePayload as { stage?: unknown }).stage;
 			Statistics.add(report.total, event.logEntry, duplicateBytes);
 			addTo(report.byRoute, route, event, duplicateBytes);
 			addTo(report.byMessageType, event.messageType, event, duplicateBytes);
@@ -125,7 +125,7 @@ export class Statistics {
 	/** Returns a set of totals with nothing counted yet. */
 	private static emptyTotals(): StatisticsTotals {
 		return {
-			messageCount: 0, payloadBytes: 0, messageBytes: 0, duplicateBytes: 0,
+			messageCount: 0, messagePayloadBytes: 0, messageBytes: 0, duplicateBytes: 0,
 			usefulBytes: 0, protocolOverheadBytes: 0, measuredMessages: 0,
 			estimatedMessages: 0, latencyMs: undefined, latencySamples: 0,
 		};
@@ -153,15 +153,15 @@ export class Statistics {
 	 * @param duplicateBytes How many of the message's bytes repeated a payload already seen.
 	 */
 	private static add(totals: StatisticsTotals, entry: LogEntry, duplicateBytes: number): void {
-		const payloadBytes = entry.payloadBytes ?? new TextEncoder().encode(JSON.stringify(entry.payload)).byteLength;
-		const messageBytes = entry.messageBytes ?? new TextEncoder().encode(JSON.stringify(entry.payload)).byteLength;
+		const messagePayloadBytes = entry.messagePayloadBytes ?? new TextEncoder().encode(JSON.stringify(entry.messagePayload)).byteLength;
+		const messageBytes = entry.messageBytes ?? new TextEncoder().encode(JSON.stringify(entry.messagePayload)).byteLength;
 		totals.messageCount += 1;
-		totals.payloadBytes += payloadBytes;
+		totals.messagePayloadBytes += messagePayloadBytes;
 		totals.messageBytes += messageBytes;
 		totals.duplicateBytes += duplicateBytes;
-		totals.usefulBytes += payloadBytes;
-		totals.protocolOverheadBytes += Math.max(0, messageBytes - payloadBytes);
-		if (entry.payloadBytes !== undefined && entry.messageBytes !== undefined) totals.measuredMessages += 1;
+		totals.usefulBytes += messagePayloadBytes;
+		totals.protocolOverheadBytes += Math.max(0, messageBytes - messagePayloadBytes);
+		if (entry.messagePayloadBytes !== undefined && entry.messageBytes !== undefined) totals.measuredMessages += 1;
 		else totals.estimatedMessages += 1;
 	}
 }

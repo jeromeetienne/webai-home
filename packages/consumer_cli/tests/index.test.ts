@@ -75,20 +75,20 @@ Test('registers and submits through the shared client', () => {
 		return frame;
 	};
 	/** Wraps a gateway message the way the gateway does, so the client can read it. */
-	const gatewayFrame = (body: unknown, inReplyTo?: string): string =>
-		JSON.stringify({ v: protocolVersion, id: `message-${Math.random()}`, ts: new Date().toISOString(), ...(inReplyTo === undefined ? {} : { inReplyTo }), body });
+	const gatewayFrame = (body: unknown, inReplyToMessageId?: string): string =>
+		JSON.stringify({ v: protocolVersion, id: `message-${Math.random()}`, ts: new Date().toISOString(), ...(inReplyToMessageId === undefined ? {} : { inReplyToMessageId }), body });
 
 	const client = new ConsumerClient(socket, {}, 'formula-consumer');
 	socket.onopen?.();
 	const authenticateFrame = sentFrame(0);
-	Assert.deepEqual(authenticateFrame.body, { type: 'authenticate', token: 'development-token' });
-	socket.onmessage?.({ data: gatewayFrame({ type: 'authenticated', principal: 'principal-development', expiresAt: '2026-01-01T01:00:00.000Z' }, authenticateFrame.id) });
+	Assert.deepEqual(authenticateFrame.body, { type: 'deviceAuthenticate', token: 'development-token' });
+	socket.onmessage?.({ data: gatewayFrame({ type: 'deviceAuthenticated', authIdentity: 'authIdentity-development', expiresAt: '2026-01-01T01:00:00.000Z' }, authenticateFrame.id) });
 	const registerFrame = sentFrame(1);
-	Assert.deepEqual(registerFrame.body, { type: 'register', role: 'consumer', name: 'formula-consumer' });
-	socket.onmessage?.({ data: gatewayFrame({ type: 'registered', deviceId: 'device-1' }, registerFrame.id) });
+	Assert.deepEqual(registerFrame.body, { type: 'deviceRegister', role: 'consumer', name: 'formula-consumer' });
+	socket.onmessage?.({ data: gatewayFrame({ type: 'deviceRegistered', deviceId: 'device-1' }, registerFrame.id) });
 	client.submit({ taskType: 'task_type_dev_formula', input: 5 }, 'request-formula-1');
 	const submitFrame = sentFrame(2);
-	Assert.deepEqual(submitFrame.body, { type: 'task.submit', requestId: 'request-formula-1', input: { taskType: 'task_type_dev_formula', input: 5 } });
+	Assert.deepEqual(submitFrame.body, { type: 'task.submit', taskRequestId: 'request-formula-1', input: { taskType: 'task_type_dev_formula', input: 5 } });
 	client.cancel('task-1', 'the caller went away');
 	Assert.deepEqual(sentFrame(3).body, { type: 'task.cancel', taskId: 'task-1', reason: 'the caller went away' });
 	// Each frame carries its own identifier, so two requests of the same kind can be told apart.
@@ -109,7 +109,7 @@ Test('reports an error the gateway sent with its code and its request identifier
 		onclose: null,
 	};
 	new ConsumerClient(socket, { onError: (error) => errors.push(error) });
-	const gatewayError: ProtocolError = { type: 'error', code: 'RATE_LIMITED', message: 'The principal has reached its active-task limit', requestId: 'request-formula-1', retryable: true };
+	const gatewayError: ProtocolError = { type: 'error', code: 'RATE_LIMITED', message: 'The authIdentity has reached its active-task limit', taskRequestId: 'request-formula-1', retryable: true };
 	socket.onmessage?.({ data: JSON.stringify({ v: protocolVersion, id: 'message-1', ts: new Date().toISOString(), body: gatewayError }) });
 	Assert.deepEqual(errors, [gatewayError]);
 
@@ -211,15 +211,15 @@ Test('tracks the live device list an observer connection reports', () => {
 		onopen: null, onmessage: null, onerror: null, onclose: null,
 	};
 	/** Wraps a gateway message the way the gateway does, so the client can read it. */
-	const gatewayFrame = (body: unknown, inReplyTo?: string): string =>
-		JSON.stringify({ v: protocolVersion, id: `message-${Math.random()}`, ts: new Date().toISOString(), ...(inReplyTo === undefined ? {} : { inReplyTo }), body });
+	const gatewayFrame = (body: unknown, inReplyToMessageId?: string): string =>
+		JSON.stringify({ v: protocolVersion, id: `message-${Math.random()}`, ts: new Date().toISOString(), ...(inReplyToMessageId === undefined ? {} : { inReplyToMessageId }), body });
 
 	const snapshots: Device[][] = [];
 	new ObserverClient(socket, { onDevices: (devices) => snapshots.push(devices) }, 'observer-token');
 	socket.onopen?.();
 	const authenticateFrame = JSON.parse(sent[0] as string) as { id: string; body: Record<string, unknown> };
-	Assert.deepEqual(authenticateFrame.body, { type: 'authenticate', token: 'observer-token' });
-	socket.onmessage?.({ data: gatewayFrame({ type: 'authenticated', principal: 'principal-development', expiresAt: '2026-01-01T01:00:00.000Z' }, authenticateFrame.id) });
+	Assert.deepEqual(authenticateFrame.body, { type: 'deviceAuthenticate', token: 'observer-token' });
+	socket.onmessage?.({ data: gatewayFrame({ type: 'deviceAuthenticated', authIdentity: 'authIdentity-development', expiresAt: '2026-01-01T01:00:00.000Z' }, authenticateFrame.id) });
 	Assert.deepEqual((JSON.parse(sent[1] as string) as { body: unknown }).body, { type: 'observe' });
 
 	const worker: Device = {
@@ -227,22 +227,22 @@ Test('tracks the live device list an observer connection reports', () => {
 		connectedAt: '2026-01-01T00:00:00.000Z', lastSeenAt: '2026-01-01T00:00:00.000Z',
 		maxConcurrentAssignments: 2, activeAssignments: 0,
 	};
-	socket.onmessage?.({ data: gatewayFrame({ type: 'devices', devices: [worker], revision: 1 }) });
+	socket.onmessage?.({ data: gatewayFrame({ type: 'devices', devices: [worker], deviceListRevision: 1 }) });
 	Assert.deepEqual(snapshots[0], [worker]);
 
 	const joinedWorker: Device = { ...worker, deviceId: 'worker-2', name: 'Worker 2' };
-	socket.onmessage?.({ data: gatewayFrame({ type: 'device.joined', device: joinedWorker, revision: 2 }) });
+	socket.onmessage?.({ data: gatewayFrame({ type: 'device.joined', device: joinedWorker, deviceListRevision: 2 }) });
 	Assert.deepEqual(snapshots[1]?.map((device) => device.deviceId), ['worker-1', 'worker-2']);
 
 	// Only the changed activity fields are merged in, so a field an activity message left out
 	// keeps the value the stored device already had — here, its stage list and concurrency limit.
-	socket.onmessage?.({ data: gatewayFrame({ type: 'device.activity', devices: [{ deviceId: 'worker-1', lastSeenAt: '2026-01-01T00:01:00.000Z', activeAssignments: 1 }], revision: 3 }) });
+	socket.onmessage?.({ data: gatewayFrame({ type: 'device.activity', devices: [{ deviceId: 'worker-1', lastSeenAt: '2026-01-01T00:01:00.000Z', activeAssignments: 1 }], deviceListRevision: 3 }) });
 	const updatedWorker = snapshots[2]?.find((device) => device.deviceId === 'worker-1');
 	Assert.equal(updatedWorker?.activeAssignments, 1);
 	Assert.equal(updatedWorker?.maxConcurrentAssignments, 2);
 	Assert.deepEqual(updatedWorker?.stageNames, ['stage_a']);
 
-	socket.onmessage?.({ data: gatewayFrame({ type: 'device.left', deviceId: 'worker-2', revision: 4 }) });
+	socket.onmessage?.({ data: gatewayFrame({ type: 'device.left', deviceId: 'worker-2', deviceListRevision: 4 }) });
 	Assert.deepEqual(snapshots[3]?.map((device) => device.deviceId), ['worker-1']);
 });
 
@@ -252,14 +252,14 @@ Test('requests and reports the registered pipelines when asked to', () => {
 		readyState: 1, OPEN: 1, send: (data) => sent.push(data), close: () => undefined,
 		onopen: null, onmessage: null, onerror: null, onclose: null,
 	};
-	const gatewayFrame = (body: unknown, inReplyTo?: string): string =>
-		JSON.stringify({ v: protocolVersion, id: `message-${Math.random()}`, ts: new Date().toISOString(), ...(inReplyTo === undefined ? {} : { inReplyTo }), body });
+	const gatewayFrame = (body: unknown, inReplyToMessageId?: string): string =>
+		JSON.stringify({ v: protocolVersion, id: `message-${Math.random()}`, ts: new Date().toISOString(), ...(inReplyToMessageId === undefined ? {} : { inReplyToMessageId }), body });
 
 	const pipelinesReceived: PipelineSpecification[][] = [];
 	new ObserverClient(socket, { onPipelines: (pipelines) => pipelinesReceived.push(pipelines) }, 'observer-token', true);
 	socket.onopen?.();
 	const authenticateFrame = JSON.parse(sent[0] as string) as { id: string };
-	socket.onmessage?.({ data: gatewayFrame({ type: 'authenticated', principal: 'principal-development', expiresAt: '2026-01-01T01:00:00.000Z' }, authenticateFrame.id) });
+	socket.onmessage?.({ data: gatewayFrame({ type: 'deviceAuthenticated', authIdentity: 'authIdentity-development', expiresAt: '2026-01-01T01:00:00.000Z' }, authenticateFrame.id) });
 	Assert.deepEqual((JSON.parse(sent[1] as string) as { body: unknown }).body, { type: 'observe' });
 	Assert.deepEqual((JSON.parse(sent[2] as string) as { body: unknown }).body, { type: 'pipelines.get' });
 

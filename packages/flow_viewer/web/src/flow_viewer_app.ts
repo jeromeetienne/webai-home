@@ -370,7 +370,7 @@ export class FlowViewerApp {
 		this.statisticsNoteEl.textContent = `${total.measuredMessages} measured · ${total.estimatedMessages} estimated (older log entries)`;
 		const cards: Array<[string, string]> = [
 			['Messages', String(total.messageCount)], ['Total bandwidth', Statistics.formatBytes(total.messageBytes)],
-			['Payload', Statistics.formatBytes(total.payloadBytes)], ['Duplicate data', Statistics.formatBytes(total.duplicateBytes)],
+			['Payload', Statistics.formatBytes(total.messagePayloadBytes)], ['Duplicate data', Statistics.formatBytes(total.duplicateBytes)],
 			['Average latency', Statistics.formatLatency(total)],
 		];
 		this.statisticsCardsEl.replaceChildren(...cards.map(([label, value]) => {
@@ -389,8 +389,8 @@ export class FlowViewerApp {
 	private _appendStatisticsRows(group: string, values: Map<string, StatisticsTotals>): void {
 		for (const [name, totals] of values) {
 			const row = document.createElement('tr');
-			const overhead = Math.max(0, totals.messageBytes - totals.payloadBytes);
-			row.innerHTML = `<td>${group}: ${name}</td><td>${totals.messageCount}</td><td>${Statistics.formatBytes(totals.payloadBytes)}</td><td>${Statistics.formatBytes(totals.messageBytes)}</td><td>${Statistics.formatBytes(totals.duplicateBytes)}</td><td>${Statistics.formatBytes(totals.usefulBytes)} / ${Statistics.formatBytes(overhead)}</td><td>${Statistics.formatLatency(totals)}</td>`;
+			const overhead = Math.max(0, totals.messageBytes - totals.messagePayloadBytes);
+			row.innerHTML = `<td>${group}: ${name}</td><td>${totals.messageCount}</td><td>${Statistics.formatBytes(totals.messagePayloadBytes)}</td><td>${Statistics.formatBytes(totals.messageBytes)}</td><td>${Statistics.formatBytes(totals.duplicateBytes)}</td><td>${Statistics.formatBytes(totals.usefulBytes)} / ${Statistics.formatBytes(overhead)}</td><td>${Statistics.formatLatency(totals)}</td>`;
 			this.statisticsTableBodyEl.appendChild(row);
 		}
 	}

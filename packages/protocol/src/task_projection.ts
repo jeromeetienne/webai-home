@@ -26,10 +26,10 @@ export class TaskProjection {
 		// consumer that appends a piece wherever the protocol offers one would otherwise show the
 		// most recent piece twice, which is exactly what a consumer asking for a snapshot after
 		// missing some revisions is doing.
-		const { assignmentAttempts: _assignmentAttempts, events, assignment, newText: _newText, ...rest } = task;
+		const { stageAssignmentAttempts: _stageAssignmentAttempts, events, stageAssignment, newText: _newText, ...rest } = task;
 		return {
 			...rest,
-			...(assignment === undefined ? {} : { assignment: TaskProjection._assignment(assignment) }),
+			...(stageAssignment === undefined ? {} : { stageAssignment: TaskProjection._stageAssignment(stageAssignment) }),
 			recentEvents: events.slice(-maximumSnapshotEventCount),
 		};
 	}
@@ -43,12 +43,12 @@ export class TaskProjection {
 	static update(task: Task): TaskUpdate {
 		return {
 			taskId: task.taskId,
-			revision: task.revision,
+			taskRevision: task.taskRevision,
 			state: task.state,
 			updatedAt: task.updatedAt,
 			completedStageCount: task.completedStages.length,
 			currentStageAttempts: task.currentStageAttempts,
-			...(task.assignment === undefined ? {} : { currentStage: task.assignment.stage, assignment: TaskProjection._assignment(task.assignment) }),
+			...(task.stageAssignment === undefined ? {} : { currentStage: task.stageAssignment.stage, stageAssignment: TaskProjection._stageAssignment(task.stageAssignment) }),
 			// Only what this revision produced, never the answer so far, so the update stays the
 			// same size however long the answer becomes. The task record already drops this on the
 			// next revision that produces no text, so nothing sends a piece twice.
@@ -61,11 +61,11 @@ export class TaskProjection {
 	/**
 	 * Strips the stage input value from an assignment, keeping only its identity.
 	 *
-	 * @param assignment - The stored assignment.
+	 * @param stageAssignment - The stored assignment.
 	 * @returns The assignment identity without the stage input value.
 	 */
-	private static _assignment(assignment: Task['assignment'] & {}): TaskUpdateAssignment {
-		const { value: _value, ...identity } = assignment;
+	private static _stageAssignment(stageAssignment: Task['stageAssignment'] & {}): TaskUpdateAssignment {
+		const { value: _value, ...identity } = stageAssignment;
 		return identity;
 	}
 }

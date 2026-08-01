@@ -91,7 +91,7 @@ export class GatewayWorkerClient {
 	/** The stages this worker advertised, once the gateway's pipelines have been read. */
 	private offeredStageNames: string[] = [];
 	/** The assignments whose stage runs are under way right now. */
-	private readonly runningAssignmentIds = new Set<string>();
+	private readonly runningStageAssignmentIds = new Set<string>();
 	/**
 	 * The assignments the gateway cancelled while their stage run was still under way.
 	 *
@@ -101,7 +101,7 @@ export class GatewayWorkerClient {
 	 * `STALE_ASSIGNMENT`, so nothing breaks, but this worker's own log would announce a failure
 	 * every time a task was cancelled normally.
 	 */
-	private readonly cancelledAssignmentIds = new Set<string>();
+	private readonly cancelledStageAssignmentIds = new Set<string>();
 
 	/**
 	 * @param socket The already-built connection to the central gateway.
@@ -116,7 +116,7 @@ export class GatewayWorkerClient {
 		socket.onopen = (): void => {
 			this.callbacks.onConnectionChange?.(true);
 			this.send({
-				type: 'authenticate',
+				type: 'deviceAuthenticate',
 				token: this.options.authenticationToken,
 			});
 		};
@@ -185,11 +185,11 @@ export class GatewayWorkerClient {
 			return;
 		}
 		this.callbacks.onMessage?.('received', message);
-		if (message.type === 'authenticated') {
+		if (message.type === 'deviceAuthenticated') {
 			// This worker holds its connection open for as long as it runs, which is longer than
 			// one session lasts, and the gateway refuses messages once a session has expired.
-			// A renewal is answered with "authenticated" too, so asking for the pipelines again
-			// each time would restart the whole registration sequence.
+			// A renewal is answered with "deviceAuthenticated" too, so asking for the pipelines
+			// again each time would restart the whole registration sequence.
 			this.scheduleSessionRenewal(message.expiresAt);
 			if (this.isRegistered === false) {
 				this.send({
@@ -202,24 +202,24 @@ export class GatewayWorkerClient {
 			void this.registerOfferedStages(message.pipelines);
 			return;
 		}
-		if (message.type === 'registered') {
+		if (message.type === 'deviceRegistered') {
 			this.isRegistered = true;
 			this.callbacks.onRegistered?.(message.deviceId, this.offeredStageNames);
 			return;
 		}
 		if (message.type === 'stage.cancel') {
-			LeaseHeartbeat.stop(message.assignmentId);
+			LeaseHeartbeat.stop(message.stageAssignmentId);
 			// One worker process can hold two runs of the same task at once, when a lease expires
 			// and the gateway assigns the stage again to the same worker; only the assignment named
 			// here is being cancelled, which is what stops this from ending an answer the
 			// replacement run is still reading.
-			StageHelperLlmLlama3_2_3bFull.clearGeneration(message.taskId, message.assignmentId);
+			StageHelperLlmLlama3_2_3bFull.clearGeneration(message.taskId, message.stageAssignmentId);
 			// Only a run that is actually under way needs remembering: it is about to end by
 			// throwing, and it must not report that as a stage failure. A cancellation that
 			// arrives between two runs has nothing to suppress, so nothing is recorded and the
 			// set cannot grow without bound.
-			if (this.runningAssignmentIds.has(message.assignmentId)) {
-				this.cancelledAssignmentIds.add(message.assignmentId);
+			if (this.runningStageAssignmentIds.has(message.stageAssignmentId)) {
+				this.cancelledStageAssignmentIds.add(message.stageAssignmentId);
 			}
 			return;
 		}
@@ -280,7 +280,7 @@ export class GatewayWorkerClient {
 		}
 		this.offeredStageNames = stageNames;
 		this.send({
-			type: 'register',
+			type: 'deviceRegister',
 			role: 'worker',
 			name: this.options.name,
 			stageNames,
@@ -299,53 +299,53 @@ export class GatewayWorkerClient {
 	 * @param message The `stage.assign` message the gateway sent.
 	 */
 	private async runAssignedStage(message: Extract<GatewayMessage, { type: 'stage.assign' }>): Promise<void> {
-		const { taskId, assignmentId, attempt, stage } = message;
-		this.runningAssignmentIds.add(assignmentId);
+		const { taskId, stageAssignmentId, attempt, stage } = message;
+		this.runningStageAssignmentIds.add(stageAssignmentId);
 		this.send({
 			type: 'stage.accepted',
 			taskId,
-			assignmentId,
+			stageAssignmentId,
 			attempt,
 		});
 		LeaseHeartbeat.start((heartbeat) => this.send(heartbeat), {
 			taskId,
-			assignmentId,
+			stageAssignmentId,
 			attempt,
 			leaseUntil: message.leaseUntil,
 		});
 		try {
 			const value = await this.runComputation(message);
-			LeaseHeartbeat.stop(assignmentId);
-			if (this.reportsNothingFor(assignmentId)) {
+			LeaseHeartbeat.stop(stageAssignmentId);
+			if (this.reportsNothingFor(stageAssignmentId)) {
 				return;
 			}
 			this.send({
 				type: 'stage.result',
 				taskId,
-				assignmentId,
+				stageAssignmentId,
 				attempt,
 				stage,
 				value,
 			});
 		} catch (error: unknown) {
-			LeaseHeartbeat.stop(assignmentId);
+			LeaseHeartbeat.stop(stageAssignmentId);
 			// A failed stage abandons the task, so drop whatever this worker was keeping for it:
 			// an answer the local server is still producing. Left alone when no such answer exists.
-			StageHelperLlmLlama3_2_3bFull.clearGeneration(taskId, assignmentId);
-			if (this.reportsNothingFor(assignmentId)) {
+			StageHelperLlmLlama3_2_3bFull.clearGeneration(taskId, stageAssignmentId);
+			if (this.reportsNothingFor(stageAssignmentId)) {
 				return;
 			}
 			this.send({
 				type: 'stage.failed',
 				taskId,
-				assignmentId,
+				stageAssignmentId,
 				attempt,
 				stage,
 				error: error instanceof Error ? error.message : String(error),
 			});
 		} finally {
-			this.runningAssignmentIds.delete(assignmentId);
-			this.cancelledAssignmentIds.delete(assignmentId);
+			this.runningStageAssignmentIds.delete(stageAssignmentId);
+			this.cancelledStageAssignmentIds.delete(stageAssignmentId);
 		}
 	}
 
@@ -353,12 +353,12 @@ export class GatewayWorkerClient {
 	 * Reports whether a finished run should stay silent, because its assignment was cancelled
 	 * while it was still under way.
 	 *
-	 * @param assignmentId The assignment the run was carrying out.
+	 * @param stageAssignmentId The stage assignment the run was carrying out.
 	 * @returns `true` when the gateway has already taken the assignment back, so neither a result
 	 * nor a failure should be sent for it.
 	 */
-	private reportsNothingFor(assignmentId: string): boolean {
-		if (this.cancelledAssignmentIds.has(assignmentId) === false) {
+	private reportsNothingFor(stageAssignmentId: string): boolean {
+		if (this.cancelledStageAssignmentIds.has(stageAssignmentId) === false) {
 			return false;
 		}
 		this.callbacks.onNotice?.('The assignment was cancelled while it was running, so its outcome is not being reported');
@@ -379,7 +379,7 @@ export class GatewayWorkerClient {
 		if (StageHelperLlmLlama3_2_3bFull.implementsComputation(message.computation)) {
 			return await StageHelperLlmLlama3_2_3bFull.compute(
 				message.taskId,
-				message.assignmentId,
+				message.stageAssignmentId,
 				message.value as LlmStagePayload,
 				message.generationSettings,
 				this.options.openaiApiClient,
@@ -404,7 +404,7 @@ export class GatewayWorkerClient {
 		this.clearSessionRenewal();
 		this.sessionRenewalTimer = setTimeout((): void => {
 			this.send({
-				type: 'authenticate',
+				type: 'deviceAuthenticate',
 				token: this.options.authenticationToken,
 			});
 		}, SessionRenewal.renewAfterMs(expiresAt));

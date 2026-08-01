@@ -73,7 +73,7 @@ type TaskGenerationState = {
 	 * only the run named here may, so the run that was replaced cannot release the generation
 	 * its replacement is reading.
 	 */
-	owningAssignmentId: string;
+	owningStageAssignmentId: string;
 	/**
 	 * What has been read from the model but not yet returned as a stage result.
 	 *
@@ -190,7 +190,7 @@ export class StageHelperLlmGemmaNanoChromeFull {
 	 * The key is the task, because that is what an answer belongs to. Every run of it arrives
 	 * under a new assignment identifier, so keying by the assignment would hide each piece of an
 	 * answer from the run that has to read the next one. Which run may release a generation is a
-	 * separate question, answered by `owningAssignmentId` on the state itself.
+	 * separate question, answered by `owningStageAssignmentId` on the state itself.
 	 */
 	private static stateByTaskId = new Map<string, TaskGenerationState>();
 
@@ -265,7 +265,7 @@ export class StageHelperLlmGemmaNanoChromeFull {
 	 * asked for.
 	 *
 	 * @param taskId The task this run belongs to, which names the answer being produced for it.
-	 * @param assignmentId The assignment this run is carrying out, which decides whether this run
+	 * @param stageAssignmentId The assignment this run is carrying out, which decides whether this run
 	 * is the one allowed to release the answer it is reading.
 	 * @param payload The prompt submitted with the task, or, on a run that carries an answer on,
 	 * a value saying so and nothing else.
@@ -279,14 +279,14 @@ export class StageHelperLlmGemmaNanoChromeFull {
 	 */
 	static async compute(
 		taskId: string,
-		assignmentId: string,
+		stageAssignmentId: string,
 		payload: LlmStagePayload,
 		generationSettings: GenerationSettings | undefined,
 	): Promise<LlmStagePayload> {
 		const wantsPieces = generationSettings?.isStreaming === true;
 		const state = payload.isContinuation === true
-			? StageHelperLlmGemmaNanoChromeFull.heldGeneration(taskId, assignmentId)
-			: StageHelperLlmGemmaNanoChromeFull.newGeneration(taskId, assignmentId);
+			? StageHelperLlmGemmaNanoChromeFull.heldGeneration(taskId, stageAssignmentId)
+			: StageHelperLlmGemmaNanoChromeFull.newGeneration(taskId, stageAssignmentId);
 		// A run that returns a piece leaves the answer open behind it, so it is the one kind of
 		// run that must not release what it was reading. Every other way out of this method —
 		// the finished answer, and every failure — releases it, and releasing is refused anyway
@@ -305,7 +305,7 @@ export class StageHelperLlmGemmaNanoChromeFull {
 				state.text += piece.value;
 				state.unreportedText += piece.value;
 				state.pieceCount += 1;
-				StageHelperLlmGemmaNanoChromeFull.refuseIfReplaced(state, assignmentId);
+				StageHelperLlmGemmaNanoChromeFull.refuseIfReplaced(state, stageAssignmentId);
 				if (wantsPieces === true) {
 					leavesAnswerOpen = true;
 					const reported = state.unreportedText;
@@ -314,7 +314,7 @@ export class StageHelperLlmGemmaNanoChromeFull {
 					return StagePayloadFactory.llmPartialText(reported);
 				}
 			}
-			StageHelperLlmGemmaNanoChromeFull.refuseIfReplaced(state, assignmentId);
+			StageHelperLlmGemmaNanoChromeFull.refuseIfReplaced(state, stageAssignmentId);
 			// The whole answer travels on this one result, whichever way it was read. A consumer
 			// that has been joining the pieces has already received every one of them, so this
 			// result adds no piece of its own and is instead what that consumer can check its own
@@ -322,7 +322,7 @@ export class StageHelperLlmGemmaNanoChromeFull {
 			return StagePayloadFactory.llmDone(state.text);
 		} finally {
 			if (leavesAnswerOpen === false) {
-				StageHelperLlmGemmaNanoChromeFull.clearGeneration(taskId, assignmentId);
+				StageHelperLlmGemmaNanoChromeFull.clearGeneration(taskId, stageAssignmentId);
 			}
 		}
 	}
@@ -356,11 +356,11 @@ export class StageHelperLlmGemmaNanoChromeFull {
 	 * from destroying the session its replacement is reading from.
 	 *
 	 * @param taskId The task whose answer should be released.
-	 * @param assignmentId The assignment asking to release it.
+	 * @param stageAssignmentId The assignment asking to release it.
 	 */
-	static clearGeneration(taskId: string, assignmentId: string): void {
+	static clearGeneration(taskId: string, stageAssignmentId: string): void {
 		const state = StageHelperLlmGemmaNanoChromeFull.stateByTaskId.get(taskId);
-		if (state === undefined || state.owningAssignmentId !== assignmentId) {
+		if (state === undefined || state.owningStageAssignmentId !== stageAssignmentId) {
 			return;
 		}
 		StageHelperLlmGemmaNanoChromeFull.stateByTaskId.delete(taskId);
@@ -374,10 +374,10 @@ export class StageHelperLlmGemmaNanoChromeFull {
 	 * assignment taken away during that wait has something to mark released.
 	 *
 	 * @param taskId The task the answer belongs to.
-	 * @param assignmentId The assignment whose run is starting the answer.
+	 * @param stageAssignmentId The assignment whose run is starting the answer.
 	 * @returns The state that run reads its answer into.
 	 */
-	private static newGeneration(taskId: string, assignmentId: string): TaskGenerationState {
+	private static newGeneration(taskId: string, stageAssignmentId: string): TaskGenerationState {
 		// A task asks for its answer once, so anything still held for this task is left over from
 		// an attempt that was given up on without being cancelled. Releasing it here is what stops
 		// a retried task from leaving a model session open for the answer it abandoned.
@@ -388,7 +388,7 @@ export class StageHelperLlmGemmaNanoChromeFull {
 		const state: TaskGenerationState = {
 			session: undefined,
 			reader: undefined,
-			owningAssignmentId: assignmentId,
+			owningStageAssignmentId: stageAssignmentId,
 			unreportedText: '',
 			idleTimer: undefined,
 			text: '',
@@ -403,12 +403,12 @@ export class StageHelperLlmGemmaNanoChromeFull {
 	 * Finds the answer this browser is holding open for a task, so this run can read on from it.
 	 *
 	 * @param taskId The task whose answer is being carried on.
-	 * @param assignmentId The assignment whose run is carrying it on, which becomes the one
+	 * @param stageAssignmentId The assignment whose run is carrying it on, which becomes the one
 	 * allowed to release the answer.
 	 * @returns The state holding the answer so far.
 	 * @throws If this browser holds no answer for the task.
 	 */
-	private static heldGeneration(taskId: string, assignmentId: string): TaskGenerationState {
+	private static heldGeneration(taskId: string, stageAssignmentId: string): TaskGenerationState {
 		const state = StageHelperLlmGemmaNanoChromeFull.stateByTaskId.get(taskId);
 		// The answer lives in the memory of the tab producing it and nowhere else, so a run asked
 		// to carry on an answer this tab is not holding cannot produce one. Starting a fresh
@@ -423,7 +423,7 @@ export class StageHelperLlmGemmaNanoChromeFull {
 			clearTimeout(state.idleTimer);
 		}
 		state.idleTimer = undefined;
-		state.owningAssignmentId = assignmentId;
+		state.owningStageAssignmentId = stageAssignmentId;
 		return state;
 	}
 
@@ -435,11 +435,11 @@ export class StageHelperLlmGemmaNanoChromeFull {
 	 * it has already read stays in `unreportedText`, where its replacement reports it.
 	 *
 	 * @param state The answer this run was reading.
-	 * @param assignmentId The assignment this run is carrying out.
+	 * @param stageAssignmentId The assignment this run is carrying out.
 	 * @throws If another run has taken the answer over.
 	 */
-	private static refuseIfReplaced(state: TaskGenerationState, assignmentId: string): void {
-		if (state.owningAssignmentId === assignmentId) {
+	private static refuseIfReplaced(state: TaskGenerationState, stageAssignmentId: string): void {
+		if (state.owningStageAssignmentId === stageAssignmentId) {
 			return;
 		}
 		throw new Error('This run was replaced by a later one while it was waiting for the model, so its answer belongs to that run.');

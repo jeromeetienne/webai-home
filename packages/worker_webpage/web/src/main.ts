@@ -34,7 +34,7 @@ type GatewayMessage = {
 	/** The task identifier for a stage message. */
 	taskId?: string;
 	/** The durable identifier for the current stage assignment. */
-	assignmentId?: string;
+	stageAssignmentId?: string;
 	/** The number of the current assignment attempt. */
 	attempt?: number;
 	/** The stage for a stage message. */
@@ -247,7 +247,7 @@ export class WorkerPage {
 			this.disconnectButtonEl.classList.remove('d-none');
 			this.nameInputEl.disabled = true;
 			const message: ClientMessage = {
-				type: 'authenticate',
+				type: 'deviceAuthenticate',
 				token: GatewayConfig.authToken,
 			};
 			if (this.socket !== undefined) {
@@ -323,7 +323,7 @@ export class WorkerPage {
 				return;
 			}
 			GatewayLink.send(openSocket, {
-				type: 'authenticate',
+				type: 'deviceAuthenticate',
 				token: GatewayConfig.authToken,
 			});
 		}, SessionRenewal.renewAfterMs(expiresAt));
@@ -345,7 +345,7 @@ export class WorkerPage {
 		const frame = JSON.parse(event.data as string) as {
 			v?: number;
 			id?: string;
-			inReplyTo?: string;
+			inReplyToMessageId?: string;
 			body?: GatewayMessage;
 		};
 		/** The decoded gateway message. */
@@ -366,12 +366,12 @@ export class WorkerPage {
 		// Ask the gateway which pipelines it has loaded before registering, so this browser
 		// can offer every stage whose computation it implements, including stages of a
 		// pipeline added after this browser was built.
-		if (message.type === 'authenticated' && this.socket !== undefined) {
+		if (message.type === 'deviceAuthenticated' && this.socket !== undefined) {
 			// This page keeps its connection open indefinitely, and the gateway enforces the
 			// expiry it just advertised, so the session has to be renewed before that moment
 			// or the next message this page sends is refused.
 			this.scheduleSessionRenewal(this.socket, message.expiresAt);
-			// A renewal is answered with "authenticated" too. Asking for the pipelines again
+			// A renewal is answered with "deviceAuthenticated" too. Asking for the pipelines again
 			// each time would restart the whole registration sequence, so it is only asked
 			// for on the first one.
 			if (this.isRegistered) {
@@ -392,7 +392,7 @@ export class WorkerPage {
 			this.registerOfferedStages(WorkerStageOffer.offeredStages(message.pipelines ?? [], this.requestedStageNames));
 			return;
 		}
-		if (message.type === 'registered') {
+		if (message.type === 'deviceRegistered') {
 			this.isRegistered = true;
 			this.deviceIdEl.textContent = message.deviceId ?? 'Not assigned';
 			// Reporting can only start now: the gateway names the device the report is for,
@@ -403,16 +403,16 @@ export class WorkerPage {
 		}
 		DiagnosticsReporter.record('received', message.type, frame.id);
 		if (message.type === 'stage.cancel' && message.taskId !== undefined) {
-			LeaseHeartbeat.stop(message.assignmentId);
+			LeaseHeartbeat.stop(message.stageAssignmentId);
 			StageHelperLlmQwen3_0_6bSharded.clearTask(message.taskId);
 			// Both helpers hold what they hold against the task, but only the built-in model
 			// helper is told which assignment is being cancelled. One tab can hold two runs of the
 			// same task at once, when a lease expires and the gateway assigns the stage again to
 			// the same tab, and only the superseded one is being cancelled here; naming it is what
 			// stops this from ending an answer the replacement run is still reading.
-			if (message.assignmentId !== undefined) {
-				StageHelperLlmGemmaNanoChromeFull.clearGeneration(message.taskId, message.assignmentId);
-				StageHelperLlmQwen3_5_0_8bFull.clearGeneration(message.taskId, message.assignmentId);
+			if (message.stageAssignmentId !== undefined) {
+				StageHelperLlmGemmaNanoChromeFull.clearGeneration(message.taskId, message.stageAssignmentId);
+				StageHelperLlmQwen3_5_0_8bFull.clearGeneration(message.taskId, message.stageAssignmentId);
 			}
 			return;
 		}
@@ -425,7 +425,7 @@ export class WorkerPage {
 			&& message.stage !== undefined
 			&& message.value !== undefined
 			&& message.taskId !== undefined
-			&& message.assignmentId !== undefined
+			&& message.stageAssignmentId !== undefined
 			&& message.attempt !== undefined;
 		if (isCompleteAssignment === false) {
 			return;
@@ -463,7 +463,7 @@ export class WorkerPage {
 				this.statusEl.textContent = 'Connected';
 				this.statusEl.className = 'badge text-bg-success';
 				const register: ClientMessage = {
-					type: 'register',
+					type: 'deviceRegister',
 					role: 'worker',
 					name: this.nameInputEl.value,
 					stageNames,
@@ -496,13 +496,13 @@ export class WorkerPage {
 	 */
 	private runAssignedStage(message: GatewayMessage): void {
 		/** The task identifier and stage captured for the async result below. */
-		const { taskId, assignmentId, attempt, stage, value } = message as Required<
-			Pick<GatewayMessage, 'taskId' | 'assignmentId' | 'attempt' | 'stage' | 'value'>
+		const { taskId, stageAssignmentId, attempt, stage, value } = message as Required<
+			Pick<GatewayMessage, 'taskId' | 'stageAssignmentId' | 'attempt' | 'stage' | 'value'>
 		>;
 		const acceptedMessage: ClientMessage = {
 			type: 'stage.accepted',
 			taskId,
-			assignmentId,
+			stageAssignmentId,
 			attempt,
 		};
 		if (this.socket !== undefined) {
@@ -511,7 +511,7 @@ export class WorkerPage {
 		if (this.socket !== undefined) {
 			LeaseHeartbeat.start(this.socket, {
 				taskId,
-				assignmentId,
+				stageAssignmentId,
 				attempt,
 				leaseUntil: message.leaseUntil,
 			});
@@ -531,7 +531,7 @@ export class WorkerPage {
 			if (StageHelperLlmGemmaNanoChromeFull.implementsComputation(computation)) {
 				return StageHelperLlmGemmaNanoChromeFull.compute(
 					taskId,
-					assignmentId,
+					stageAssignmentId,
 					value as Exclude<StagePayload, number>,
 					message.generationSettings,
 				);
@@ -539,7 +539,7 @@ export class WorkerPage {
 			if (StageHelperLlmQwen3_5_0_8bFull.implementsComputation(computation)) {
 				return StageHelperLlmQwen3_5_0_8bFull.compute(
 					taskId,
-					assignmentId,
+					stageAssignmentId,
 					value as Exclude<StagePayload, number>,
 					message.generationSettings,
 				);
@@ -548,11 +548,11 @@ export class WorkerPage {
 		};
 		runComputation()
 			.then((computedValue) => {
-				LeaseHeartbeat.stop(assignmentId);
+				LeaseHeartbeat.stop(stageAssignmentId);
 				const resultMessage: ClientMessage = {
 					type: 'stage.result',
 					taskId,
-					assignmentId,
+					stageAssignmentId,
 					attempt,
 					stage,
 					value: computedValue,
@@ -569,17 +569,17 @@ export class WorkerPage {
 				});
 			})
 			.catch((error: unknown) => {
-				LeaseHeartbeat.stop(assignmentId);
+				LeaseHeartbeat.stop(stageAssignmentId);
 				// A failed stage abandons the task, so drop whatever this browser was keeping
 				// for it: a shard's key-value cache, or an answer the browser's own language
 				// model is still producing. Both are left alone when no such state exists.
 				StageHelperLlmQwen3_0_6bSharded.clearTask(taskId);
-				StageHelperLlmGemmaNanoChromeFull.clearGeneration(taskId, assignmentId);
-				StageHelperLlmQwen3_5_0_8bFull.clearGeneration(taskId, assignmentId);
+				StageHelperLlmGemmaNanoChromeFull.clearGeneration(taskId, stageAssignmentId);
+				StageHelperLlmQwen3_5_0_8bFull.clearGeneration(taskId, stageAssignmentId);
 				const failedMessage: ClientMessage = {
 					type: 'stage.failed',
 					taskId,
-					assignmentId,
+					stageAssignmentId,
 					attempt,
 					stage,
 					error: error instanceof Error ? error.message : String(error),

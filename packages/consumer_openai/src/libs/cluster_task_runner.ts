@@ -43,7 +43,7 @@ export type ClusterTaskRunnerOptions = {
 /** One request waiting for the cluster task it submitted. */
 type PendingTask = {
 	/** The identifier the submission was sent under, which `task.accepted` echoes back. */
-	requestId: string;
+	taskRequestId: string;
 	/** The task identifier, once the central gateway has accepted the submission. */
 	taskId: string | undefined;
 	/** What was submitted, which says how the task's result is read. */
@@ -60,7 +60,7 @@ type PendingTask = {
 	 * Told the identifier this request was submitted under, and again once a task identifier is
 	 * assigned, so a caller can record both for auditing.
 	 */
-	onCorrelationIds: ((ids: { requestId: string; taskId?: string }) => void) | undefined;
+	onCorrelationIds: ((ids: { taskRequestId: string; taskId?: string }) => void) | undefined;
 	/**
 	 * Told each piece of the answer as the cluster reports it, for a request that asked to be
 	 * answered as the answer is written. Absent for a request that asked for the whole answer,
@@ -110,7 +110,7 @@ export class ClusterTaskRunner {
 	private isClosed = false;
 	private reconnectDelayMs = initialReconnectDelayMs;
 	private reconnectTimer: ReturnType<typeof setTimeout> | undefined;
-	private readonly pendingByRequestId = new Map<string, PendingTask>();
+	private readonly pendingByTaskRequestId = new Map<string, PendingTask>();
 	private readonly pendingByTaskId = new Map<string, PendingTask>();
 	private readonly registrationWaiters = new Set<RegistrationWaiter>();
 
@@ -134,7 +134,7 @@ export class ClusterTaskRunner {
 
 	/** How many requests are waiting for a cluster task to finish. */
 	get tasksInFlight(): number {
-		return this.pendingByRequestId.size;
+		return this.pendingByTaskRequestId.size;
 	}
 
 	/**
@@ -158,18 +158,18 @@ export class ClusterTaskRunner {
 		taskInput: TaskInput,
 		modelId: string,
 		abortSignal?: AbortSignal,
-		onCorrelationIds?: (ids: { requestId: string; taskId?: string }) => void,
+		onCorrelationIds?: (ids: { taskRequestId: string; taskId?: string }) => void,
 		onPiece?: (piece: string) => void,
 	): Promise<string> {
-		if (this.pendingByRequestId.size >= this.options.maximumTasksInFlight) {
+		if (this.pendingByTaskRequestId.size >= this.options.maximumTasksInFlight) {
 			throw OpenaiError.tooManyTasksInFlight(this.options.maximumTasksInFlight);
 		}
 		const client = await this._registeredClient();
-		const requestId = Crypto.randomUUID();
-		onCorrelationIds?.({ requestId });
+		const taskRequestId = Crypto.randomUUID();
+		onCorrelationIds?.({ taskRequestId });
 		return await new Promise<string>((resolve, reject) => {
 			const pending: PendingTask = {
-				requestId,
+				taskRequestId,
 				taskId: undefined,
 				taskInput,
 				modelId,
@@ -188,7 +188,7 @@ export class ClusterTaskRunner {
 				);
 			}, this.options.requestTimeoutMs);
 			pending.timeoutTimer.unref();
-			this.pendingByRequestId.set(requestId, pending);
+			this.pendingByTaskRequestId.set(taskRequestId, pending);
 			abortSignal?.addEventListener(
 				'abort',
 				() => {
@@ -203,7 +203,7 @@ export class ClusterTaskRunner {
 				},
 			);
 			try {
-				client.submit(taskInput, requestId);
+				client.submit(taskInput, taskRequestId);
 			} catch {
 				this._settleWithFailure(
 					pending,
@@ -395,14 +395,14 @@ export class ClusterTaskRunner {
 	 * under.
 	 */
 	private _onTaskAccepted(task: TaskSnapshot): void {
-		const pending = this.pendingByRequestId.get(task.requestId);
+		const pending = this.pendingByTaskRequestId.get(task.taskRequestId);
 		if (pending === undefined) {
 			return;
 		}
 		pending.taskId = task.taskId;
 		this.pendingByTaskId.set(task.taskId, pending);
 		pending.onCorrelationIds?.({
-			requestId: pending.requestId,
+			taskRequestId: pending.taskRequestId,
 			taskId: task.taskId,
 		});
 		this._settleFromTaskState(pending, task.state, task.result, task.error);
@@ -474,7 +474,7 @@ export class ClusterTaskRunner {
 	 * @param error The error the central gateway sent, or one the consumer client noticed itself.
 	 */
 	private _onGatewayError(error: ProtocolError): void {
-		const pendingByRequest = error.requestId === undefined ? undefined : this.pendingByRequestId.get(error.requestId);
+		const pendingByRequest = error.taskRequestId === undefined ? undefined : this.pendingByTaskRequestId.get(error.taskRequestId);
 		const pending = pendingByRequest ?? (error.taskId === undefined ? undefined : this.pendingByTaskId.get(error.taskId));
 		if (pending === undefined) {
 			console.error(`The central gateway reported ${error.code}: ${error.message}`);
@@ -565,7 +565,7 @@ export class ClusterTaskRunner {
 	 * @param failure The failure to refuse them with.
 	 */
 	private _failEveryPendingTask(failure: OpenaiError): void {
-		for (const pending of [...this.pendingByRequestId.values()]) {
+		for (const pending of [...this.pendingByTaskRequestId.values()]) {
 			this._settleWithFailure(pending, failure);
 		}
 	}
@@ -586,7 +586,7 @@ export class ClusterTaskRunner {
 			clearTimeout(pending.timeoutTimer);
 		}
 		pending.timeoutTimer = undefined;
-		this.pendingByRequestId.delete(pending.requestId);
+		this.pendingByTaskRequestId.delete(pending.taskRequestId);
 		if (pending.taskId !== undefined) {
 			this.pendingByTaskId.delete(pending.taskId);
 		}

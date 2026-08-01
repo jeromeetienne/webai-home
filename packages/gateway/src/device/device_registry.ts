@@ -16,11 +16,11 @@ import type { Device, StageName } from '@webai/protocol';
 export type DeviceRegistryChange = {
 	kind: 'joined' | 'stable_changed' | 'activity_changed' | 'unchanged';
 	device: Device;
-	revision: number;
+	deviceListRevision: number;
 };
 
 /** The device fields that describe the device itself, rather than how busy it is. */
-const stableFieldNames = ['name', 'deviceRole', 'connectedAt', 'principal', 'maxConcurrentAssignments'] as const;
+const stableFieldNames = ['name', 'deviceRole', 'connectedAt', 'authIdentity', 'maxConcurrentAssignments'] as const;
 
 /** The device fields that change as work is assigned to a device and returned by it. */
 const activityFieldNames = ['workerState', 'ready', 'activeAssignments'] as const;
@@ -28,7 +28,7 @@ const activityFieldNames = ['workerState', 'ready', 'activeAssignments'] as cons
 /** Maintains the devices connected to the gateway. */
 export class DeviceRegistry {
 	private readonly devices = new Map<string, Device>();
-	private revision = 0;
+	private deviceListRevision = 0;
 
 	/**
 	 * Adds a device or replaces the device with the same identifier.
@@ -42,17 +42,17 @@ export class DeviceRegistry {
 	 */
 	add(device: Device): DeviceRegistryChange {
 		const previous = this.devices.get(device.deviceId);
-		if (previous === undefined) return { kind: 'joined', device: this._store(device, ++this.revision), revision: this.revision };
+		if (previous === undefined) return { kind: 'joined', device: this._store(device, ++this.deviceListRevision), deviceListRevision: this.deviceListRevision };
 
 		const isStableChanged = stableFieldNames.some((fieldName) => previous[fieldName] !== device[fieldName])
 			|| DeviceRegistry._isStageListChanged(previous.stageNames, device.stageNames);
 		const isActivityChanged = activityFieldNames.some((fieldName) => previous[fieldName] !== device[fieldName]);
 		if (isStableChanged === false && isActivityChanged === false) {
-			return { kind: 'unchanged', device: this._store(device, previous.membershipRevision), revision: this.revision };
+			return { kind: 'unchanged', device: this._store(device, previous.deviceListRevision), deviceListRevision: this.deviceListRevision };
 		}
 
-		const stored = this._store(device, ++this.revision);
-		return { kind: isStableChanged ? 'stable_changed' : 'activity_changed', device: stored, revision: this.revision };
+		const stored = this._store(device, ++this.deviceListRevision);
+		return { kind: isStableChanged ? 'stable_changed' : 'activity_changed', device: stored, deviceListRevision: this.deviceListRevision };
 	}
 
 	/**
@@ -60,9 +60,9 @@ export class DeviceRegistry {
 	 *
 	 * @param deviceId - The device identifier to remove.
 	 */
-	remove(deviceId: string): { deviceId: string; revision: number } | undefined {
+	remove(deviceId: string): { deviceId: string; deviceListRevision: number } | undefined {
 		if (this.devices.delete(deviceId) === false) return undefined;
-		return { deviceId, revision: ++this.revision };
+		return { deviceId, deviceListRevision: ++this.deviceListRevision };
 	}
 
 	/**
@@ -85,7 +85,7 @@ export class DeviceRegistry {
 	}
 
 	/** Returns the revision the device list is currently at, which rises on every change. */
-	membershipRevision(): number { return this.revision; }
+	currentDeviceListRevision(): number { return this.deviceListRevision; }
 
 	/**
 	 * Finds a device by its display name and role.
@@ -129,14 +129,14 @@ export class DeviceRegistry {
 	}
 
 	/**
-	 * Stores a device under a membership revision.
+	 * Stores a device under a device-list revision.
 	 *
 	 * @param device - The device to store.
-	 * @param membershipRevision - The revision to stamp on the stored device.
+	 * @param deviceListRevision - The revision to stamp on the stored device.
 	 * @returns The stored device.
 	 */
-	private _store(device: Device, membershipRevision: number | undefined): Device {
-		const stored = { ...device, ...(membershipRevision === undefined ? {} : { membershipRevision }) };
+	private _store(device: Device, deviceListRevision: number | undefined): Device {
+		const stored = { ...device, ...(deviceListRevision === undefined ? {} : { deviceListRevision }) };
 		this.devices.set(device.deviceId, stored);
 		return stored;
 	}

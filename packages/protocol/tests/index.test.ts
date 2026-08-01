@@ -107,19 +107,19 @@ Test('StagePayloadFactory answers every task type with a first stage value', () 
 });
 
 Test('validates every inbound client message shape', () => {
-	Assert.equal(ClientMessageSchema.safeParse({ type: 'task.submit', requestId: 'request-1', input: { taskType: 'task_type_dev_formula', input: 5 } }).success, true);
-	Assert.equal(ClientMessageSchema.safeParse({ type: 'stage.result', taskId: 'task-1', assignmentId: 'assignment-1', attempt: 1, stage: 'stage_dev_formula_multiply', value: 10 }).success, true);
-	Assert.equal(ClientMessageSchema.safeParse({ type: 'stage.result', taskId: 'task-1', assignmentId: 'assignment-1', attempt: 1, stage: 'stage_llm_gemma_nano_chrome_full', value: { newText: ' capital', isContinuation: true, done: false } }).success, true);
+	Assert.equal(ClientMessageSchema.safeParse({ type: 'task.submit', taskRequestId: 'request-1', input: { taskType: 'task_type_dev_formula', input: 5 } }).success, true);
+	Assert.equal(ClientMessageSchema.safeParse({ type: 'stage.result', taskId: 'task-1', stageAssignmentId: 'assignment-1', attempt: 1, stage: 'stage_dev_formula_multiply', value: 10 }).success, true);
+	Assert.equal(ClientMessageSchema.safeParse({ type: 'stage.result', taskId: 'task-1', stageAssignmentId: 'assignment-1', attempt: 1, stage: 'stage_llm_gemma_nano_chrome_full', value: { newText: ' capital', isContinuation: true, done: false } }).success, true);
 	// The generation settings are optional, so every submission written before they existed is
 	// still valid, and a setting the gateway has never heard of is refused rather than dropped:
 	// a dropped setting would change the answer without telling the consumer anything.
-	Assert.equal(ClientMessageSchema.safeParse({ type: 'task.submit', requestId: 'request-1', input: { taskType: 'task_type_llm_gemma_nano_chrome_full', input: 'hello', generationSettings: { isStreaming: true } } }).success, true);
-	Assert.equal(ClientMessageSchema.safeParse({ type: 'task.submit', requestId: 'request-1', input: { taskType: 'task_type_llm_gemma_nano_chrome_full', input: 'hello', generationSettings: {} } }).success, true);
-	Assert.equal(ClientMessageSchema.safeParse({ type: 'task.submit', requestId: 'request-1', input: { taskType: 'task_type_llm_gemma_nano_chrome_full', input: 'hello', generationSettings: { isStreaming: true, temperature: 0.7 } } }).success, false);
-	Assert.equal(ClientMessageSchema.safeParse({ type: 'task.submit', requestId: 'request-1', input: { taskType: 'task_type_llm_gemma_nano_chrome_full', input: 'hello', generationSettings: { isStreaming: 'yes' } } }).success, false);
+	Assert.equal(ClientMessageSchema.safeParse({ type: 'task.submit', taskRequestId: 'request-1', input: { taskType: 'task_type_llm_gemma_nano_chrome_full', input: 'hello', generationSettings: { isStreaming: true } } }).success, true);
+	Assert.equal(ClientMessageSchema.safeParse({ type: 'task.submit', taskRequestId: 'request-1', input: { taskType: 'task_type_llm_gemma_nano_chrome_full', input: 'hello', generationSettings: {} } }).success, true);
+	Assert.equal(ClientMessageSchema.safeParse({ type: 'task.submit', taskRequestId: 'request-1', input: { taskType: 'task_type_llm_gemma_nano_chrome_full', input: 'hello', generationSettings: { isStreaming: true, temperature: 0.7 } } }).success, false);
+	Assert.equal(ClientMessageSchema.safeParse({ type: 'task.submit', taskRequestId: 'request-1', input: { taskType: 'task_type_llm_gemma_nano_chrome_full', input: 'hello', generationSettings: { isStreaming: 'yes' } } }).success, false);
 	Assert.equal(ClientMessageSchema.safeParse({ type: 'task.submit', input: { taskType: 'task_type_dev_formula', input: 5 } }).success, false);
 	Assert.equal(ClientMessageSchema.safeParse({ type: 'stage.result', taskId: 'task-1', stage: 'stage_dev_formula_multiply', value: 10 }).success, false);
-	Assert.equal(ClientMessageSchema.safeParse({ type: 'register', role: 'consumer', name: 'consumer', unexpected: true }).success, false);
+	Assert.equal(ClientMessageSchema.safeParse({ type: 'deviceRegister', role: 'consumer', name: 'consumer', unexpected: true }).success, false);
 	Assert.equal(ClientMessageSchema.safeParse({ type: 'task.history', taskId: 'task-1' }).success, true);
 	Assert.equal(ClientMessageSchema.safeParse({ type: 'task.history' }).success, false);
 });
@@ -130,31 +130,31 @@ Test('redacts task inputs and stage values but keeps the task type', () => {
 	const logger = new MessageLogger(logFilePath);
 	const counterpart = { role: 'consumer', deviceId: 'device-1' };
 
-	logger.log('received', counterpart, 'task.submit', { type: 'task.submit', requestId: 'request-1', input: { taskType: 'task_type_llm_qwen3_0_6b_sharded', input: 'What is the capital of France?' } });
+	logger.log('received', counterpart, 'task.submit', { type: 'task.submit', taskRequestId: 'request-1', input: { taskType: 'task_type_llm_qwen3_0_6b_sharded', input: 'What is the capital of France?' } });
 	logger.log('sent', counterpart, 'stage.assign', { type: 'stage.assign', taskId: 'task-1', stage: 'stage_dev_formula_multiply', value: 5 });
 	// The generation settings survive redaction: they say how the cluster was asked to behave
 	// rather than what the consumer said to the model, and a log is read to find that out.
-	logger.log('received', counterpart, 'task.submit', { type: 'task.submit', requestId: 'request-2', input: { taskType: 'task_type_llm_gemma_nano_chrome_full', input: 'What is the capital of France?', generationSettings: { isStreaming: true } } });
+	logger.log('received', counterpart, 'task.submit', { type: 'task.submit', taskRequestId: 'request-2', input: { taskType: 'task_type_llm_gemma_nano_chrome_full', input: 'What is the capital of France?', generationSettings: { isStreaming: true } } });
 
 	const entries = Fs.readFileSync(logFilePath, 'utf8').trim().split('\n').map((line) => JSON.parse(line) as LogEntry);
 	Fs.rmSync(directoryPath, { recursive: true, force: true });
 
-	Assert.deepEqual(entries[0].payload, { type: 'task.submit', requestId: 'request-1', input: { taskType: 'task_type_llm_qwen3_0_6b_sharded', input: '[redacted]' } });
-	Assert.deepEqual(entries[1].payload, { type: 'stage.assign', taskId: 'task-1', stage: 'stage_dev_formula_multiply', value: '[redacted]' });
-	Assert.deepEqual(entries[2].payload, { type: 'task.submit', requestId: 'request-2', input: { taskType: 'task_type_llm_gemma_nano_chrome_full', input: '[redacted]', generationSettings: { isStreaming: true } } });
+	Assert.deepEqual(entries[0].messagePayload, { type: 'task.submit', taskRequestId: 'request-1', input: { taskType: 'task_type_llm_qwen3_0_6b_sharded', input: '[redacted]' } });
+	Assert.deepEqual(entries[1].messagePayload, { type: 'stage.assign', taskId: 'task-1', stage: 'stage_dev_formula_multiply', value: '[redacted]' });
+	Assert.deepEqual(entries[2].messagePayload, { type: 'task.submit', taskRequestId: 'request-2', input: { taskType: 'task_type_llm_gemma_nano_chrome_full', input: '[redacted]', generationSettings: { isStreaming: true } } });
 
 	// An answer sent one piece at a time is exactly as much the consumer's own data as the same
 	// answer sent whole, so a piece is redacted like any other part of an answer, wherever it
 	// appears: on the update that reports it, and on the task snapshot that carries the answer
 	// so far for a consumer that reconnected and missed some.
-	const streamed = MessageLogger.redactPayload({ type: 'task.updated', update: { taskId: 'task-1', revision: 7, newText: ' capital', generatedText: 'The capital' } });
-	Assert.deepEqual(streamed, { type: 'task.updated', update: { taskId: 'task-1', revision: 7, newText: '[redacted]', generatedText: '[redacted]' } });
+	const streamed = MessageLogger.redactMessagePayload({ type: 'task.updated', update: { taskId: 'task-1', taskRevision: 7, newText: ' capital', generatedText: 'The capital' } });
+	Assert.deepEqual(streamed, { type: 'task.updated', update: { taskId: 'task-1', taskRevision: 7, newText: '[redacted]', generatedText: '[redacted]' } });
 
 	// Not every value this walk is given has been checked against the protocol first: a relayed
 	// `signal` message carries a body the schema declares as unknown, and a consumer logs a frame
 	// before checking it. So the settings that are kept are walked like any other value rather
 	// than copied across, and anything hidden under them is redacted just the same.
-	const relayed = MessageLogger.redactPayload({
+	const relayed = MessageLogger.redactMessagePayload({
 		type: 'signal',
 		to: 'device-2',
 		data: { input: { taskType: 'task_type_llm_gemma_nano_chrome_full', input: 'a prompt', generationSettings: { isStreaming: true, text: 'A PRIVATE PROMPT', nested: { token: 'A CREDENTIAL' } } } },
@@ -167,13 +167,13 @@ Test('redacts task inputs and stage values but keeps the task type', () => {
 });
 
 Test('redacts the task result, the values inside completed stages, and a relayed message', () => {
-	const redacted = MessageLogger.redactPayload({
+	const redacted = MessageLogger.redactMessagePayload({
 		type: 'task.updated',
 		update: { taskId: 'task-1', state: 'completed', result: { text: 'SECRET ANSWER' } },
 	}) as { update: { result: unknown } };
 	Assert.equal(redacted.update.result, '[redacted]');
 
-	const snapshot = MessageLogger.redactPayload({
+	const snapshot = MessageLogger.redactMessagePayload({
 		type: 'task.snapshot',
 		task: { taskId: 'task-1', completedStages: [{ name: 'stage_llm_qwen3_0_6b_shard1of3', value: { text: 'SECRET STAGE' } }] },
 	}) as { task: { completedStages: { name: string; value: unknown }[] } };
@@ -181,7 +181,7 @@ Test('redacts the task result, the values inside completed stages, and a relayed
 
 	// Redaction still reaches a value nested inside another message, which is the shape a
 	// gateway message carrying a task takes.
-	const nested = MessageLogger.redactPayload({
+	const nested = MessageLogger.redactMessagePayload({
 		type: 'stage.assign',
 		assignment: { taskId: 'task-1', value: { text: 'SECRET PROMPT' } },
 	}) as { assignment: { value: unknown } };
@@ -189,20 +189,20 @@ Test('redacts the task result, the values inside completed stages, and a relayed
 });
 
 Test('redacts the authentication token', () => {
-	const redacted = MessageLogger.redactPayload({ type: 'authenticate', token: 'development-token' }) as { token: unknown };
+	const redacted = MessageLogger.redactMessagePayload({ type: 'deviceAuthenticate', token: 'development-token' }) as { token: unknown };
 	Assert.equal(redacted.token, '[redacted]');
 });
 
 Test('leaves the message it redacts unmodified', () => {
 	const original = { type: 'task.updated', update: { result: 17 } };
-	MessageLogger.redactPayload(original);
+	MessageLogger.redactMessagePayload(original);
 	Assert.equal(original.update.result, 17);
 });
 
 Test('accepts a lease heartbeat and the stage settings that control leasing', () => {
-	Assert.equal(ClientMessageSchema.safeParse({ type: 'stage.heartbeat', taskId: 'task-1', assignmentId: 'assignment-1', attempt: 1 }).success, true);
-	Assert.equal(ClientMessageSchema.safeParse({ type: 'stage.heartbeat', taskId: 'task-1', assignmentId: 'assignment-1' }).success, false);
-	Assert.equal(ClientMessageSchema.safeParse({ type: 'stage.heartbeat', taskId: 'task-1', assignmentId: 'assignment-1', attempt: 0 }).success, false);
+	Assert.equal(ClientMessageSchema.safeParse({ type: 'stage.heartbeat', taskId: 'task-1', stageAssignmentId: 'assignment-1', attempt: 1 }).success, true);
+	Assert.equal(ClientMessageSchema.safeParse({ type: 'stage.heartbeat', taskId: 'task-1', stageAssignmentId: 'assignment-1' }).success, false);
+	Assert.equal(ClientMessageSchema.safeParse({ type: 'stage.heartbeat', taskId: 'task-1', stageAssignmentId: 'assignment-1', attempt: 0 }).success, false);
 
 	const stage = { name: 'stage_dev_formula_multiply', computation: 'dev_formula_multiply', inputSchemaId: 'number@1', outputSchemaId: 'number@1', encoding: 'inline-json' } as const;
 	Assert.equal(PipelineStageSchema.safeParse({ ...stage, leaseMs: 60_000, prefersSameWorkerOnRetry: true }).success, true);
@@ -213,9 +213,9 @@ Test('accepts a lease heartbeat and the stage settings that control leasing', ()
 });
 
 Test('rejects malformed and oversized identity-bearing task messages', () => {
-	Assert.equal(ClientMessageSchema.safeParse({ type: 'task.submit', requestId: '', input: { taskType: 'task_type_dev_formula', input: 5 } }).success, false);
-	Assert.equal(ClientMessageSchema.safeParse({ type: 'stage.result', taskId: 'task-1', assignmentId: 'assignment-1', attempt: 0, stage: 'stage_dev_formula_multiply', value: 10 }).success, false);
-	Assert.equal(ClientMessageSchema.safeParse({ type: 'stage.failed', taskId: 'task-1', assignmentId: 'assignment-1', attempt: 1, stage: 'stage_dev_formula_multiply', error: 'x'.repeat(10_001) }).success, false);
+	Assert.equal(ClientMessageSchema.safeParse({ type: 'task.submit', taskRequestId: '', input: { taskType: 'task_type_dev_formula', input: 5 } }).success, false);
+	Assert.equal(ClientMessageSchema.safeParse({ type: 'stage.result', taskId: 'task-1', stageAssignmentId: 'assignment-1', attempt: 0, stage: 'stage_dev_formula_multiply', value: 10 }).success, false);
+	Assert.equal(ClientMessageSchema.safeParse({ type: 'stage.failed', taskId: 'task-1', stageAssignmentId: 'assignment-1', attempt: 1, stage: 'stage_dev_formula_multiply', error: 'x'.repeat(10_001) }).success, false);
 });
 
 /**
@@ -227,36 +227,36 @@ Test('rejects malformed and oversized identity-bearing task messages', () => {
  */
 function buildLlmTask(shardCount: number): Task {
 	const tensorPayload = StagePayloadFactory.llmHandoff({ hidden: { dataBase64: 'A'.repeat(4_000), dims: [1, 2], type: 'float32' } }, [1], 0);
-	const assignmentAttempts = Array.from({ length: shardCount }, (_unused, index) => ({
+	const stageAssignmentAttempts = Array.from({ length: shardCount }, (_unused, index) => ({
 		workerDeviceId: 'device-worker',
-		assignmentId: `assignment-${index}`,
+		stageAssignmentId: `assignment-${index}`,
 		attempt: 1,
 		stage: 'stage_llm_qwen3_0_6b_shard1of3' as const,
 		value: tensorPayload,
 		leaseUntil: '2026-01-01T00:00:15.000Z',
 	}));
 	const events: TaskEvent[] = Array.from({ length: shardCount }, (_unused, index) => ({
-		type: 'assignment_created' as const,
+		type: 'stage_assignment_created' as const,
 		timestamp: '2026-01-01T00:00:00.000Z',
-		assignmentId: `assignment-${index}`,
+		stageAssignmentId: `assignment-${index}`,
 		attempt: 1,
 	}));
 	return {
 		taskId: 'task-1',
-		requestId: 'request-1',
+		taskRequestId: 'request-1',
 		consumerDeviceId: 'device-consumer',
-		consumerPrincipal: 'principal-1',
+		consumerAuthIdentity: 'authIdentity-1',
 		input: { taskType: 'task_type_llm_qwen3_0_6b_sharded', input: 'What is the capital of France?' },
 		state: 'running',
-		completedStages: assignmentAttempts.map((assignment) => ({ name: assignment.stage, value: tensorPayload })),
+		completedStages: stageAssignmentAttempts.map((stageAssignment) => ({ name: stageAssignment.stage, value: tensorPayload })),
 		createdAt: '2026-01-01T00:00:00.000Z',
 		updatedAt: '2026-01-01T00:00:01.000Z',
-		assignment: assignmentAttempts.at(-1),
-		assignmentAttempts,
+		stageAssignment: stageAssignmentAttempts.at(-1),
+		stageAssignmentAttempts,
 		currentStageAttempts: 1,
 		events,
 		submissionDeadlineAt: '2026-01-01T00:00:30.000Z',
-		revision: shardCount,
+		taskRevision: shardCount,
 	};
 }
 
@@ -282,7 +282,7 @@ Test('no stage value appears in a task update, and none appears twice', () => {
 
 	Assert.equal(serialised.includes('dataBase64'), false);
 	Assert.equal(serialised.includes('AAAA'), false);
-	Assert.equal('value' in (update.assignment ?? {}), false);
+	Assert.equal('value' in (update.stageAssignment ?? {}), false);
 	Assert.equal(update.completedStageCount, 5);
 	Assert.equal(update.currentStage, 'stage_llm_qwen3_0_6b_shard1of3');
 	// A task that asked for no pieces reports none, so its updates are exactly what they were
@@ -307,11 +307,11 @@ Test('the task snapshot drops the attempt history and truncates the change log',
 	const task = buildLlmTask(50);
 	const snapshot = TaskProjection.snapshot(task);
 
-	Assert.equal('assignmentAttempts' in snapshot, false);
+	Assert.equal('stageAssignmentAttempts' in snapshot, false);
 	Assert.equal('events' in snapshot, false);
 	Assert.equal(snapshot.recentEvents.length, maximumSnapshotEventCount);
 	Assert.deepEqual(snapshot.recentEvents.at(-1), task.events.at(-1));
-	Assert.equal('value' in (snapshot.assignment ?? {}), false);
+	Assert.equal('value' in (snapshot.stageAssignment ?? {}), false);
 	Assert.equal(snapshot.input.input, 'What is the capital of France?');
 });
 
@@ -331,7 +331,7 @@ Test('a pipeline stage names the computation a worker must run, and a pipeline m
 });
 
 Test('every frame states its version, its own identifier, and when it was sent', () => {
-	const frame = Envelope.fromClient({ type: 'authenticate', token: 'development-token' });
+	const frame = Envelope.fromClient({ type: 'deviceAuthenticate', token: 'development-token' });
 	Assert.equal(frame.v, protocolVersion);
 	Assert.ok(frame.id.length > 0);
 	Assert.ok(Number.isFinite(Date.parse(frame.ts)));
@@ -349,18 +349,18 @@ Test('every frame states its version, its own identifier, and when it was sent',
 
 Test('a gateway answer names the request it answers, and a push names nothing', () => {
 	const request = Envelope.fromClient({ type: 'devices.resync' });
-	const answer = Envelope.fromGateway({ type: 'devices', devices: [], revision: 1 }, request.id);
-	const push = Envelope.fromGateway({ type: 'devices', devices: [], revision: 2 });
+	const answer = Envelope.fromGateway({ type: 'devices', devices: [], deviceListRevision: 1 }, request.id);
+	const push = Envelope.fromGateway({ type: 'devices', devices: [], deviceListRevision: 2 });
 
-	Assert.equal(answer.inReplyTo, request.id);
-	// The push carries the same message type as the answer. The absence of inReplyTo is the
-	// only thing that tells them apart, which is the point of the field.
-	Assert.equal(push.inReplyTo, undefined);
+	Assert.equal(answer.inReplyToMessageId, request.id);
+	// The push carries the same message type as the answer. The absence of inReplyToMessageId is
+	// the only thing that tells them apart, which is the point of the field.
+	Assert.equal(push.inReplyToMessageId, undefined);
 	Assert.notEqual(answer.id, push.id);
 });
 
 Test('recognises a message sent without its wrapper, and reports which versions are supported', () => {
-	Assert.equal(Envelope.isUnwrappedMessage({ type: 'authenticate', token: 'development-token' }), true);
+	Assert.equal(Envelope.isUnwrappedMessage({ type: 'deviceAuthenticate', token: 'development-token' }), true);
 	Assert.equal(Envelope.isUnwrappedMessage(Envelope.fromClient({ type: 'devices.resync' })), false);
 	Assert.equal(Envelope.isUnwrappedMessage('not an object'), false);
 

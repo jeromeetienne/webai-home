@@ -13,7 +13,7 @@ import type { ClientMessage } from '@webai/protocol';
  */
 const minimumHeartbeatIntervalMs = 1_000;
 
-/** The repeating timer that extends the lease of one running assignment, by assignment identifier. */
+/** The repeating timer that extends the lease of one running assignment, by stage assignment identifier. */
 const leaseHeartbeatTimers = new Map<string, ReturnType<typeof setInterval>>();
 
 /**
@@ -36,49 +36,49 @@ export class LeaseHeartbeat {
 	 * the assignment.
 	 *
 	 * @param sendMessage Sends one message to the central gateway.
-	 * @param assignment The task, assignment, attempt, and lease expiry from `stage.assign`.
+	 * @param stageAssignment The task, stage assignment, attempt, and lease expiry from `stage.assign`.
 	 */
 	static start(
 		sendMessage: (message: ClientMessage) => void,
-		assignment: { taskId: string; assignmentId: string; attempt: number; leaseUntil?: string | undefined },
+		stageAssignment: { taskId: string; stageAssignmentId: string; attempt: number; leaseUntil?: string | undefined },
 	): void {
-		const leaseMs = assignment.leaseUntil === undefined ? Number.NaN : Date.parse(assignment.leaseUntil) - Date.now();
+		const leaseMs = stageAssignment.leaseUntil === undefined ? Number.NaN : Date.parse(stageAssignment.leaseUntil) - Date.now();
 		const intervalMs = Number.isFinite(leaseMs)
 			? Math.max(minimumHeartbeatIntervalMs, Math.floor(leaseMs / 3))
 			: minimumHeartbeatIntervalMs;
 		const timer = setInterval((): void => {
 			sendMessage({
 				type: 'stage.heartbeat',
-				taskId: assignment.taskId,
-				assignmentId: assignment.assignmentId,
-				attempt: assignment.attempt,
+				taskId: stageAssignment.taskId,
+				stageAssignmentId: stageAssignment.stageAssignmentId,
+				attempt: stageAssignment.attempt,
 			});
 		}, intervalMs);
 		// The heartbeat must never be the reason this process stays alive: a worker with nothing
 		// to do should be free to exit once its connection has closed.
 		timer.unref?.();
-		leaseHeartbeatTimers.set(assignment.assignmentId, timer);
+		leaseHeartbeatTimers.set(stageAssignment.stageAssignmentId, timer);
 	}
 
 	/**
 	 * Stops extending the lease of an assignment this worker is no longer working on.
 	 *
-	 * @param assignmentId The assignment whose heartbeat should stop. When it is not given, every
-	 * running heartbeat stops, which is what a closed connection needs.
+	 * @param stageAssignmentId The stage assignment whose heartbeat should stop. When it is not
+	 * given, every running heartbeat stops, which is what a closed connection needs.
 	 */
-	static stop(assignmentId?: string): void {
-		if (assignmentId === undefined) {
+	static stop(stageAssignmentId?: string): void {
+		if (stageAssignmentId === undefined) {
 			for (const timer of leaseHeartbeatTimers.values()) {
 				clearInterval(timer);
 			}
 			leaseHeartbeatTimers.clear();
 			return;
 		}
-		const timer = leaseHeartbeatTimers.get(assignmentId);
+		const timer = leaseHeartbeatTimers.get(stageAssignmentId);
 		if (timer === undefined) {
 			return;
 		}
 		clearInterval(timer);
-		leaseHeartbeatTimers.delete(assignmentId);
+		leaseHeartbeatTimers.delete(stageAssignmentId);
 	}
 }

@@ -52,7 +52,7 @@ export class Cli {
 			.option('--logs-dir <dir>', 'directory to scan for gateway-*.log_entry.jsonl files when no files are given')
 			.option('--from <datetime>', 'start of the time range to show (defaults to the earliest message loaded)')
 			.option('--to <datetime>', 'end of the time range to show (defaults to the latest message loaded)')
-			.option('--chatter', 'show connection chatter (register / registered / devices) on load', false)
+			.option('--chatter', 'show connection chatter (deviceRegister / deviceRegistered / devices) on load', false)
 			.option('--signaling', 'show peer connection signaling on load', false)
 			.option('--speed <multiplier>', 'initial playback speed', '1')
 			.option('--no-autoplay', 'load paused instead of playing immediately')

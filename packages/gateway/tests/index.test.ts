@@ -44,10 +44,10 @@ const worker = (deviceId: string, stageNames: StageName[] = ['stage_dev_formula_
  * storing the stage sequence on the task. Every task carries a pipeline, so a task built
  * without one cannot be advanced.
  */
-const createTask = (store: TaskStore, input: TaskInput, consumerDeviceId?: string, requestId?: string) => {
+const createTask = (store: TaskStore, input: TaskInput, consumerDeviceId?: string, taskRequestId?: string) => {
 	const registry = new PipelineRegistry(builtinPipelineSpecifications);
 	const pipeline = registry.select(input)!;
-	return store.create(input, consumerDeviceId, requestId, undefined, {
+	return store.create(input, consumerDeviceId, taskRequestId, undefined, {
 		pipelineId: pipeline.pipelineId,
 		pipelineVersion: pipeline.version,
 		pipelineStages: pipeline.stages.map((stage) => stage.name),
@@ -136,32 +136,32 @@ Test('keeps consumer request identifiers and assignment ownership in task state'
 	const store = new TaskStore();
 	const task = createTask(store, { taskType: 'task_type_dev_formula', input: 5 }, 'consumer-1', 'request-1');
 
-	Assert.equal(store.findByRequest('consumer-1', 'request-1')?.taskId, task.taskId);
-	Assert.equal(store.findByRequest('consumer-2', 'request-1'), undefined);
+	Assert.equal(store.findByTaskRequest('consumer-1', 'request-1')?.taskId, task.taskId);
+	Assert.equal(store.findByTaskRequest('consumer-2', 'request-1'), undefined);
 
 	const assigned = store.assign(task.taskId, 'worker-1', 'stage_dev_formula_multiply', 5);
-	Assert.deepEqual(assigned.assignment, {
+	Assert.deepEqual(assigned.stageAssignment, {
 		workerDeviceId: 'worker-1',
-		assignmentId: assigned.assignment?.assignmentId,
+		stageAssignmentId: assigned.stageAssignment?.stageAssignmentId,
 		attempt: 1,
 		stage: 'stage_dev_formula_multiply',
 		value: 5,
-	leaseUntil: assigned.assignment?.leaseUntil,
+	leaseUntil: assigned.stageAssignment?.leaseUntil,
 	});
 
 	const completed = store.addStage(task.taskId, { name: 'stage_dev_formula_multiply', value: 10 });
-	Assert.equal(completed.assignment, undefined);
+	Assert.equal(completed.stageAssignment, undefined);
 });
 
 Test('keeps repeated request identifiers idempotent and rejects stale assignment state', () => {
 	const store = new TaskStore();
 	const original = store.create({ taskType: 'task_type_dev_formula', input: 5 }, 'consumer-1', 'request-1');
-	Assert.equal(store.findByRequest('consumer-1', 'request-1')?.taskId, original.taskId);
+	Assert.equal(store.findByTaskRequest('consumer-1', 'request-1')?.taskId, original.taskId);
 	const first = store.assign(original.taskId, 'worker-1', 'stage_dev_formula_multiply', 5);
 	const replacement = store.assign(original.taskId, 'worker-2', 'stage_dev_formula_multiply', 5, 'worker_relinquished');
-	Assert.notEqual(first.assignment?.assignmentId, replacement.assignment?.assignmentId);
-	Assert.equal(replacement.assignment?.workerDeviceId, 'worker-2');
-	Assert.equal(replacement.assignmentAttempts.length, 2);
+	Assert.notEqual(first.stageAssignment?.stageAssignmentId, replacement.stageAssignment?.stageAssignmentId);
+	Assert.equal(replacement.stageAssignment?.workerDeviceId, 'worker-2');
+	Assert.equal(replacement.stageAssignmentAttempts.length, 2);
 });
 
 Test('records deterministic lease attempts, acknowledgement, and cancellation', () => {
@@ -173,16 +173,16 @@ Test('records deterministic lease attempts, acknowledgement, and cancellation', 
 
 	const assigned = store.assign(task.taskId, 'worker-1', 'stage_dev_formula_multiply', 5);
 	Assert.equal(assigned.state, 'assigned');
-	Assert.equal(assigned.assignment?.leaseUntil, '2026-01-01T00:00:00.500Z');
+	Assert.equal(assigned.stageAssignment?.leaseUntil, '2026-01-01T00:00:00.500Z');
 	const running = store.acceptAssignment(task.taskId);
 	Assert.equal(running.state, 'running');
-	Assert.equal(running.assignment?.acceptedAt, '2026-01-01T00:00:00.000Z');
+	Assert.equal(running.stageAssignment?.acceptedAt, '2026-01-01T00:00:00.000Z');
 	const retried = store.assign(task.taskId, 'worker-2', 'stage_dev_formula_multiply', 5, 'lease_expired');
-	Assert.equal(retried.assignment?.attempt, 2);
+	Assert.equal(retried.stageAssignment?.attempt, 2);
 	Assert.equal(retried.events.at(-1)?.reason, 'lease_expired');
 	const cancelled = store.cancel(task.taskId, 'consumer_requested');
 	Assert.equal(cancelled.state, 'cancelled');
-	Assert.equal(cancelled.assignment, undefined);
+	Assert.equal(cancelled.stageAssignment, undefined);
 });
 
 Test('restores durable task records and idempotency after a new TaskStore instance', () => {
@@ -194,8 +194,8 @@ Test('restores durable task records and idempotency after a new TaskStore instan
 		first.assign(task.taskId, 'worker-1', 'stage_dev_formula_multiply', 5);
 
 		const restored = new TaskStore(undefined, 30_000, 15_000, stateFile);
-		Assert.equal(restored.findByRequest('consumer-1', 'request-1')?.taskId, task.taskId);
-		Assert.equal(restored.get(task.taskId)?.assignment?.stage, 'stage_dev_formula_multiply');
+		Assert.equal(restored.findByTaskRequest('consumer-1', 'request-1')?.taskId, task.taskId);
+		Assert.equal(restored.get(task.taskId)?.stageAssignment?.stage, 'stage_dev_formula_multiply');
 	} finally {
 		Fs.rmSync(directory, { recursive: true, force: true });
 	}
@@ -383,16 +383,16 @@ Test('resets the retry budget after each successful LLM stage', () => {
 	const store = new TaskStore();
 	const task = createTask(store, { taskType: 'task_type_llm_qwen3_0_6b_sharded', input: 'hello' });
 	let current = store.assign(task.taskId, 'worker-1', 'stage_llm_qwen3_0_6b_shard1of3', { text: 'hello' });
-	Assert.equal(current.assignment?.attempt, 1);
+	Assert.equal(current.stageAssignment?.attempt, 1);
 	current = store.addStage(current.taskId, { name: 'stage_llm_qwen3_0_6b_shard1of3', value: { tensors: {} } });
 	Assert.equal(current.currentStageAttempts, 0);
 	current = store.assign(current.taskId, 'worker-2', 'stage_llm_qwen3_0_6b_shard2of3', { tensors: {} });
-	Assert.equal(current.assignment?.attempt, 1);
+	Assert.equal(current.stageAssignment?.attempt, 1);
 	current = store.addStage(current.taskId, { name: 'stage_llm_qwen3_0_6b_shard2of3', value: { tensors: {} } });
 	current = store.assign(current.taskId, 'worker-3', 'stage_llm_qwen3_0_6b_shard3of3', { tensors: {} });
 	current = store.addStage(current.taskId, { name: 'stage_llm_qwen3_0_6b_shard3of3', value: { text: 'The', done: false } });
 	current = store.assign(current.taskId, 'worker-1', 'stage_llm_qwen3_0_6b_shard1of3', { text: 'The', done: false });
-	Assert.equal(current.assignment?.attempt, 1);
+	Assert.equal(current.stageAssignment?.attempt, 1);
 });
 
 Test('tells a device joining apart from a change to its description, its activity, and its liveness', () => {
@@ -410,11 +410,11 @@ Test('tells a device joining apart from a change to its description, its activit
 	Assert.equal(busy.kind, 'activity_changed');
 	Assert.equal(renamed.kind, 'stable_changed');
 	Assert.equal(restaged.kind, 'stable_changed');
-	// A refreshed liveness timestamp is stored but spends no membership revision, so a
+	// A refreshed liveness timestamp is stored but spends no device-list revision, so a
 	// device that merely keeps sending messages does not move the revision counter.
-	Assert.equal(touched.revision, first.revision);
+	Assert.equal(touched.deviceListRevision, first.deviceListRevision);
 	Assert.equal(registry.get('one')?.lastSeenAt, '2026-01-01T00:00:06.000Z');
-	Assert.equal(registry.membershipRevision(), restaged.revision);
+	Assert.equal(registry.currentDeviceListRevision(), restaged.deviceListRevision);
 });
 
 Test('a lease renewal extends the lease without raising the task revision', () => {
@@ -426,21 +426,21 @@ Test('a lease renewal extends the lease without raising the task revision', () =
 	const leaseUntil = store.renewLease(task.taskId, 60_000)!;
 	const after = store.get(task.taskId)!;
 
-	Assert.ok(Date.parse(leaseUntil) > Date.parse(assigned.assignment!.leaseUntil));
-	Assert.equal(after.assignment?.leaseUntil, leaseUntil);
+	Assert.ok(Date.parse(leaseUntil) > Date.parse(assigned.stageAssignment!.leaseUntil));
+	Assert.equal(after.stageAssignment?.leaseUntil, leaseUntil);
 	// A heartbeat says only that the worker is still alive. Raising the revision would send a
 	// task update to every reader on every heartbeat.
-	Assert.equal(after.revision, before.revision);
+	Assert.equal(after.taskRevision, before.taskRevision);
 	Assert.equal(after.updatedAt, before.updatedAt);
 	// The per-attempt history holds the same assignment and must not drift from it.
-	Assert.equal(after.assignmentAttempts.at(-1)?.leaseUntil, leaseUntil);
+	Assert.equal(after.stageAssignmentAttempts.at(-1)?.leaseUntil, leaseUntil);
 });
 
 Test('a stage assignment can be given a lease shorter or longer than the store default', () => {
 	const store = new TaskStore(undefined, 30_000, 2_000);
 	const task = createTask(store, { taskType: 'task_type_dev_formula', input: 5 }, 'consumer-1', 'request-1');
 	const assigned = store.assign(task.taskId, 'worker-1', 'stage_dev_formula_multiply', 5, undefined, 60_000);
-	Assert.ok(Date.parse(assigned.assignment!.leaseUntil) - Date.now() > 30_000);
+	Assert.ok(Date.parse(assigned.stageAssignment!.leaseUntil) - Date.now() > 30_000);
 });
 
 Test('stage settings come from the pipeline specification, and language-model shards keep their worker', () => {
@@ -572,12 +572,12 @@ Test('two different credentials never become the same principal', () => {
 	// The principal used to be the first twelve characters of the token, so any two tokens
 	// sharing a prefix collided into one principal and shared its task quota.
 	const collidingPrefixes = ['development-token', 'development-token-two', 'development-tokenXYZ', 'development-'];
-	const principals = collidingPrefixes.map((token) => SessionRegistry.principalFor(token));
+	const principals = collidingPrefixes.map((token) => SessionRegistry.authIdentityFor(token));
 	Assert.equal(new Set(principals).size, collidingPrefixes.length);
 
 	// The same credential always resolves to the same principal, so a task submitted before a
 	// renewal and one submitted after count against the same quota.
-	Assert.equal(SessionRegistry.principalFor('development-token'), SessionRegistry.principalFor('development-token'));
+	Assert.equal(SessionRegistry.authIdentityFor('development-token'), SessionRegistry.authIdentityFor('development-token'));
 
 	// No part of the credential is readable in the principal, which is recorded on every task
 	// and written to every log file.
@@ -590,7 +590,7 @@ Test('an advertised session expiry is actually enforced, and survives re-authent
 
 	const session = registry.open('device-a', 'development-token', start);
 	Assert.equal(session.expiresAt, start + 1_000);
-	Assert.equal(registry.active('device-a', start + 999)?.principal, session.principal);
+	Assert.equal(registry.active('device-a', start + 999)?.authIdentity, session.authIdentity);
 
 	// Once the advertised moment passes the session is gone, rather than lasting as long as
 	// the connection stays open.
@@ -600,7 +600,7 @@ Test('an advertised session expiry is actually enforced, and survives re-authent
 	// Authenticating again on the same connection opens a fresh session.
 	const renewed = registry.open('device-a', 'development-token', start + 5_000);
 	Assert.equal(renewed.expiresAt, start + 6_000);
-	Assert.equal(registry.active('device-a', start + 5_500)?.principal, renewed.principal);
+	Assert.equal(registry.active('device-a', start + 5_500)?.authIdentity, renewed.authIdentity);
 
 	// One connection's expiry never affects another's.
 	registry.open('device-b', 'development-token', start + 5_000);
@@ -794,18 +794,18 @@ const buildClientMessageHandlerHarness = () => {
 	};
 
 	/** Authenticates a device, the way any connection must before sending anything else. */
-	const authenticate = (deviceId: string, token = authToken): GatewayMessage[] => drive(deviceId, { type: 'authenticate', token });
+	const authenticate = (deviceId: string, token = authToken): GatewayMessage[] => drive(deviceId, { type: 'deviceAuthenticate', token });
 
 	/** Authenticates and registers a worker, ready by default. */
 	const registerWorker = (deviceId: string, name: string, stageNames: StageName[] = ['stage_dev_formula_multiply', 'stage_dev_formula_add']): GatewayMessage[] => {
 		authenticate(deviceId);
-		return drive(deviceId, { type: 'register', role: 'worker', name, stageNames });
+		return drive(deviceId, { type: 'deviceRegister', role: 'worker', name, stageNames });
 	};
 
 	/** Authenticates and registers a consumer. */
 	const registerConsumer = (deviceId: string, name: string): GatewayMessage[] => {
 		authenticate(deviceId);
-		return drive(deviceId, { type: 'register', role: 'consumer', name });
+		return drive(deviceId, { type: 'deviceRegister', role: 'consumer', name });
 	};
 
 	/**
@@ -823,7 +823,7 @@ Test('every message needs an active session first, before any rule specific to t
 	// An unauthenticated connection is refused for AUTHENTICATION_REQUIRED, not for whatever
 	// that message type would normally check first — here CONSUMER_REQUIRED, since the sender
 	// is registered as nothing at all yet.
-	const [reply] = drive('device-a', { type: 'task.submit', requestId: 'request-1', input: devFormulaInput(5) });
+	const [reply] = drive('device-a', { type: 'task.submit', taskRequestId: 'request-1', input: devFormulaInput(5) });
 	Assert.equal(reply?.type, 'error');
 	Assert.equal((reply as { code: string }).code, 'AUTHENTICATION_REQUIRED');
 
@@ -837,7 +837,7 @@ Test('an authenticated but unregistered connection is refused NOT_REGISTERED for
 	const { drive, authenticate } = buildClientMessageHandlerHarness();
 	authenticate('device-a');
 
-	const [reply] = drive('device-a', { type: 'task.submit', requestId: 'request-1', input: devFormulaInput(5) });
+	const [reply] = drive('device-a', { type: 'task.submit', taskRequestId: 'request-1', input: devFormulaInput(5) });
 	Assert.equal(reply?.type, 'error');
 	Assert.equal((reply as { code: string }).code, 'NOT_REGISTERED');
 
@@ -850,49 +850,49 @@ Test('only a registered consumer may submit a task', () => {
 	const { drive, registerWorker } = buildClientMessageHandlerHarness();
 	registerWorker('worker-1', 'worker-one');
 
-	const [reply] = drive('worker-1', { type: 'task.submit', requestId: 'request-1', input: devFormulaInput(5) });
-	Assert.deepEqual(reply, { type: 'error', code: 'CONSUMER_REQUIRED', message: 'Only consumer browser tabs may submit tasks', requestId: 'request-1' });
+	const [reply] = drive('worker-1', { type: 'task.submit', taskRequestId: 'request-1', input: devFormulaInput(5) });
+	Assert.deepEqual(reply, { type: 'error', code: 'CONSUMER_REQUIRED', message: 'Only consumer browser tabs may submit tasks', taskRequestId: 'request-1' });
 });
 
-Test('resubmitting the same requestId with the same input replays the original acceptance, and a changed input is refused', () => {
+Test('resubmitting the same taskRequestId with the same input replays the original acceptance, and a changed input is refused', () => {
 	const { drive, registerConsumer } = buildClientMessageHandlerHarness();
 	registerConsumer('consumer-1', 'consumer-one');
 
-	const [firstReply] = drive('consumer-1', { type: 'task.submit', requestId: 'request-1', input: devFormulaInput(5) });
+	const [firstReply] = drive('consumer-1', { type: 'task.submit', taskRequestId: 'request-1', input: devFormulaInput(5) });
 	Assert.equal(firstReply?.type, 'task.accepted');
 	const taskId = (firstReply as { task: { taskId: string } }).task.taskId;
 
-	const [replayReply] = drive('consumer-1', { type: 'task.submit', requestId: 'request-1', input: devFormulaInput(5) });
+	const [replayReply] = drive('consumer-1', { type: 'task.submit', taskRequestId: 'request-1', input: devFormulaInput(5) });
 	Assert.equal(replayReply?.type, 'task.accepted');
 	Assert.equal((replayReply as { task: { taskId: string } }).task.taskId, taskId);
 
-	const [conflictReply] = drive('consumer-1', { type: 'task.submit', requestId: 'request-1', input: devFormulaInput(6) });
+	const [conflictReply] = drive('consumer-1', { type: 'task.submit', taskRequestId: 'request-1', input: devFormulaInput(6) });
 	Assert.equal(conflictReply?.type, 'error');
-	Assert.equal((conflictReply as { code: string }).code, 'REQUEST_ID_CONFLICT');
+	Assert.equal((conflictReply as { code: string }).code, 'TASK_REQUEST_ID_CONFLICT');
 });
 
 Test('a principal is refused once its active tasks reach the configured limit', () => {
 	const { drive, registerConsumer } = buildClientMessageHandlerHarness();
 	registerConsumer('consumer-1', 'consumer-one');
 
-	const [firstReply] = drive('consumer-1', { type: 'task.submit', requestId: 'request-1', input: devFormulaInput(5) });
+	const [firstReply] = drive('consumer-1', { type: 'task.submit', taskRequestId: 'request-1', input: devFormulaInput(5) });
 	Assert.equal(firstReply?.type, 'task.accepted');
-	const [secondReply] = drive('consumer-1', { type: 'task.submit', requestId: 'request-2', input: devFormulaInput(5) });
+	const [secondReply] = drive('consumer-1', { type: 'task.submit', taskRequestId: 'request-2', input: devFormulaInput(5) });
 	Assert.equal(secondReply?.type, 'task.accepted');
 
 	// The harness is built with a limit of two active tasks per principal.
-	const [thirdReply] = drive('consumer-1', { type: 'task.submit', requestId: 'request-3', input: devFormulaInput(5) });
+	const [thirdReply] = drive('consumer-1', { type: 'task.submit', taskRequestId: 'request-3', input: devFormulaInput(5) });
 	Assert.equal(thirdReply?.type, 'error');
 	Assert.equal((thirdReply as { code: string }).code, 'RATE_LIMITED');
 });
 
 for (const message of [
 	{ type: 'worker.state' as const, state: 'ready' as const },
-	{ type: 'stage.heartbeat' as const, taskId: 'task-x', assignmentId: 'assignment-x', attempt: 1 },
-	{ type: 'stage.accepted' as const, taskId: 'task-x', assignmentId: 'assignment-x', attempt: 1 },
-	{ type: 'stage.relinquish' as const, taskId: 'task-x', assignmentId: 'assignment-x', attempt: 1 },
-	{ type: 'stage.result' as const, taskId: 'task-x', assignmentId: 'assignment-x', attempt: 1, stage: 'stage_dev_formula_add' as const, value: 1 },
-	{ type: 'stage.failed' as const, taskId: 'task-x', assignmentId: 'assignment-x', attempt: 1, stage: 'stage_dev_formula_add' as const, error: 'boom' },
+	{ type: 'stage.heartbeat' as const, taskId: 'task-x', stageAssignmentId: 'assignment-x', attempt: 1 },
+	{ type: 'stage.accepted' as const, taskId: 'task-x', stageAssignmentId: 'assignment-x', attempt: 1 },
+	{ type: 'stage.relinquish' as const, taskId: 'task-x', stageAssignmentId: 'assignment-x', attempt: 1 },
+	{ type: 'stage.result' as const, taskId: 'task-x', stageAssignmentId: 'assignment-x', attempt: 1, stage: 'stage_dev_formula_add' as const, value: 1 },
+	{ type: 'stage.failed' as const, taskId: 'task-x', stageAssignmentId: 'assignment-x', attempt: 1, stage: 'stage_dev_formula_add' as const, error: 'boom' },
 ] satisfies ClientMessage[]) {
 	Test(`a registered consumer may not send "${message.type}", which every worker-only stage message refuses`, () => {
 		const { drive, registerConsumer } = buildClientMessageHandlerHarness();
@@ -908,14 +908,14 @@ Test('a worker cannot extend, accept, or return a result for an assignment it do
 	const { drive, registerWorker } = buildClientMessageHandlerHarness();
 	registerWorker('worker-1', 'worker-one');
 
-	const [heartbeatReply] = drive('worker-1', { type: 'stage.heartbeat', taskId: 'task-x', assignmentId: 'assignment-x', attempt: 1 });
+	const [heartbeatReply] = drive('worker-1', { type: 'stage.heartbeat', taskId: 'task-x', stageAssignmentId: 'assignment-x', attempt: 1 });
 	Assert.equal(heartbeatReply?.type, 'stage.cancel');
 	Assert.equal((heartbeatReply as { reason: string }).reason, 'assignment_superseded');
 
-	const [acceptedReply] = drive('worker-1', { type: 'stage.accepted', taskId: 'task-x', assignmentId: 'assignment-x', attempt: 1 });
+	const [acceptedReply] = drive('worker-1', { type: 'stage.accepted', taskId: 'task-x', stageAssignmentId: 'assignment-x', attempt: 1 });
 	Assert.deepEqual(acceptedReply, { type: 'error', code: 'STALE_ASSIGNMENT', message: 'The stage assignment is no longer current', taskId: 'task-x' });
 
-	const [resultReply] = drive('worker-1', { type: 'stage.result', taskId: 'task-x', assignmentId: 'assignment-x', attempt: 1, stage: 'stage_dev_formula_add', value: 1 });
+	const [resultReply] = drive('worker-1', { type: 'stage.result', taskId: 'task-x', stageAssignmentId: 'assignment-x', attempt: 1, stage: 'stage_dev_formula_add', value: 1 });
 	Assert.deepEqual(resultReply, { type: 'error', code: 'TASK_NOT_FOUND', message: 'Task was not found', taskId: 'task-x' });
 });
 
@@ -924,7 +924,7 @@ Test('a submitted task is assigned to a matching worker, and runs both stages to
 	registerWorker('worker-1', 'worker-one');
 	registerConsumer('consumer-1', 'consumer-one');
 
-	const [submitReply] = drive('consumer-1', { type: 'task.submit', requestId: 'request-1', input: devFormulaInput(5) });
+	const [submitReply] = drive('consumer-1', { type: 'task.submit', taskRequestId: 'request-1', input: devFormulaInput(5) });
 	Assert.equal(submitReply?.type, 'task.accepted');
 	const taskId = (submitReply as { task: { taskId: string } }).task.taskId;
 
@@ -936,12 +936,12 @@ Test('a submitted task is assigned to a matching worker, and runs both stages to
 
 	// Accepting draws no direct reply: task updates go only to the consumer and any observers,
 	// never to the worker holding the assignment.
-	const acceptedReplies = drive('worker-1', { type: 'stage.accepted', taskId, assignmentId: firstAssignment!.assignmentId, attempt: firstAssignment!.attempt });
+	const acceptedReplies = drive('worker-1', { type: 'stage.accepted', taskId, stageAssignmentId: firstAssignment!.stageAssignmentId, attempt: firstAssignment!.attempt });
 	Assert.deepEqual(acceptedReplies, []);
 
 	// Completing the first stage carries two messages back to this same worker: the next
 	// stage's assignment, pushed as a side effect before the reply that follows it.
-	const firstResultMessages = drive('worker-1', { type: 'stage.result', taskId, assignmentId: firstAssignment!.assignmentId, attempt: firstAssignment!.attempt, stage: 'stage_dev_formula_multiply', value: 10 });
+	const firstResultMessages = drive('worker-1', { type: 'stage.result', taskId, stageAssignmentId: firstAssignment!.stageAssignmentId, attempt: firstAssignment!.attempt, stage: 'stage_dev_formula_multiply', value: 10 });
 	const firstResultReply = firstResultMessages.find((sent) => sent.type === 'stage.result.accepted');
 	Assert.equal((firstResultReply as { status: string } | undefined)?.status, 'assigned');
 
@@ -949,11 +949,11 @@ Test('a submitted task is assigned to a matching worker, and runs both stages to
 	// anywhere; with only one worker connected, it comes back to the same one.
 	const secondAssignment = firstResultMessages.find((sent): sent is Extract<GatewayMessage, { type: 'stage.assign' }> => sent.type === 'stage.assign');
 	Assert.equal(secondAssignment?.stage, 'stage_dev_formula_add');
-	Assert.notEqual(secondAssignment?.assignmentId, firstAssignment?.assignmentId);
+	Assert.notEqual(secondAssignment?.stageAssignmentId, firstAssignment?.stageAssignmentId);
 
-	drive('worker-1', { type: 'stage.accepted', taskId, assignmentId: secondAssignment!.assignmentId, attempt: secondAssignment!.attempt });
-	const [secondResultReply] = drive('worker-1', { type: 'stage.result', taskId, assignmentId: secondAssignment!.assignmentId, attempt: secondAssignment!.attempt, stage: 'stage_dev_formula_add', value: 17 });
-	Assert.deepEqual(secondResultReply, { type: 'stage.result.accepted', taskId, assignmentId: secondAssignment!.assignmentId, attempt: secondAssignment!.attempt, revision: (secondResultReply as { revision: number }).revision, status: 'completed' });
+	drive('worker-1', { type: 'stage.accepted', taskId, stageAssignmentId: secondAssignment!.stageAssignmentId, attempt: secondAssignment!.attempt });
+	const [secondResultReply] = drive('worker-1', { type: 'stage.result', taskId, stageAssignmentId: secondAssignment!.stageAssignmentId, attempt: secondAssignment!.attempt, stage: 'stage_dev_formula_add', value: 17 });
+	Assert.deepEqual(secondResultReply, { type: 'stage.result.accepted', taskId, stageAssignmentId: secondAssignment!.stageAssignmentId, attempt: secondAssignment!.attempt, taskRevision: (secondResultReply as { taskRevision: number }).taskRevision, status: 'completed' });
 
 	const [taskReply] = drive('consumer-1', { type: 'task.get', taskId });
 	Assert.equal(taskReply?.type, 'task.snapshot');
@@ -1023,7 +1023,7 @@ Test('the generation settings a task was submitted with reach the worker on ever
 	registerConsumer('consumer-1', 'consumer-one');
 
 	const input: TaskInput = { ...devFormulaInput(5), generationSettings: { isStreaming: true } };
-	const [submitReply] = drive('consumer-1', { type: 'task.submit', requestId: 'request-1', input });
+	const [submitReply] = drive('consumer-1', { type: 'task.submit', taskRequestId: 'request-1', input });
 	const taskId = (submitReply as { task: { taskId: string } }).task.taskId;
 
 	const assignments = () => allSentTo('worker-1').filter((sent): sent is Extract<GatewayMessage, { type: 'stage.assign' }> => sent.type === 'stage.assign');
@@ -1032,8 +1032,8 @@ Test('the generation settings a task was submitted with reach the worker on ever
 
 	// The settings are read off the stored task rather than remembered from the submission, so
 	// the stage that follows carries them too, without the first stage's result passing them on.
-	drive('worker-1', { type: 'stage.accepted', taskId, assignmentId: firstAssignment!.assignmentId, attempt: firstAssignment!.attempt });
-	drive('worker-1', { type: 'stage.result', taskId, assignmentId: firstAssignment!.assignmentId, attempt: firstAssignment!.attempt, stage: 'stage_dev_formula_multiply', value: 10 });
+	drive('worker-1', { type: 'stage.accepted', taskId, stageAssignmentId: firstAssignment!.stageAssignmentId, attempt: firstAssignment!.attempt });
+	drive('worker-1', { type: 'stage.result', taskId, stageAssignmentId: firstAssignment!.stageAssignmentId, attempt: firstAssignment!.attempt, stage: 'stage_dev_formula_multiply', value: 10 });
 	Assert.deepEqual(assignments()[1]?.generationSettings, { isStreaming: true });
 });
 
@@ -1043,15 +1043,15 @@ Test('every piece of an answer reaches the consumer that asked for its answer in
 	registerConsumer('consumer-1', 'consumer-one');
 
 	const input: TaskInput = { taskType: 'task_type_llm_gemma_nano_chrome_full', input: 'What is the capital of France?', generationSettings: { isStreaming: true } };
-	const [submitReply] = drive('consumer-1', { type: 'task.submit', requestId: 'request-1', input });
+	const [submitReply] = drive('consumer-1', { type: 'task.submit', taskRequestId: 'request-1', input });
 	const taskId = (submitReply as { task: { taskId: string } }).task.taskId;
 
 	const assignments = () => allSentTo('worker-1').filter((sent): sent is Extract<GatewayMessage, { type: 'stage.assign' }> => sent.type === 'stage.assign');
 	/** Returns one piece of the answer from the worker, the way one run of the stage does. */
 	const returnPiece = (value: unknown): void => {
 		const assignment = assignments().at(-1)!;
-		drive('worker-1', { type: 'stage.accepted', taskId, assignmentId: assignment.assignmentId, attempt: assignment.attempt });
-		drive('worker-1', { type: 'stage.result', taskId, assignmentId: assignment.assignmentId, attempt: assignment.attempt, stage: 'stage_llm_gemma_nano_chrome_full', value: value as never });
+		drive('worker-1', { type: 'stage.accepted', taskId, stageAssignmentId: assignment.stageAssignmentId, attempt: assignment.attempt });
+		drive('worker-1', { type: 'stage.result', taskId, stageAssignmentId: assignment.stageAssignmentId, attempt: assignment.attempt, stage: 'stage_llm_gemma_nano_chrome_full', value: value as never });
 	};
 
 	returnPiece({ newText: 'The', isContinuation: true, done: false });
@@ -1074,21 +1074,21 @@ Test('assigning a stage again to the same tab does not first tell that tab to le
 	registerConsumer('consumer-1', 'consumer-one');
 
 	const input: TaskInput = { taskType: 'task_type_llm_gemma_nano_chrome_full', input: 'What is the capital of France?', generationSettings: { isStreaming: true } };
-	const [submitReply] = drive('consumer-1', { type: 'task.submit', requestId: 'request-1', input });
+	const [submitReply] = drive('consumer-1', { type: 'task.submit', taskRequestId: 'request-1', input });
 	const taskId = (submitReply as { task: { taskId: string } }).task.taskId;
 	const assignments = () => allSentTo('worker-1').filter((sent): sent is Extract<GatewayMessage, { type: 'stage.assign' }> => sent.type === 'stage.assign');
 	const first = assignments()[0]!;
 
-	drive('worker-1', { type: 'stage.accepted', taskId, assignmentId: first.assignmentId, attempt: first.attempt });
-	drive('worker-1', { type: 'stage.result', taskId, assignmentId: first.assignmentId, attempt: first.attempt, stage: 'stage_llm_gemma_nano_chrome_full', value: { newText: 'The', isContinuation: true, done: false } });
+	drive('worker-1', { type: 'stage.accepted', taskId, stageAssignmentId: first.stageAssignmentId, attempt: first.attempt });
+	drive('worker-1', { type: 'stage.result', taskId, stageAssignmentId: first.stageAssignmentId, attempt: first.attempt, stage: 'stage_llm_gemma_nano_chrome_full', value: { newText: 'The', isContinuation: true, done: false } });
 	const second = assignments()[1]!;
-	drive('worker-1', { type: 'stage.accepted', taskId, assignmentId: second.assignmentId, attempt: second.attempt });
+	drive('worker-1', { type: 'stage.accepted', taskId, stageAssignmentId: second.stageAssignmentId, attempt: second.attempt });
 
 	// The lease runs out while the tab is still reading its next piece, so the gateway assigns
 	// the stage again. The answer is in that tab's memory, so the retry comes back to it — and
 	// the tab must not first be told to let go of the answer the retry was sent to carry on.
-	const expired = taskStore.get(taskId)!.assignment!;
-	taskStore.update(taskId, { assignment: { ...expired, leaseUntil: new Date(Date.now() - 1_000).toISOString() } });
+	const expired = taskStore.get(taskId)!.stageAssignment!;
+	taskStore.update(taskId, { stageAssignment: { ...expired, leaseUntil: new Date(Date.now() - 1_000).toISOString() } });
 	const before = allSentTo('worker-1').length;
 	scheduler.recoverAssignments();
 
@@ -1096,7 +1096,7 @@ Test('assigning a stage again to the same tab does not first tell that tab to le
 	Assert.deepEqual(sentSince.filter((sent) => sent.type === 'stage.cancel'), []);
 	const retry = sentSince.find((sent): sent is Extract<GatewayMessage, { type: 'stage.assign' }> => sent.type === 'stage.assign');
 	Assert.equal(retry?.taskId, taskId);
-	Assert.notEqual(retry?.assignmentId, second.assignmentId);
+	Assert.notEqual(retry?.stageAssignmentId, second.stageAssignmentId);
 });
 
 Test('a run that carries an answer on is never placed on a device that is not holding it', () => {
@@ -1105,19 +1105,19 @@ Test('a run that carries an answer on is never placed on a device that is not ho
 	registerConsumer('consumer-1', 'consumer-one');
 
 	const input: TaskInput = { taskType: 'task_type_llm_gemma_nano_chrome_full', input: 'What is the capital of France?', generationSettings: { isStreaming: true } };
-	const [submitReply] = drive('consumer-1', { type: 'task.submit', requestId: 'request-1', input });
+	const [submitReply] = drive('consumer-1', { type: 'task.submit', taskRequestId: 'request-1', input });
 	const taskId = (submitReply as { task: { taskId: string } }).task.taskId;
 	const first = allSentTo('worker-1').find((sent): sent is Extract<GatewayMessage, { type: 'stage.assign' }> => sent.type === 'stage.assign')!;
 
-	drive('worker-1', { type: 'stage.accepted', taskId, assignmentId: first.assignmentId, attempt: first.attempt });
-	drive('worker-1', { type: 'stage.result', taskId, assignmentId: first.assignmentId, attempt: first.attempt, stage: 'stage_llm_gemma_nano_chrome_full', value: { newText: 'The', isContinuation: true, done: false } });
+	drive('worker-1', { type: 'stage.accepted', taskId, stageAssignmentId: first.stageAssignmentId, attempt: first.attempt });
+	drive('worker-1', { type: 'stage.result', taskId, stageAssignmentId: first.stageAssignmentId, attempt: first.attempt, stage: 'stage_llm_gemma_nano_chrome_full', value: { newText: 'The', isContinuation: true, done: false } });
 
 	// A second tab appears while the first one is holding the answer. The answer is in the first
 	// tab's memory and nowhere else, so the run that carries it on cannot be given to the second,
 	// where it could only fail — and a failed stage fails the whole task. The task waits instead,
 	// which the submission deadline bounds.
 	registerWorker('worker-2', 'worker-two', ['stage_llm_gemma_nano_chrome_full']);
-	taskStore.update(taskId, { state: 'queued', assignment: undefined });
+	taskStore.update(taskId, { state: 'queued', stageAssignment: undefined });
 	drive('worker-1', { type: 'worker.state', state: 'draining' });
 	scheduler.scheduleQueuedTasks();
 
@@ -1130,7 +1130,7 @@ Test('a task submitted without generation settings puts no settings field on the
 	registerWorker('worker-1', 'worker-one');
 	registerConsumer('consumer-1', 'consumer-one');
 
-	drive('consumer-1', { type: 'task.submit', requestId: 'request-1', input: devFormulaInput(5) });
+	drive('consumer-1', { type: 'task.submit', taskRequestId: 'request-1', input: devFormulaInput(5) });
 
 	const assignment = allSentTo('worker-1').find((sent): sent is Extract<GatewayMessage, { type: 'stage.assign' }> => sent.type === 'stage.assign');
 	Assert.equal(assignment === undefined, false);
@@ -1142,7 +1142,7 @@ Test('a task may only be cancelled by the consumer that owns it', () => {
 	registerConsumer('consumer-1', 'consumer-one');
 	registerConsumer('consumer-2', 'consumer-two');
 
-	const [submitReply] = drive('consumer-1', { type: 'task.submit', requestId: 'request-1', input: devFormulaInput(5) });
+	const [submitReply] = drive('consumer-1', { type: 'task.submit', taskRequestId: 'request-1', input: devFormulaInput(5) });
 	const taskId = (submitReply as { task: { taskId: string } }).task.taskId;
 
 	const [strangerReply] = drive('consumer-2', { type: 'task.cancel', taskId, reason: 'no longer needed' });
@@ -1158,7 +1158,7 @@ Test('a consumer may read its own task, but not a task belonging to someone else
 	registerConsumer('consumer-1', 'consumer-one');
 	registerConsumer('consumer-2', 'consumer-two');
 
-	const [submitReply] = drive('consumer-1', { type: 'task.submit', requestId: 'request-1', input: devFormulaInput(5) });
+	const [submitReply] = drive('consumer-1', { type: 'task.submit', taskRequestId: 'request-1', input: devFormulaInput(5) });
 	const taskId = (submitReply as { task: { taskId: string } }).task.taskId;
 
 	const [ownerReply] = drive('consumer-1', { type: 'task.get', taskId });

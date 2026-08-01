@@ -55,7 +55,7 @@ export class Cli {
 		// and its own shape rather than folded into the message log above: that file is this
 		// server's wire protocol with the central gateway, and this one is what a caller of this
 		// server experienced, which are easier to read apart than interleaved.
-		// `metadata.gatewayRequestId` on an entry here joins it back to the matching
+		// `metadata.gatewayTaskRequestId` on an entry here joins it back to the matching
 		// `task.submit` in the other file.
 		const transactionLogger = new CurlStyleTransactionLogger(
 			Path.join(logsDirectory, `consumer_openai-${runTimestamp}.log_http.txt`),

@@ -69,7 +69,7 @@ export class TaskScheduler {
 		const existing = this.taskStore.get(taskId);
 		if (existing === undefined || existing.state === 'cancelled' || existing.state === 'completed' || existing.state === 'failed') return;
 		if (existing.currentStageAttempts >= this.maximumAttempts) {
-			this.taskStore.update(taskId, { state: 'failed', error: 'MAX_ATTEMPTS_EXHAUSTED', assignment: undefined });
+			this.taskStore.update(taskId, { state: 'failed', error: 'MAX_ATTEMPTS_EXHAUSTED', stageAssignment: undefined });
 			this.broadcastTask(taskId);
 			return;
 		}
@@ -88,12 +88,12 @@ export class TaskScheduler {
 		const holder = existing.stageWorkerDeviceIds?.[stage];
 		const isMisplacedContinuation = TaskScheduler.continuesGeneration(value) && device !== undefined && holder !== undefined && device.deviceId !== holder;
 		if (device === undefined || isMisplacedContinuation) {
-			this.taskStore.update(taskId, { state: 'queued', assignment: undefined });
+			this.taskStore.update(taskId, { state: 'queued', stageAssignment: undefined });
 			this.broadcastTask(taskId);
 			return;
 		}
-		if (existing.assignment !== undefined) {
-			this.announcer.releaseWorkerAssignment(existing.assignment.workerDeviceId);
+		if (existing.stageAssignment !== undefined) {
+			this.announcer.releaseWorkerAssignment(existing.stageAssignment.workerDeviceId);
 			// A worker no longer learns that its assignment was superseded from a task
 			// snapshot, because task updates are not sent to workers any more. Tell the
 			// superseded worker directly, so it can drop any state it holds for the task.
@@ -103,24 +103,24 @@ export class TaskScheduler {
 			// carry on from exactly that. Cancelling first would destroy an answer held in the
 			// browser's memory a moment before the run that was sent to continue it arrives, and
 			// that run would then fail for want of the answer the cancellation just threw away.
-			const supersededSocket = existing.assignment.workerDeviceId === device.deviceId ? undefined : this.hub.socketMap.get(existing.assignment.workerDeviceId);
+			const supersededSocket = existing.stageAssignment.workerDeviceId === device.deviceId ? undefined : this.hub.socketMap.get(existing.stageAssignment.workerDeviceId);
 			if (supersededSocket !== undefined) {
-				this.hub.send(supersededSocket, { type: 'stage.cancel', taskId, assignmentId: existing.assignment.assignmentId, attempt: existing.assignment.attempt, reason: retryReason ?? 'assignment_superseded' }, this.hub.counterpartFor(existing.assignment.workerDeviceId));
+				this.hub.send(supersededSocket, { type: 'stage.cancel', taskId, stageAssignmentId: existing.stageAssignment.stageAssignmentId, attempt: existing.stageAssignment.attempt, reason: retryReason ?? 'assignment_superseded' }, this.hub.counterpartFor(existing.stageAssignment.workerDeviceId));
 			}
 		}
 		const task = this.taskStore.assign(taskId, device.deviceId, stage, value, retryReason, this.stagePolicyResolver.resolve(existing, stage).leaseMs);
 		this.announcer.occupyWorkerAssignment(device.deviceId);
 		const socket = this.hub.socketMap.get(device.deviceId);
-		const assignment = task.assignment;
-		if (socket !== undefined && assignment !== undefined) {
+		const stageAssignment = task.stageAssignment;
+		if (socket !== undefined && stageAssignment !== undefined) {
 			// The worker is told which computation to run and which position in its pipeline this
 			// stage occupies, so it never has to recognise the stage name to know what to do.
 			const specification = this.stagePolicyResolver.stageSpecification(existing, stage);
 			this.hub.send(socket, {
 				type: 'stage.assign',
 				taskId,
-				assignmentId: assignment.assignmentId,
-				attempt: assignment.attempt,
+				stageAssignmentId: stageAssignment.stageAssignmentId,
+				attempt: stageAssignment.attempt,
 				stage,
 				computation: specification?.computation ?? stage,
 				stageIndex: Math.max(0, (existing.pipelineStages ?? []).indexOf(stage)),
@@ -131,7 +131,7 @@ export class TaskScheduler {
 				// repeating pipeline, a retry, and a task placed after waiting in the queue — sends
 				// the same settings without any of them having to pass the settings along.
 				generationSettings: existing.input.generationSettings,
-				leaseUntil: assignment.leaseUntil,
+				leaseUntil: stageAssignment.leaseUntil,
 			}, { role: device.deviceRole, deviceId: device.deviceId });
 		}
 		this.broadcastTask(taskId);
@@ -169,14 +169,14 @@ export class TaskScheduler {
 	 */
 	recoverAssignments(): void {
 		for (const task of this.taskStore.list()) {
-			const assignment = task.assignment;
-			if (assignment === undefined || Date.parse(assignment.leaseUntil) > Date.now()) continue;
-			const policy = this.stagePolicyResolver.resolve(task, assignment.stage);
+			const stageAssignment = task.stageAssignment;
+			if (stageAssignment === undefined || Date.parse(stageAssignment.leaseUntil) > Date.now()) continue;
+			const policy = this.stagePolicyResolver.resolve(task, stageAssignment.stage);
 			if (policy.prefersSameWorkerOnRetry) {
-				this.assign(task.taskId, assignment.value, assignment.stage, { retryReason: 'lease_expired', preferredWorkerDeviceId: assignment.workerDeviceId });
+				this.assign(task.taskId, stageAssignment.value, stageAssignment.stage, { retryReason: 'lease_expired', preferredWorkerDeviceId: stageAssignment.workerDeviceId });
 				continue;
 			}
-			this.assign(task.taskId, assignment.value, assignment.stage, { excluded: [assignment.workerDeviceId], retryReason: 'lease_expired' });
+			this.assign(task.taskId, stageAssignment.value, stageAssignment.stage, { excluded: [stageAssignment.workerDeviceId], retryReason: 'lease_expired' });
 		}
 	}
 
@@ -187,8 +187,8 @@ export class TaskScheduler {
 	 */
 	recoverWorkerAssignments(deviceId: string): void {
 		for (const task of this.taskStore.list()) {
-			const assignment = task.assignment;
-			if (assignment?.workerDeviceId === deviceId) this.assign(task.taskId, assignment.value, assignment.stage, { excluded: [deviceId], retryReason: 'worker_disconnected' });
+			const stageAssignment = task.stageAssignment;
+			if (stageAssignment?.workerDeviceId === deviceId) this.assign(task.taskId, stageAssignment.value, stageAssignment.stage, { excluded: [deviceId], retryReason: 'worker_disconnected' });
 		}
 	}
 

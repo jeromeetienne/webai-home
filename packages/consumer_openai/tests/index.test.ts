@@ -205,8 +205,8 @@ const registeredStandInCluster = async (overrides: Partial<ClusterTaskRunnerOpti
 	// One hour ahead, which is what the gateway's own --session-ms defaults to. A far-future
 	// expiry would ask Node for a timer longer than it can hold.
 	const sessionExpiresAt = new Date(Date.now() + 3_600_000).toISOString();
-	receive({ type: 'authenticated', principal: 'principal-development', expiresAt: sessionExpiresAt });
-	receive({ type: 'registered', deviceId: 'device-openai-1' });
+	receive({ type: 'deviceAuthenticated', authIdentity: 'authIdentity-development', expiresAt: sessionExpiresAt });
+	receive({ type: 'deviceRegistered', deviceId: 'device-openai-1' });
 	await settlePromises();
 	return { runner, socket, sentFrames, lastSentBody: () => sentFrames()[sent.length - 1]?.body ?? {}, receive };
 };
@@ -220,15 +220,15 @@ Test('submits one task per request and answers with the text it generated', asyn
 	const submitted = cluster.lastSentBody();
 	Assert.equal(submitted['type'], 'task.submit');
 	Assert.deepEqual(submitted['input'], { taskType: 'task_type_dev_formula', input: 5 });
-	const requestId = submitted['requestId'];
-	Assert.equal(typeof requestId, 'string');
+	const taskRequestId = submitted['taskRequestId'];
+	Assert.equal(typeof taskRequestId, 'string');
 	Assert.equal(cluster.runner.tasksInFlight, 1);
 
 	// The accepted task carries back the identifier the submission was sent under, which is what
 	// joins every later revision of that task to this request.
-	cluster.receive({ type: 'task.accepted', requestId, task: { taskId: 'task-1', requestId, state: 'queued' } });
-	cluster.receive({ type: 'task.updated', update: { taskId: 'task-1', revision: 3, state: 'running', completedStageCount: 1, currentStageAttempts: 1 } });
-	cluster.receive({ type: 'task.updated', update: { taskId: 'task-1', revision: 4, state: 'completed', completedStageCount: 2, currentStageAttempts: 0, result: 17 } });
+	cluster.receive({ type: 'task.accepted', taskRequestId, task: { taskId: 'task-1', taskRequestId, state: 'queued' } });
+	cluster.receive({ type: 'task.updated', update: { taskId: 'task-1', taskRevision: 3, state: 'running', completedStageCount: 1, currentStageAttempts: 1 } });
+	cluster.receive({ type: 'task.updated', update: { taskId: 'task-1', taskRevision: 4, state: 'completed', completedStageCount: 2, currentStageAttempts: 0, result: 17 } });
 
 	// A development formula task carries a plain number, so its answer is that number written out.
 	Assert.equal(await answer, '17');
@@ -240,9 +240,9 @@ Test('answers with the generated text of a language-model task', async () => {
 	const cluster = await registeredStandInCluster();
 	const answer = cluster.runner.run({ taskType: 'task_type_llm_gemma_nano_chrome_full', input: 'What is the capital of France?' }, 'llm_gemma_nano_chrome_full');
 	await settlePromises();
-	const requestId = cluster.lastSentBody()['requestId'];
-	cluster.receive({ type: 'task.accepted', requestId, task: { taskId: 'task-2', requestId, state: 'queued' } });
-	cluster.receive({ type: 'task.updated', update: { taskId: 'task-2', revision: 9, state: 'completed', completedStageCount: 4, currentStageAttempts: 0, result: { text: 'Paris is the capital of France.', done: true } } });
+	const taskRequestId = cluster.lastSentBody()['taskRequestId'];
+	cluster.receive({ type: 'task.accepted', taskRequestId, task: { taskId: 'task-2', taskRequestId, state: 'queued' } });
+	cluster.receive({ type: 'task.updated', update: { taskId: 'task-2', taskRevision: 9, state: 'completed', completedStageCount: 4, currentStageAttempts: 0, result: { text: 'Paris is the capital of France.', done: true } } });
 	Assert.equal(await answer, 'Paris is the capital of France.');
 	cluster.runner.close();
 });
@@ -251,9 +251,9 @@ Test('reports that no volunteer browser offered the work when the task waited to
 	const cluster = await registeredStandInCluster();
 	const answer = cluster.runner.run({ taskType: 'task_type_dev_formula', input: 5 }, 'dev_formula');
 	await settlePromises();
-	const requestId = cluster.lastSentBody()['requestId'];
-	cluster.receive({ type: 'task.accepted', requestId, task: { taskId: 'task-3', requestId, state: 'queued' } });
-	cluster.receive({ type: 'task.updated', update: { taskId: 'task-3', revision: 2, state: 'failed', completedStageCount: 0, currentStageAttempts: 0, error: 'SUBMISSION_DEADLINE_EXPIRED' } });
+	const taskRequestId = cluster.lastSentBody()['taskRequestId'];
+	cluster.receive({ type: 'task.accepted', taskRequestId, task: { taskId: 'task-3', taskRequestId, state: 'queued' } });
+	cluster.receive({ type: 'task.updated', update: { taskId: 'task-3', taskRevision: 2, state: 'failed', completedStageCount: 0, currentStageAttempts: 0, error: 'SUBMISSION_DEADLINE_EXPIRED' } });
 	const failure = await answer.then(() => undefined, (error: unknown) => error);
 	Assert.ok(failure instanceof OpenaiError);
 	Assert.equal(failure.status, 503);
@@ -266,9 +266,9 @@ Test('reports a task the cluster ran and failed as a fault of the cluster', asyn
 	const cluster = await registeredStandInCluster();
 	const answer = cluster.runner.run({ taskType: 'task_type_dev_formula', input: 5 }, 'dev_formula');
 	await settlePromises();
-	const requestId = cluster.lastSentBody()['requestId'];
-	cluster.receive({ type: 'task.accepted', requestId, task: { taskId: 'task-4', requestId, state: 'queued' } });
-	cluster.receive({ type: 'task.updated', update: { taskId: 'task-4', revision: 5, state: 'failed', completedStageCount: 1, currentStageAttempts: 3, error: 'the assignment attempts were used up' } });
+	const taskRequestId = cluster.lastSentBody()['taskRequestId'];
+	cluster.receive({ type: 'task.accepted', taskRequestId, task: { taskId: 'task-4', taskRequestId, state: 'queued' } });
+	cluster.receive({ type: 'task.updated', update: { taskId: 'task-4', taskRevision: 5, state: 'failed', completedStageCount: 1, currentStageAttempts: 3, error: 'the assignment attempts were used up' } });
 	const failure = await answer.then(() => undefined, (error: unknown) => error);
 	Assert.ok(failure instanceof OpenaiError);
 	Assert.equal(failure.status, 502);
@@ -280,8 +280,8 @@ Test('passes on the gateway refusing a submission it has no room for', async () 
 	const cluster = await registeredStandInCluster();
 	const answer = cluster.runner.run({ taskType: 'task_type_dev_formula', input: 5 }, 'dev_formula');
 	await settlePromises();
-	const requestId = cluster.lastSentBody()['requestId'];
-	cluster.receive({ type: 'error', code: 'RATE_LIMITED', message: 'The principal has reached its active-task limit', requestId, retryable: true });
+	const taskRequestId = cluster.lastSentBody()['taskRequestId'];
+	cluster.receive({ type: 'error', code: 'RATE_LIMITED', message: 'The authIdentity has reached its active-task limit', taskRequestId, retryable: true });
 	const failure = await answer.then(() => undefined, (error: unknown) => error);
 	Assert.ok(failure instanceof OpenaiError);
 	Assert.equal(failure.status, 429);
@@ -306,8 +306,8 @@ Test('cancels the task when whoever sent the request goes away', async () => {
 	const abortController = new AbortController();
 	const answer = cluster.runner.run({ taskType: 'task_type_dev_formula', input: 5 }, 'dev_formula', abortController.signal);
 	await settlePromises();
-	const requestId = cluster.lastSentBody()['requestId'];
-	cluster.receive({ type: 'task.accepted', requestId, task: { taskId: 'task-5', requestId, state: 'queued' } });
+	const taskRequestId = cluster.lastSentBody()['taskRequestId'];
+	cluster.receive({ type: 'task.accepted', taskRequestId, task: { taskId: 'task-5', taskRequestId, state: 'queued' } });
 	abortController.abort();
 	const cancelled = cluster.lastSentBody();
 	Assert.equal(cancelled['type'], 'task.cancel');
@@ -433,12 +433,12 @@ Test('answers a streamed request as the answer is written, and asks the cluster 
 		await waitUntil(() => server.cluster.lastSentBody()['type'] === 'task.submit');
 		const submitted = server.cluster.lastSentBody();
 		Assert.deepEqual((submitted['input'] as { generationSettings: unknown }).generationSettings, { isStreaming: true });
-		const requestId = submitted['requestId'] as string;
+		const taskRequestId = submitted['taskRequestId'] as string;
 
-		server.cluster.receive({ type: 'task.accepted', requestId, task: { taskId: 'task-stream-1', requestId, state: 'queued' } });
-		server.cluster.receive({ type: 'task.updated', update: { taskId: 'task-stream-1', revision: 2, state: 'running', completedStageCount: 1, currentStageAttempts: 1, newText: 'The ' } });
-		server.cluster.receive({ type: 'task.updated', update: { taskId: 'task-stream-1', revision: 3, state: 'running', completedStageCount: 2, currentStageAttempts: 1, newText: 'capital.' } });
-		server.cluster.receive({ type: 'task.updated', update: { taskId: 'task-stream-1', revision: 4, state: 'completed', completedStageCount: 3, currentStageAttempts: 0, result: { text: 'The capital.', done: true } } });
+		server.cluster.receive({ type: 'task.accepted', taskRequestId, task: { taskId: 'task-stream-1', taskRequestId, state: 'queued' } });
+		server.cluster.receive({ type: 'task.updated', update: { taskId: 'task-stream-1', taskRevision: 2, state: 'running', completedStageCount: 1, currentStageAttempts: 1, newText: 'The ' } });
+		server.cluster.receive({ type: 'task.updated', update: { taskId: 'task-stream-1', taskRevision: 3, state: 'running', completedStageCount: 2, currentStageAttempts: 1, newText: 'capital.' } });
+		server.cluster.receive({ type: 'task.updated', update: { taskId: 'task-stream-1', taskRevision: 4, state: 'completed', completedStageCount: 3, currentStageAttempts: 0, result: { text: 'The capital.', done: true } } });
 
 		const response = await responsePromise;
 		Assert.equal(response.status, 200);
@@ -474,10 +474,10 @@ Test('a request that asks for no stream asks the cluster for no pieces, and is a
 		const submitted = server.cluster.lastSentBody();
 		// The submission is exactly what it was before pieces existed: no settings field at all.
 		Assert.equal('generationSettings' in (submitted['input'] as object), false);
-		const requestId = submitted['requestId'] as string;
+		const taskRequestId = submitted['taskRequestId'] as string;
 
-		server.cluster.receive({ type: 'task.accepted', requestId, task: { taskId: 'task-whole-1', requestId, state: 'queued' } });
-		server.cluster.receive({ type: 'task.updated', update: { taskId: 'task-whole-1', revision: 2, state: 'completed', completedStageCount: 1, currentStageAttempts: 0, result: { text: 'The capital.', done: true } } });
+		server.cluster.receive({ type: 'task.accepted', taskRequestId, task: { taskId: 'task-whole-1', taskRequestId, state: 'queued' } });
+		server.cluster.receive({ type: 'task.updated', update: { taskId: 'task-whole-1', taskRevision: 2, state: 'completed', completedStageCount: 1, currentStageAttempts: 0, result: { text: 'The capital.', done: true } } });
 
 		const response = await responsePromise;
 		Assert.equal(response.status, 200);
@@ -500,12 +500,12 @@ Test('a streamed answer whose task reported no pieces is still sent, rather than
 		});
 
 		await waitUntil(() => server.cluster.lastSentBody()['type'] === 'task.submit');
-		const requestId = server.cluster.lastSentBody()['requestId'] as string;
-		server.cluster.receive({ type: 'task.accepted', requestId, task: { taskId: 'task-nopieces-1', requestId, state: 'queued' } });
+		const taskRequestId = server.cluster.lastSentBody()['taskRequestId'] as string;
+		server.cluster.receive({ type: 'task.accepted', taskRequestId, task: { taskId: 'task-nopieces-1', taskRequestId, state: 'queued' } });
 		// A worker built before pieces existed produces its whole answer in one run and reports
 		// none, so the answer has to be sent as one piece rather than the caller being told it
 		// was empty.
-		server.cluster.receive({ type: 'task.updated', update: { taskId: 'task-nopieces-1', revision: 2, state: 'completed', completedStageCount: 1, currentStageAttempts: 0, result: { text: 'The capital.', done: true } } });
+		server.cluster.receive({ type: 'task.updated', update: { taskId: 'task-nopieces-1', taskRevision: 2, state: 'completed', completedStageCount: 1, currentStageAttempts: 0, result: { text: 'The capital.', done: true } } });
 
 		const lines = await streamedDataLines(await responsePromise);
 		const chunks = lines.slice(0, -1).map((line) => JSON.parse(line) as { choices: { delta: { content?: string } }[] });
@@ -526,10 +526,10 @@ Test('a failure after the stream has begun is written into the stream, since the
 		});
 
 		await waitUntil(() => server.cluster.lastSentBody()['type'] === 'task.submit');
-		const requestId = server.cluster.lastSentBody()['requestId'] as string;
-		server.cluster.receive({ type: 'task.accepted', requestId, task: { taskId: 'task-fail-1', requestId, state: 'queued' } });
-		server.cluster.receive({ type: 'task.updated', update: { taskId: 'task-fail-1', revision: 2, state: 'running', completedStageCount: 1, currentStageAttempts: 1, newText: 'The ' } });
-		server.cluster.receive({ type: 'task.updated', update: { taskId: 'task-fail-1', revision: 3, state: 'failed', completedStageCount: 1, currentStageAttempts: 1, error: 'a stage failed' } });
+		const taskRequestId = server.cluster.lastSentBody()['taskRequestId'] as string;
+		server.cluster.receive({ type: 'task.accepted', taskRequestId, task: { taskId: 'task-fail-1', taskRequestId, state: 'queued' } });
+		server.cluster.receive({ type: 'task.updated', update: { taskId: 'task-fail-1', taskRevision: 2, state: 'running', completedStageCount: 1, currentStageAttempts: 1, newText: 'The ' } });
+		server.cluster.receive({ type: 'task.updated', update: { taskId: 'task-fail-1', taskRevision: 3, state: 'failed', completedStageCount: 1, currentStageAttempts: 1, error: 'a stage failed' } });
 
 		const response = await responsePromise;
 		// The answer began, so the status says the answer began. There is no way to take that back.
@@ -558,10 +558,10 @@ Test('answers a request carrying tool definitions normally, with those settings 
 			}),
 		});
 		await waitUntil(() => server.cluster.lastSentBody()['type'] === 'task.submit');
-		const requestId = server.cluster.lastSentBody()['requestId'];
-		Assert.equal(typeof requestId, 'string');
-		server.cluster.receive({ type: 'task.accepted', requestId, task: { taskId: 'task-tools-1', requestId, state: 'queued' } });
-		server.cluster.receive({ type: 'task.updated', update: { taskId: 'task-tools-1', revision: 2, state: 'completed', completedStageCount: 2, currentStageAttempts: 0, result: 17 } });
+		const taskRequestId = server.cluster.lastSentBody()['taskRequestId'];
+		Assert.equal(typeof taskRequestId, 'string');
+		server.cluster.receive({ type: 'task.accepted', taskRequestId, task: { taskId: 'task-tools-1', taskRequestId, state: 'queued' } });
+		server.cluster.receive({ type: 'task.updated', update: { taskId: 'task-tools-1', taskRevision: 2, state: 'completed', completedStageCount: 2, currentStageAttempts: 0, result: 17 } });
 
 		const response = await responsePromise;
 		Assert.equal(response.status, 200);
@@ -593,7 +593,7 @@ Test('never throws when the log directory cannot be created or the log cannot be
 	logger.log({
 		id: 'request-1', receivedAt: new Date(), method: 'POST', path: '/v1/chat/completions', httpVersion: 'HTTP/1.1',
 		requestHeaders: {}, requestBody: { model: 'dev_formula', messages: [{ role: 'user', content: '5' }] }, model: 'dev_formula', authOutcome: 'not_required',
-		gatewayRequestId: undefined, gatewayTaskId: undefined, outcome: 'completed', status: 200, responseType: 'chat.completion',
+		gatewayTaskRequestId: undefined, gatewayTaskId: undefined, outcome: 'completed', status: 200, responseType: 'chat.completion',
 		responseBody: { choices: [{ message: { content: 'hello' } }] }, elapsedMs: 5, isCallerDisconnected: false,
 	});
 });
@@ -603,7 +603,7 @@ Test('a no-op logger, built from no log file path, writes nothing and never thro
 	logger.log({
 		id: 'request-1', receivedAt: new Date(), method: 'POST', path: '/v1/chat/completions', httpVersion: 'HTTP/1.1',
 		requestHeaders: {}, requestBody: { model: 'dev_formula', messages: [{ role: 'user', content: '5' }] }, model: 'dev_formula', authOutcome: 'not_required',
-		gatewayRequestId: undefined, gatewayTaskId: undefined, outcome: 'completed', status: 200, responseType: 'chat.completion',
+		gatewayTaskRequestId: undefined, gatewayTaskId: undefined, outcome: 'completed', status: 200, responseType: 'chat.completion',
 		responseBody: { choices: [{ message: { content: 'hello' } }] }, elapsedMs: 5, isCallerDisconnected: false,
 	});
 });
@@ -623,7 +623,7 @@ Test('writes one curl-style block per transaction, with both bodies and every he
 		requestBody: { model: 'dev_formula', messages: [{ role: 'user', content: 'What is the capital of France?' }] },
 		model: 'dev_formula',
 		authOutcome: 'ok',
-		gatewayRequestId: 'gateway-request-1',
+		gatewayTaskRequestId: 'gateway-request-1',
 		gatewayTaskId: 'task-1',
 		outcome: 'completed',
 		status: 200,
@@ -668,7 +668,7 @@ Test('cuts a body short once it runs longer than this logger prints, and says ho
 	logger.log({
 		id: 'request-1', receivedAt: new Date(), method: 'POST', path: '/v1/chat/completions', httpVersion: 'HTTP/1.1',
 		requestHeaders: {}, requestBody: { model: 'dev_formula', messages: [{ role: 'user', content: '5' }] }, model: 'dev_formula', authOutcome: 'not_required',
-		gatewayRequestId: undefined, gatewayTaskId: undefined, outcome: 'completed', status: 200, responseType: 'chat.completion',
+		gatewayTaskRequestId: undefined, gatewayTaskId: undefined, outcome: 'completed', status: 200, responseType: 'chat.completion',
 		responseBody: { choices: [{ message: { content: longAnswer } }] }, elapsedMs: 5, isCallerDisconnected: false,
 	});
 
@@ -689,9 +689,9 @@ Test('audits a successful chat completion as one transaction, with the gateway i
 			body: JSON.stringify({ model: 'dev_formula', messages: [{ role: 'user', content: '5' }] }),
 		});
 		await waitUntil(() => server.cluster.lastSentBody()['type'] === 'task.submit');
-		const requestId = server.cluster.lastSentBody()['requestId'] as string;
-		server.cluster.receive({ type: 'task.accepted', requestId, task: { taskId: 'task-audit-1', requestId, state: 'queued' } });
-		server.cluster.receive({ type: 'task.updated', update: { taskId: 'task-audit-1', revision: 2, state: 'completed', completedStageCount: 2, currentStageAttempts: 0, result: 17 } });
+		const taskRequestId = server.cluster.lastSentBody()['taskRequestId'] as string;
+		server.cluster.receive({ type: 'task.accepted', taskRequestId, task: { taskId: 'task-audit-1', taskRequestId, state: 'queued' } });
+		server.cluster.receive({ type: 'task.updated', update: { taskId: 'task-audit-1', taskRevision: 2, state: 'completed', completedStageCount: 2, currentStageAttempts: 0, result: 17 } });
 		Assert.equal((await responsePromise).status, 200);
 
 		await waitUntil(() => server.transactions().length >= 1);
@@ -704,7 +704,7 @@ Test('audits a successful chat completion as one transaction, with the gateway i
 		Assert.match(block, /^<\s+"content": "17"$/m);
 		Assert.equal(fieldOf(block, 'Model'), 'dev_formula');
 		Assert.equal(fieldOf(block, 'Auth'), 'not_required');
-		Assert.equal(fieldOf(block, 'Gateway request'), requestId);
+		Assert.equal(fieldOf(block, 'Gateway request'), taskRequestId);
 		Assert.equal(fieldOf(block, 'Gateway task'), 'task-audit-1');
 		Assert.equal(fieldOf(block, 'Outcome'), 'completed');
 	} finally {
@@ -743,10 +743,10 @@ Test('audits a streamed answer as one transaction, naming the task it ran', asyn
 		});
 
 		await waitUntil(() => server.cluster.lastSentBody()['type'] === 'task.submit');
-		const requestId = server.cluster.lastSentBody()['requestId'] as string;
-		server.cluster.receive({ type: 'task.accepted', requestId, task: { taskId: 'task-audit-stream-1', requestId, state: 'queued' } });
-		server.cluster.receive({ type: 'task.updated', update: { taskId: 'task-audit-stream-1', revision: 2, state: 'running', completedStageCount: 1, currentStageAttempts: 1, newText: 'The capital.' } });
-		server.cluster.receive({ type: 'task.updated', update: { taskId: 'task-audit-stream-1', revision: 3, state: 'completed', completedStageCount: 2, currentStageAttempts: 0, result: { text: 'The capital.', done: true } } });
+		const taskRequestId = server.cluster.lastSentBody()['taskRequestId'] as string;
+		server.cluster.receive({ type: 'task.accepted', taskRequestId, task: { taskId: 'task-audit-stream-1', taskRequestId, state: 'queued' } });
+		server.cluster.receive({ type: 'task.updated', update: { taskId: 'task-audit-stream-1', taskRevision: 2, state: 'running', completedStageCount: 1, currentStageAttempts: 1, newText: 'The capital.' } });
+		server.cluster.receive({ type: 'task.updated', update: { taskId: 'task-audit-stream-1', taskRevision: 3, state: 'completed', completedStageCount: 2, currentStageAttempts: 0, result: { text: 'The capital.', done: true } } });
 		await responsePromise;
 
 		await waitUntil(() => server.transactions().length >= 1);
@@ -827,8 +827,8 @@ Test('cancels the task at the gateway when a caller hangs up over a real connect
 			signal: abortController.signal,
 		}).catch(() => undefined);
 		await waitUntil(() => server.cluster.lastSentBody()['type'] === 'task.submit');
-		const requestId = server.cluster.lastSentBody()['requestId'];
-		server.cluster.receive({ type: 'task.accepted', requestId, task: { taskId: 'task-hung-up-1', requestId, state: 'queued' } });
+		const taskRequestId = server.cluster.lastSentBody()['taskRequestId'];
+		server.cluster.receive({ type: 'task.accepted', taskRequestId, task: { taskId: 'task-hung-up-1', taskRequestId, state: 'queued' } });
 
 		// Nothing has been cancelled while the caller is still waiting for its answer.
 		await settlePromises();

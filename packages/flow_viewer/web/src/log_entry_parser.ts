@@ -33,13 +33,13 @@ export class LogEntryParser {
 			deviceId: z.string().optional(),
 		}),
 		messageType: z.string(),
-		payload: z.unknown(),
-		payloadBytes: z.number().int().nonnegative().optional(),
+		messagePayload: z.unknown(),
+		messagePayloadBytes: z.number().int().nonnegative().optional(),
 		messageBytes: z.number().int().nonnegative().optional(),
 		// The wrapper fields. They are optional because a log recorded before the wrapper
 		// existed has none of them, and such a log must still render.
 		messageId: z.string().optional(),
-		inReplyTo: z.string().optional(),
+		inReplyToMessageId: z.string().optional(),
 		protocolVersion: z.number().int().positive().optional(),
 	});
 
@@ -84,11 +84,11 @@ export class LogEntryParser {
 			direction: data.direction,
 			counterpart: data.counterpart.deviceId !== undefined ? { role: data.counterpart.role, deviceId: data.counterpart.deviceId } : { role: data.counterpart.role },
 			messageType: data.messageType,
-			payload: data.payload,
-			...(data.payloadBytes !== undefined ? { payloadBytes: data.payloadBytes } : {}),
+			messagePayload: data.messagePayload,
+			...(data.messagePayloadBytes !== undefined ? { messagePayloadBytes: data.messagePayloadBytes } : {}),
 			...(data.messageBytes !== undefined ? { messageBytes: data.messageBytes } : {}),
 			...(data.messageId !== undefined ? { messageId: data.messageId } : {}),
-			...(data.inReplyTo !== undefined ? { inReplyTo: data.inReplyTo } : {}),
+			...(data.inReplyToMessageId !== undefined ? { inReplyToMessageId: data.inReplyToMessageId } : {}),
 			...(data.protocolVersion !== undefined ? { protocolVersion: data.protocolVersion } : {}),
 		};
 	}
