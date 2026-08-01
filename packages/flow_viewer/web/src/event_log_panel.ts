@@ -38,18 +38,22 @@ export class EventLogPanel {
 		this.containerEl.replaceChildren();
 	}
 
-	/** Adds one row for a newly-reached event at the top of the list. */
-	appendEvent(event: TimelineEvent): void {
-		this.containerEl.prepend(this._buildRow(event));
-		while (this.containerEl.childElementCount > MAX_ROWS) this.containerEl.lastElementChild?.remove();
-		this.containerEl.scrollTop = 0;
-	}
-
-	/** Replaces the whole list with every event up to a seek target, without per-row scrolling. */
+	/**
+	 * Replaces the whole list with every event reached so far, called on every new event during
+	 * playback as well as on an explicit seek. Only jumps the view back to the top when it was
+	 * already there (following live); if the reader has scrolled down into older events, their
+	 * scroll position is preserved instead of being pulled out from under them on each new event.
+	 */
 	showEventsUpTo(events: TimelineEvent[]): void {
+		const wasNearTop: boolean = this.containerEl.scrollTop < 24;
+		const heightBefore: number = this.containerEl.scrollHeight;
 		const rows: HTMLElement[] = events.slice(-MAX_ROWS).reverse().map((event: TimelineEvent): HTMLElement => this._buildRow(event));
 		this.containerEl.replaceChildren(...rows);
-		this.containerEl.scrollTop = 0;
+		if (wasNearTop) {
+			this.containerEl.scrollTop = 0;
+		} else {
+			this.containerEl.scrollTop += this.containerEl.scrollHeight - heightBefore;
+		}
 	}
 
 	///////////////////////////////////////////////////////////////////////////////

@@ -25,15 +25,18 @@ class Popup {
 	}
 
 	/**
-	 * Replaces the log table's contents with the given rows and scrolls to the newest one.
+	 * Replaces the log table's contents with the given rows. Only re-pins the scroll position to
+	 * the newest row when the table was already scrolled to (or near) the bottom, so reading an
+	 * earlier row is not interrupted by new rows arriving.
 	 *
 	 * @param {HTMLTableSectionElement} logBodyEl
 	 * @param {LogRow[]} rows
 	 */
 	static render(logBodyEl, rows) {
-		logBodyEl.innerHTML = rows.map((row) => `<tr class="log-row kind-${row.kind}"><td class="time">${Popup.formatTime(row.timestamp)}</td><td class="kind">${row.kind}</td><td class="message">${Popup.escapeHtml(row.message)}</td></tr>`).join('');
 		const wrapEl = logBodyEl.closest('.log-table-wrap');
-		if (wrapEl !== null) wrapEl.scrollTop = wrapEl.scrollHeight;
+		const wasNearBottom = wrapEl !== null && wrapEl.scrollHeight - wrapEl.scrollTop - wrapEl.clientHeight < 24;
+		logBodyEl.innerHTML = rows.map((row) => `<tr class="log-row kind-${row.kind}"><td class="time">${Popup.formatTime(row.timestamp)}</td><td class="kind">${row.kind}</td><td class="message">${Popup.escapeHtml(row.message)}</td></tr>`).join('');
+		if (wrapEl !== null && wasNearBottom) wrapEl.scrollTop = wrapEl.scrollHeight;
 	}
 
 	/** @param {string} isoTimestamp */
