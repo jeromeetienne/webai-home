@@ -105,6 +105,20 @@ The root build and test scripts cover the protocol, gateway, command-line
 consumer, and OpenAI-compatible consumer. Package READMEs document the
 additional browser, Docker, flow viewer, and experiment commands.
 
+### Real `dev_formula` test
+
+Run the first real browser integration test from macOS with Google Chrome installed:
+
+```sh
+npm run test:real:dev_formula
+```
+
+The script builds the protocol package, starts the Gateway and worker website, opens the
+Gateway `/debug_iframe_dev_formula` page in a dedicated headed Chrome profile, waits for both
+real browser workers, submits `5` through Consumer CLI, checks the result `17`, closes the
+dedicated browser, verifies that Consumer CLI reports zero workers, and stops every process it
+started even when the test fails. The browser profile is temporary and is removed at the end.
+
 ## Long-term direction
 
 The intended next step is a small proof of concept using two or three older
