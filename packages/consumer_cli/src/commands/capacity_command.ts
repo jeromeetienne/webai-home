@@ -9,7 +9,7 @@ import { TaskInputFactory, taskTypeNames } from '../libs/task_input_factory.js';
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
-/** What `consumer_cli capacity <type>` needs to connect and what to estimate capacity for. */
+/** What `consumer_cli capacity --task-type <type>` needs to connect and what to estimate capacity for. */
 export type CapacityCommandOptions = {
 	url: string;
 	authToken: string;

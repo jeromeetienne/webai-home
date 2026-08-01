@@ -11,7 +11,7 @@ Once this package has been built (`npm run build --workspace @webai/consumer-cli
 ```sh
 npx consumer_cli status
 npx consumer_cli submit 5
-npx consumer_cli capacity dev_formula
+npx consumer_cli capacity --task-type dev_formula
 ```
 
 If the `npx consumer_cli` command is not found, run `npm install` from the repository root once, so npm links the `bin` entry declared in this package's `package.json`.
@@ -83,7 +83,7 @@ npm run dev --workspace @webai/consumer-cli -- status
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `-w, --watch` | off | Keep the connection open and reprint on every change, until interrupted or disconnected. |
+| `--watch` | off | Keep the connection open and reprint on every change, until interrupted or disconnected. |
 | `--json` | off | Print the snapshot as JSON instead of a table. |
 | `--timeout <ms>` | `10000` | How long to wait for the central gateway to answer. |
 
@@ -94,7 +94,7 @@ Without `--watch`, `status` prints one snapshot and exits `0`. With `--watch`, i
 Estimates how many concurrent runs of a task type the cluster can currently support, from the connected workers and the pipeline that serves that task type.
 
 ```sh
-npm run dev --workspace @webai/consumer-cli -- capacity llm_qwen3_0_6b_sharded
+npm run dev --workspace @webai/consumer-cli -- capacity --task-type llm_qwen3_0_6b_sharded
 ```
 
 ```
@@ -106,10 +106,11 @@ A pipeline whose every stage keeps state on one worker between rounds — such a
 
 | Option | Default | Meaning |
 | --- | --- | --- |
+| `--task-type <type>` | — | `dev_formula`, `llm_qwen3_0_6b_sharded`, `llm_gemma_nano_chrome_full`, `llm_qwen3_5_0_8b_full`, or `llm_llama3_2_3b_full`. |
 | `--json` | off | Print the estimate as JSON instead of a sentence. |
 | `--timeout <ms>` | `10000` | How long to wait for the central gateway to answer. |
 
-An unknown `<type>` is an error with a non-zero exit code.
+An unknown task type is an error with a non-zero exit code. `--task-type` is required.
 
 ## Exit codes
 
