@@ -39,7 +39,7 @@ export class Cli {
 
 		program
 			.command('submit')
-			.argument('<input>', 'number for dev_formula, free text for either language-model task type')
+			.argument('<input>', 'number for dev_formula, free text for every language-model task type')
 			.option('-t, --type <type>', `task type: ${taskTypeNames.join(', ')}`, 'dev_formula')
 			.option('-n, --name <name>', 'consumer name', 'consumer')
 			.option('-s, --stream', 'ask for the answer in pieces as it is produced, rather than in one result once it is finished')

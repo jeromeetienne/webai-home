@@ -10,7 +10,7 @@ import type { GenerationSettings, TaskInput } from '@webai/protocol';
  * The task types a consumer may submit, each named as its task type without the leading
  * `task_type_`. This is the list the `-t/--type` command line option accepts.
  */
-export const taskTypeNames = ['dev_formula', 'llm_qwen3_0_6b_sharded', 'llm_gemma_nano_chrome_full', 'llm_qwen3_5_0_8b_full'] as const;
+export const taskTypeNames = ['dev_formula', 'llm_qwen3_0_6b_sharded', 'llm_gemma_nano_chrome_full', 'llm_qwen3_5_0_8b_full', 'llm_llama3_2_3b_full'] as const;
 
 /** One of the task types a consumer may submit. */
 export type TaskTypeName = typeof taskTypeNames[number];
@@ -19,7 +19,7 @@ export type TaskTypeName = typeof taskTypeNames[number];
  * Turns the text given on the command line into the task input the gateway expects.
  *
  * Every task type carries a different kind of value — a number for the development formula
- * task, and a prompt for either language-model task — so the checking of that value lives
+ * task, and a prompt for every language-model task — so the checking of that value lives
  * here, next to the list of task types it belongs to.
  */
 export class TaskInputFactory {
@@ -38,7 +38,7 @@ export class TaskInputFactory {
 	 *
 	 * @param type The task type to submit, without the leading `task_type_`.
 	 * @param value The value submitted with the task: a number for the development formula
-	 * task, and a prompt for either language-model task.
+	 * task, and a prompt for every language-model task.
 	 * @param generationSettings What to ask for about how the answer is generated. Left out
 	 * entirely when nothing was asked for, so a submission that states no setting carries no
 	 * settings field at all rather than an empty one.
@@ -56,7 +56,8 @@ export class TaskInputFactory {
 		}
 		if (type === 'llm_qwen3_0_6b_sharded') return { taskType: 'task_type_llm_qwen3_0_6b_sharded', input: TaskInputFactory.parseLlmInput(value), ...settings };
 		if (type === 'llm_gemma_nano_chrome_full') return { taskType: 'task_type_llm_gemma_nano_chrome_full', input: TaskInputFactory.parseLlmInput(value), ...settings };
-		return { taskType: 'task_type_llm_qwen3_5_0_8b_full', input: TaskInputFactory.parseLlmInput(value), ...settings };
+		if (type === 'llm_qwen3_5_0_8b_full') return { taskType: 'task_type_llm_qwen3_5_0_8b_full', input: TaskInputFactory.parseLlmInput(value), ...settings };
+		return { taskType: 'task_type_llm_llama3_2_3b_full', input: TaskInputFactory.parseLlmInput(value), ...settings };
 	}
 
 	///////////////////////////////////////////////////////////////////////////////
