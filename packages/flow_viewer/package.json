@@ -10,7 +10,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "node --import tsx --test tests/index.test.ts"
+    "test": "npx tsx --test tests/index.test.ts"
   },
   "dependencies": {
     "@webai/protocol": "0.1.0",
