@@ -8,6 +8,7 @@
     "dev": "tsx src/cli.ts",
     "start": "node dist/cli.js",
     "test": "node --import tsx --test tests/index.test.ts",
+    "test:real": "node --import tsx --test tests/real_dev_formula.test.ts",
     "example:list_models": "tsx examples/list_models.ts",
     "example:chat_completion_dev_formula": "tsx examples/chat_completion_dev_formula.ts",
     "example:chat_completion_system_message": "tsx examples/chat_completion_system_message.ts",
