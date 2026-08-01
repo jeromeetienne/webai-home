@@ -58,9 +58,10 @@ export class Cli {
 
 		program
 			.command('status')
-			.option('-w, --watch', 'keep the connection open and reprint on every change, until interrupted or disconnected')
-			.option('--json', 'print the snapshot as JSON instead of a table')
-			.option('--timeout <ms>', 'how long to wait for the central gateway to answer', '10000')
+			.description('print the worker cluster state: how many worker browsers are connected, how much of their capacity is free, and one row per worker')
+			.option('-w, --watch', 'after the first snapshot, stay connected and print a new snapshot every time the worker cluster changes, until you interrupt with Ctrl-C or the connection drops (default: print one snapshot and exit)')
+			.option('--json', 'print each snapshot as a JSON object instead of the human-readable table')
+			.option('--timeout <ms>', 'milliseconds to wait for the central gateway to accept the connection and send the first snapshot before giving up', '10000')
 			.action(async (localOptions: { watch?: boolean; json?: boolean; timeout: string }, command: Commander.Command) => {
 				const options = command.optsWithGlobals<GlobalOptions & typeof localOptions>();
 				await StatusCommand.run({
