@@ -30,7 +30,7 @@ The server listens on port 8788, and an OpenAI client is pointed at `http://loca
 | `-u, --gateway-url <url>` | `ws://localhost:8787` | The WebSocket address of the central gateway. |
 | `-t, --auth-token <token>` | `development-token` | The bearer token the central gateway requires. |
 | `-k, --api-key <key>` | none | The key a request must present to this server, sent in an `Authorization` header as `Bearer` followed by the key. Omitted means no key is required. |
-| `-n, --name <name>` | `openai-consumer` | The consumer name this server registers under with the central gateway. |
+| `-n, --name <name>` | `consumer_openai server` | The consumer name this server registers under with the central gateway. |
 | `--request-timeout-ms <number>` | `600000` | How long one task may run before it is cancelled and the request is given up on. |
 | `--connection-wait-ms <number>` | `5000` | How long a request waits for a registered gateway connection before it is refused. |
 | `--max-tasks-in-flight <number>` | `20` | How many cluster tasks to have in flight at once. The gateway's own `--max-tasks-per-principal` defaults to the same number. |

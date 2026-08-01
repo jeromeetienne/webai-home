@@ -195,7 +195,7 @@ const registeredStandInCluster = async (overrides: Partial<ClusterTaskRunnerOpti
 	const runner = new ClusterTaskRunner({
 		gatewayUrl: 'ws://stand-in',
 		authToken: 'development-token',
-		name: 'openai-consumer',
+		name: 'consumer_openai server',
 		requestTimeoutMs: 60_000,
 		connectionWaitMs: 50,
 		maximumTasksInFlight: 20,
@@ -331,7 +331,7 @@ Test('refuses a request that arrives while the gateway is not connected, rather 
 	const runner = new ClusterTaskRunner({
 		gatewayUrl: 'ws://stand-in',
 		authToken: 'development-token',
-		name: 'openai-consumer',
+		name: 'consumer_openai server',
 		requestTimeoutMs: 60_000,
 		connectionWaitMs: 20,
 		maximumTasksInFlight: 20,

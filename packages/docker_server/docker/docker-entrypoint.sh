@@ -15,7 +15,7 @@ GATEWAY_WS_URL="${GATEWAY_WS_URL:-ws://127.0.0.1:${GATEWAY_PORT}}"
 # servers able to authenticate with each other; set CONSUMER_OPENAI_AUTH_TOKEN separately only
 # if the gateway sits behind a different token than this container's own gateway process.
 CONSUMER_OPENAI_AUTH_TOKEN="${CONSUMER_OPENAI_AUTH_TOKEN:-$GATEWAY_AUTH_TOKEN}"
-CONSUMER_OPENAI_NAME="${CONSUMER_OPENAI_NAME:-openai-consumer}"
+CONSUMER_OPENAI_NAME="${CONSUMER_OPENAI_NAME:-consumer_openai server}"
 
 WORKER_PORT="${WORKER_PORT:-8789}"
 

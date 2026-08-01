@@ -16,7 +16,7 @@ services:
       CONSUMER_OPENAI_PORT: "8788"
       GATEWAY_WS_URL: "ws://127.0.0.1:8787"
       CONSUMER_OPENAI_AUTH_TOKEN: "development-token"
-      CONSUMER_OPENAI_NAME: "openai-consumer"
+      CONSUMER_OPENAI_NAME: "consumer_openai server"
       WORKER_PORT: "8789"
       # CONSUMER_OPENAI_API_KEY: "set-a-key-to-require-callers-to-present-it"
     volumes:

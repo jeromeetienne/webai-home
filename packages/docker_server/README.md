@@ -86,7 +86,7 @@ Neither the gateway nor `consumer_openai` reads environment variables directly �
 | `GATEWAY_WS_URL` | `ws://127.0.0.1:8787` | `consumer_openai`'s `--gateway-url` — the gateway's WebSocket address; change this to reach a gateway running in a different container or host, rather than assuming `localhost` refers to this same container |
 | `CONSUMER_OPENAI_AUTH_TOKEN` | the value of `GATEWAY_AUTH_TOKEN` | `consumer_openai`'s `--auth-token` — set this separately only if `consumer_openai` must authenticate with a gateway that uses a different token than this container's own gateway process |
 | `CONSUMER_OPENAI_API_KEY` | unset (no key required) | `consumer_openai`'s `--api-key` — the key a caller of the OpenAI-compatible server must present |
-| `CONSUMER_OPENAI_NAME` | `openai-consumer` | `consumer_openai`'s `--name` |
+| `CONSUMER_OPENAI_NAME` | `consumer_openai server` | `consumer_openai`'s `--name` |
 | `WORKER_PORT` | `8789` | the port the built worker page is served on |
 
 **Set `GATEWAY_AUTH_TOKEN` to a real value in anything but local testing.** The default `development-token` is the same default the gateway, `consumer_openai`, and the worker browser page all fall back to on their own, so leaving it unset only works because every part agrees on the same well-known placeholder.
