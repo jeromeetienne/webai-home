@@ -8,9 +8,9 @@ import { MessageLogger } from '@webai/protocol/message_logger';
 
 // local imports
 import { ClusterTaskRunner } from './libs/cluster_task_runner.js';
-import { CurlStyleTransactionLogger } from './libs/curl_style_transaction_logger.js';
-import { OpenaiRoutes } from './libs/openai_routes.js';
 import { ServerSettings } from './libs/server_settings.js';
+import { CurlStyleTransactionLogger } from './http/curl_style_transaction_logger.js';
+import { OpenaiRoutes } from './http/openai_routes.js';
 
 const __filename = import.meta.filename;
 const __dirname = import.meta.dirname;

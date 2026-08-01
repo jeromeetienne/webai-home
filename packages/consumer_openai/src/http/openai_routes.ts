@@ -8,23 +8,23 @@ import type { TaskInput } from '@webai/protocol';
 import type { z } from 'zod';
 
 // local imports
-import type { ClusterTaskRunner } from './cluster_task_runner.js';
+import type { ClusterTaskRunner } from '../libs/cluster_task_runner.js';
 import type {
 	CurlStyleTransactionLogger,
 	TransactionAuthOutcome,
 	TransactionOutcome,
 	TransactionResponseType,
 } from './curl_style_transaction_logger.js';
-import { ModelCatalog } from './model_catalog.js';
-import { OpenaiError } from './openai_error.js';
-import { PromptFlattener } from './prompt_flattener.js';
+import { ModelCatalog } from '../api/model_catalog.js';
+import { OpenaiError } from '../api/openai_error.js';
+import { PromptFlattener } from '../api/prompt_flattener.js';
 import {
 	ChatCompletionRequestSchema,
 	type ChatCompletionChunk,
 	type ChatCompletionChunkChoice,
 	type ChatCompletionResponse,
 	type HealthResponse,
-} from './openai_types.js';
+} from '../api/openai_types.js';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////

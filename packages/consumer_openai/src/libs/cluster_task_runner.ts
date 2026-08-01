@@ -8,7 +8,7 @@ import type { MessageLogger } from '@webai/protocol/message_logger';
 import type { ProtocolError, StagePayload, TaskInput, TaskSnapshot, TaskState, TaskUpdate } from '@webai/protocol';
 
 // local imports
-import { OpenaiError } from './openai_error.js';
+import { OpenaiError } from '../api/openai_error.js';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////

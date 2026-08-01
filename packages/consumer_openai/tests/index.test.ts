@@ -7,12 +7,12 @@ import Express from 'express';
 import { protocolVersion } from '@webai/protocol';
 import type { TaskSocket } from '@webai/consumer-cli';
 import { ClusterTaskRunner, type ClusterTaskRunnerOptions } from '../src/libs/cluster_task_runner.js';
-import { CurlStyleTransactionLogger } from '../src/libs/curl_style_transaction_logger.js';
-import { ModelCatalog } from '../src/libs/model_catalog.js';
-import { OpenaiError } from '../src/libs/openai_error.js';
-import { OpenaiRoutes } from '../src/libs/openai_routes.js';
-import { ChatCompletionRequestSchema, type ChatCompletionResponse } from '../src/libs/openai_types.js';
-import { PromptFlattener } from '../src/libs/prompt_flattener.js';
+import { CurlStyleTransactionLogger } from '../src/http/curl_style_transaction_logger.js';
+import { ModelCatalog } from '../src/api/model_catalog.js';
+import { OpenaiError } from '../src/api/openai_error.js';
+import { OpenaiRoutes } from '../src/http/openai_routes.js';
+import { ChatCompletionRequestSchema, type ChatCompletionResponse } from '../src/api/openai_types.js';
+import { PromptFlattener } from '../src/api/prompt_flattener.js';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
