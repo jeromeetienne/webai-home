@@ -33,10 +33,10 @@ From the repository root, with the central gateway running:
 npm run dev --workspace @webai/consumer-cli -- submit 5
 ```
 
-Set the registered consumer name with `--name`, for example:
+Set the registered consumer name with `--consumer_name`, for example:
 
 ```sh
-npm run dev --workspace @webai/consumer-cli -- submit --name dev-formula-consumer 5
+npm run dev --workspace @webai/consumer-cli -- submit --consumer_name dev-formula-consumer 5
 ```
 
 Use `--url` to connect to another WebSocket endpoint:
@@ -50,7 +50,7 @@ npm run dev --workspace @webai/consumer-cli -- submit 5 --url ws://localhost:900
 | Option | Default | Meaning |
 | --- | --- | --- |
 | `-t, --type <type>` | `dev_formula` | `dev_formula`, `llm_qwen3_0_6b_sharded`, `llm_gemma_nano_chrome_full`, or `llm_qwen3_5_0_8b_full`. |
-| `-n, --name <name>` | `consumer` | Name registered with the gateway. |
+| `-n, --consumer_name <name>` | `consumer` | Name registered with the gateway. |
 | `-s, --stream` | off | Ask a language-model task to return answer pieces while it runs. |
 
 Use `-t/--type` to choose the task type:

@@ -17,7 +17,7 @@ const defaultAuthenticationToken = 'development-token';
 type WorkerOptions = {
 	url: string;
 	authToken?: string;
-	name: string;
+	worker_name: string;
 	baseUrl: string;
 	model: string;
 	stageNames?: string[];
@@ -42,7 +42,7 @@ export class Cli {
 			.description('A worker that runs its assigned stage by calling a local server speaking the OpenAI-compatible Chat Completions API, such as Ollama or LM Studio')
 			.option('-u, --url <url>', 'central gateway WebSocket URL', 'ws://localhost:8787')
 			.option('-a, --auth-token <token>', 'bearer token for the central gateway (falls back to the WEBAI_AUTH_TOKEN environment variable, then to a development default)')
-			.option('-n, --name <name>', 'worker name, which the gateway shows in its device list', 'openai-api-worker')
+			.option('-n, --worker_name <name>', 'worker name, which the gateway shows in its device list', 'openai-api-worker')
 			.option('-b, --base-url <url>', "base URL of the local server's OpenAI-compatible API", 'http://localhost:1234/v1')
 			.option('-m, --model <model>', 'the model the local server is asked for', 'llama-3.2-3b-instruct')
 			.option('-s, --stage-names <name...>', 'restrict this worker to these stages, instead of every stage it can run');
@@ -65,7 +65,7 @@ export class Cli {
 			new GatewayWorkerClient(
 				socket,
 				{
-					name: options.name,
+					name: options.worker_name,
 					authenticationToken: Cli.resolveAuthToken(options.authToken),
 					requestedStageNames: options.stageNames ?? [],
 					openaiApiClient,
@@ -76,7 +76,7 @@ export class Cli {
 						Cli.print(`${direction === 'sent' ? '→' : '←'} ${message.type}`);
 					},
 					onRegistered: (deviceId, stageNames) => {
-						Cli.print(`registered as ${options.name}, device ${deviceId}, offering ${stageNames.join(', ')}`);
+						Cli.print(`registered as ${options.worker_name}, device ${deviceId}, offering ${stageNames.join(', ')}`);
 					},
 					onNotice: (text) => {
 						Cli.print(text);

@@ -41,16 +41,16 @@ export class Cli {
 			.command('submit')
 			.argument('<input>', 'number for dev_formula, free text for every language-model task type')
 			.option('-t, --type <type>', `task type: ${taskTypeNames.join(', ')}`, 'dev_formula')
-			.option('-n, --name <name>', 'consumer name', 'consumer')
+			.option('-n, --consumer_name <name>', 'consumer name', 'consumer')
 			.option('-s, --stream', 'ask for the answer in pieces as it is produced, rather than in one result once it is finished')
-			.action(async (input: string, localOptions: { type: string; name: string; stream?: boolean }, command: Commander.Command) => {
+			.action(async (input: string, localOptions: { type: string; consumer_name: string; stream?: boolean }, command: Commander.Command) => {
 				const options = command.optsWithGlobals<GlobalOptions & typeof localOptions>();
 				if (TaskInputFactory.isTaskTypeName(options.type) === false) throw new Error(`Type must be one of ${taskTypeNames.join(', ')}`);
 				await SubmitCommand.run({
 					url: options.url,
 					authToken: Cli.resolveAuthToken(options.authToken),
 					type: options.type,
-					name: options.name,
+					name: options.consumer_name,
 					stream: options.stream === true,
 					input,
 				});

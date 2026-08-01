@@ -12,7 +12,7 @@ type RawOptions = {
 	gatewayUrl: string;
 	authToken: string;
 	apiKey?: string;
-	name: string;
+	consumer_name: string;
 	requestTimeoutMs: string;
 	connectionWaitMs: string;
 	maxTasksInFlight: string;
@@ -53,7 +53,7 @@ export class ServerSettings {
 			.option('-u, --gateway-url <url>', 'Central gateway WebSocket URL', 'ws://localhost:8787')
 			.option('-t, --auth-token <token>', 'Bearer token the central gateway requires', 'development-token')
 			.option('-k, --api-key <key>', 'Key a request must present to this server. Omit to require none')
-			.option('-n, --name <name>', 'Consumer name to register under with the central gateway', 'consumer_openai server')
+			.option('-n, --consumer_name <name>', 'Consumer name to register under with the central gateway', 'consumer_openai server')
 			.option('--request-timeout-ms <number>', 'How long one task may run before it is cancelled', '600000')
 			.option(
 				'--connection-wait-ms <number>',
@@ -76,7 +76,7 @@ export class ServerSettings {
 		this.gatewayUrl = options.gatewayUrl;
 		this.authToken = options.authToken;
 		this.apiKey = options.apiKey;
-		this.name = options.name;
+		this.name = options.consumer_name;
 		this.requestTimeoutMs = Number(options.requestTimeoutMs);
 		this.connectionWaitMs = Number(options.connectionWaitMs);
 		this.maximumTasksInFlight = Number(options.maxTasksInFlight);

@@ -47,7 +47,7 @@ const realTestHelper = new RealTestHelper({
 	waitTimeoutMs: 120_000,
 	nativeWorkerArgs: [
 		'--import', 'tsx', 'packages/worker_openai_api/src/cli.ts',
-		'--name', 'real-test-openai-api-worker',
+		'--worker_name', 'real-test-openai-api-worker',
 		'--base-url', localModelBaseUrl,
 		'--model', localModelId,
 	],

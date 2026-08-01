@@ -55,7 +55,7 @@ until node -e "fetch('http://127.0.0.1:${GATEWAY_PORT}/health').then(() => proce
 done
 echo "The gateway is ready"
 
-consumer_openai_args=(--port "$CONSUMER_OPENAI_PORT" --gateway-url "$GATEWAY_WS_URL" --auth-token "$CONSUMER_OPENAI_AUTH_TOKEN" --name "$CONSUMER_OPENAI_NAME")
+consumer_openai_args=(--port "$CONSUMER_OPENAI_PORT" --gateway-url "$GATEWAY_WS_URL" --auth-token "$CONSUMER_OPENAI_AUTH_TOKEN" --consumer_name "$CONSUMER_OPENAI_NAME")
 if [ -n "${CONSUMER_OPENAI_API_KEY:-}" ]; then
 	consumer_openai_args+=(--api-key "$CONSUMER_OPENAI_API_KEY")
 fi
