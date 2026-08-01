@@ -21,6 +21,7 @@ Test('accepts valid task input', () => {
 	Assert.deepEqual(TaskInput.parse({ taskType: 'task_type_dev_formula', input: 12.5 }), { taskType: 'task_type_dev_formula', input: 12.5 });
 	Assert.deepEqual(TaskInput.parse({ taskType: 'task_type_llm_qwen3_0_6b_sharded', input: 'hello' }), { taskType: 'task_type_llm_qwen3_0_6b_sharded', input: 'hello' });
 	Assert.deepEqual(TaskInput.parse({ taskType: 'task_type_llm_gemma_nano_chrome_full', input: 'hello' }), { taskType: 'task_type_llm_gemma_nano_chrome_full', input: 'hello' });
+	Assert.deepEqual(TaskInput.parse({ taskType: 'task_type_llm_qwen3_5_0_8b_full', input: 'hello' }), { taskType: 'task_type_llm_qwen3_5_0_8b_full', input: 'hello' });
 });
 
 Test('rejects non-finite task input', () => {
@@ -31,6 +32,7 @@ Test('rejects non-finite task input', () => {
 Test('rejects task input that does not match its task type', () => {
 	Assert.equal(TaskInput.safeParse({ taskType: 'task_type_llm_qwen3_0_6b_sharded', input: 5 }).success, false);
 	Assert.equal(TaskInput.safeParse({ taskType: 'task_type_llm_gemma_nano_chrome_full', input: 5 }).success, false);
+	Assert.equal(TaskInput.safeParse({ taskType: 'task_type_llm_qwen3_5_0_8b_full', input: 5 }).success, false);
 	Assert.equal(TaskInput.safeParse({ taskType: 'task_type_dev_formula', input: '5' }).success, false);
 });
 

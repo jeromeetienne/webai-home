@@ -32,6 +32,16 @@ The three Qwen3-0.6B ONNX model shards are stored in the public [Hugging Face mo
 
 The Worker uses the immutable Hugging Face revision [`8ba2b869c4dbb96de8b72e448e79b4ec5825ae47`](https://huggingface.co/jerome-etienne/webai-at-home-qwen3-0.6b-shards/tree/8ba2b869c4dbb96de8b72e448e79b4ec5825ae47). Upload a new model revision and update the revision in `web/src/stages/stage_helper_llm_qwen3_0_6b_sharded.ts` when the shard files change. The GitHub Pages Worker deployment therefore publishes the small application and runtime assets, not the roughly 860 megabytes of model shards.
 
+## Qwen3.5-0.8B complete model
+
+`stage_llm_qwen3_5_0_8b_full` downloads the complete model rather than one part of it, so it needs no shard repository of its own. It downloads directly from [`onnx-community/Qwen3.5-0.8B-ONNX`](https://huggingface.co/onnx-community/Qwen3.5-0.8B-ONNX), the ONNX export of [`Qwen/Qwen3.5-0.8B`](https://huggingface.co/Qwen/Qwen3.5-0.8B) — the model repository named by [issue #96](https://github.com/webai-at-home/webai-at-home/issues/96) ships no ONNX file, so this export is what is actually downloaded and run.
+
+The Worker is pinned to the immutable revision [`c0d619322dad7c4441a8841a53fc59772ddddcc0`](https://huggingface.co/onnx-community/Qwen3.5-0.8B-ONNX/tree/c0d619322dad7c4441a8841a53fc59772ddddcc0), at the `q4f16` quantization, in `web/src/stages/stage_helper_llm_qwen3_5_0_8b_full.ts`. That quantization measured about 584 megabytes of model weights (a 437 megabyte decoder graph and a 147 megabyte token-embedding graph, each with its weights in a separate external data file) plus a 19 megabyte tokenizer, against the pinned revision.
+
+Unlike the Qwen3-0.6B shards, this model's feeds are built by [`@huggingface/transformers`](https://www.npmjs.com/package/@huggingface/transformers) rather than by hand, because Qwen3.5-0.8B is a hybrid linear-attention and full-attention architecture this project has no reference implementation for. `@huggingface/transformers` downloads and caches the model files itself, in the browser's Cache Storage under its own default cache key (`transformers-cache`), separate from the IndexedDB database the Qwen3-0.6B shards use.
+
+Running the model needs a WebGPU adapter with 16-bit floating point shader support, which the worker page checks before advertising the stage. A live run against the pinned revision, recorded in [issue #96](https://github.com/webai-at-home/webai-at-home/issues/96), measured about 163 seconds to download and load the model on a cold cache, and about 7 seconds to generate a short answer once loaded.
+
 ## Chrome Apps on device permission
 
 The deployed Worker page is served from GitHub Pages, but it connects to the central gateway running on the local computer at `http://localhost:8787` by default. Chrome calls this connection an **Apps on device** request because the page is contacting software running on the computer.

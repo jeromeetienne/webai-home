@@ -10,7 +10,7 @@ import type { GenerationSettings, TaskInput } from '@webai/protocol';
  * The task types a consumer may submit, each named as its task type without the leading
  * `task_type_`. This is the list the `-t/--type` command line option accepts.
  */
-export const taskTypeNames = ['dev_formula', 'llm_qwen3_0_6b_sharded', 'llm_gemma_nano_chrome_full'] as const;
+export const taskTypeNames = ['dev_formula', 'llm_qwen3_0_6b_sharded', 'llm_gemma_nano_chrome_full', 'llm_qwen3_5_0_8b_full'] as const;
 
 /** One of the task types a consumer may submit. */
 export type TaskTypeName = typeof taskTypeNames[number];
@@ -55,7 +55,8 @@ export class TaskInputFactory {
 			return { taskType: 'task_type_dev_formula', input: TaskInputFactory.parseFormulaInput(value), ...settings };
 		}
 		if (type === 'llm_qwen3_0_6b_sharded') return { taskType: 'task_type_llm_qwen3_0_6b_sharded', input: TaskInputFactory.parseLlmInput(value), ...settings };
-		return { taskType: 'task_type_llm_gemma_nano_chrome_full', input: TaskInputFactory.parseLlmInput(value), ...settings };
+		if (type === 'llm_gemma_nano_chrome_full') return { taskType: 'task_type_llm_gemma_nano_chrome_full', input: TaskInputFactory.parseLlmInput(value), ...settings };
+		return { taskType: 'task_type_llm_qwen3_5_0_8b_full', input: TaskInputFactory.parseLlmInput(value), ...settings };
 	}
 
 	///////////////////////////////////////////////////////////////////////////////

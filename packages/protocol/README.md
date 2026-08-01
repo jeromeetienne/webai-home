@@ -18,8 +18,9 @@ pipeline. Other packages import the public package entry point as
 
 The current protocol version is `2`; the gateway accepts versions `1` and `2`.
 The built-in task types are `task_type_dev_formula`,
-`task_type_llm_qwen3_0_6b_sharded`, and
-`task_type_llm_gemma_nano_chrome_full`.
+`task_type_llm_qwen3_0_6b_sharded`,
+`task_type_llm_gemma_nano_chrome_full`, and
+`task_type_llm_qwen3_5_0_8b_full`.
 
 ## Build
 

@@ -49,7 +49,7 @@ npm run dev --workspace @webai/consumer-cli -- submit 5 --url ws://localhost:900
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `-t, --type <type>` | `dev_formula` | `dev_formula`, `llm_qwen3_0_6b_sharded`, or `llm_gemma_nano_chrome_full`. |
+| `-t, --type <type>` | `dev_formula` | `dev_formula`, `llm_qwen3_0_6b_sharded`, `llm_gemma_nano_chrome_full`, or `llm_qwen3_5_0_8b_full`. |
 | `-n, --name <name>` | `consumer` | Name registered with the gateway. |
 | `-s, --stream` | off | Ask a language-model task to return answer pieces while it runs. |
 
@@ -58,6 +58,7 @@ Use `-t/--type` to choose the task type:
 - `dev_formula` (default) takes a number.
 - `llm_qwen3_0_6b_sharded` takes free text, and is run by three worker browser tabs, each holding one shard of the Qwen3-0.6B model.
 - `llm_gemma_nano_chrome_full` takes free text, and is run by one worker browser tab using the Gemma Nano model built into Chrome.
+- `llm_qwen3_5_0_8b_full` takes free text, and is run by one worker browser tab that downloads and holds the complete Qwen3.5-0.8B model.
 
 ```sh
 npm run dev --workspace @webai/consumer-cli -- submit "hello there" --type llm_qwen3_0_6b_sharded

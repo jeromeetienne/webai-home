@@ -2,6 +2,7 @@ import { StageName, type StageName as StageNameType } from '@webai/protocol';
 import { StageHelperDevFormula } from '../stages/stage_helper_dev_formula';
 import { StageHelperLlmQwen3_0_6bSharded } from '../stages/stage_helper_llm_qwen3_0_6b_sharded';
 import { StageHelperLlmGemmaNanoChromeFull } from '../stages/stage_helper_llm_gemma_nano_chrome_full';
+import { StageHelperLlmQwen3_5_0_8bFull } from '../stages/stage_helper_llm_qwen3_5_0_8b_full';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -48,16 +49,18 @@ export class WorkerStageOffer {
 	 *
 	 * @param pipelines The pipeline specifications the gateway returned.
 	 * @param requestedStageNames The stages the page URL restricts this browser to, if any.
-	 * @returns The stage names to advertise, the language-model shard positions to preload, and
-	 * the offered stages that need the language model built into the browser.
+	 * @returns The stage names to advertise, the language-model shard positions to preload, the
+	 * offered stages that need the language model built into the browser, and the offered stages
+	 * that need the complete Qwen3.5-0.8B model downloaded and held by this browser.
 	 */
 	static offeredStages(
 		pipelines: { stages: { name: string; computation: string }[] }[],
 		requestedStageNames: readonly string[],
-	): { stageNames: string[]; llmShardIndexes: number[]; builtInModelStageNames: string[] } {
+	): { stageNames: string[]; llmShardIndexes: number[]; builtInModelStageNames: string[]; fullModelStageNames: string[] } {
 		const stageNames: string[] = [];
 		const llmShardIndexes: number[] = [];
 		const builtInModelStageNames: string[] = [];
+		const fullModelStageNames: string[] = [];
 		for (const pipeline of pipelines) {
 			for (const [stageIndex, stage] of pipeline.stages.entries()) {
 				if (WorkerStageOffer.implementsComputation(stage.computation) === false) {
@@ -81,9 +84,15 @@ export class WorkerStageOffer {
 				) {
 					builtInModelStageNames.push(stage.name);
 				}
+				if (
+					StageHelperLlmQwen3_5_0_8bFull.implementsComputation(stage.computation)
+					&& fullModelStageNames.includes(stage.name) === false
+				) {
+					fullModelStageNames.push(stage.name);
+				}
 			}
 		}
-		return { stageNames, llmShardIndexes, builtInModelStageNames };
+		return { stageNames, llmShardIndexes, builtInModelStageNames, fullModelStageNames };
 	}
 
 	/**
@@ -97,6 +106,7 @@ export class WorkerStageOffer {
 	private static implementsComputation(computation: string): boolean {
 		return StageHelperDevFormula.implementsComputation(computation)
 			|| StageHelperLlmQwen3_0_6bSharded.implementsComputation(computation)
-			|| StageHelperLlmGemmaNanoChromeFull.implementsComputation(computation);
+			|| StageHelperLlmGemmaNanoChromeFull.implementsComputation(computation)
+			|| StageHelperLlmQwen3_5_0_8bFull.implementsComputation(computation);
 	}
 }

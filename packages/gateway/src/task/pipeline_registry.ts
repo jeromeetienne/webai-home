@@ -131,4 +131,22 @@ export const builtinPipelineSpecifications: PipelineSpecification[] = [
 			{ name: 'stage_llm_gemma_nano_chrome_full', computation: 'llm_gemma_nano_chrome_full', inputSchemaId: 'llm@1', outputSchemaId: 'llm@1', encoding: 'inline-json', leaseMs: 60_000, prefersSameWorkerOnRetry: true },
 		],
 	},
+	{
+		// Qwen3.5-0.8B is held complete on one device, the same as Chrome's built-in model, so
+		// this pipeline follows the same shape: it asks the worker for an answer once and reads
+		// it back in pieces or in one piece depending on what the consumer asked for, and it
+		// repeats until a stage result reports generation finished. All rounds of one task stay
+		// on one device, so the worker keeps its downloaded model and its generation state in
+		// memory between rounds instead of sending it over the connection; that is what
+		// prefersSameWorkerOnRetry protects when an attempt is retried. The lease is longer than
+		// the gateway default for the same reason as the Chrome pipeline above: a device that has
+		// just downloaded and loaded the model needs time before its first result, measured at
+		// about 163 seconds in a live run against the pinned revision; a run that outlasts even
+		// this lease is carried by the stage heartbeats the worker browser sends while it is
+		// downloading, loading, or generating.
+		pipelineId: 'llm_qwen3_5_0_8b_full', version: 1, taskType: 'task_type_llm_qwen3_5_0_8b_full', repeatsUntilDone: true,
+		stages: [
+			{ name: 'stage_llm_qwen3_5_0_8b_full', computation: 'llm_qwen3_5_0_8b_full', inputSchemaId: 'llm@1', outputSchemaId: 'llm@1', encoding: 'inline-json', leaseMs: 60_000, prefersSameWorkerOnRetry: true },
+		],
+	},
 ];
