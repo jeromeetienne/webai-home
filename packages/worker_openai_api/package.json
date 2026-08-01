@@ -1,0 +1,28 @@
+{
+  "name": "@webai/worker-openai-api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/cli.js",
+  "bin": {
+    "worker_openai_api": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "dev": "tsx src/cli.ts",
+    "start": "node dist/cli.js",
+    "sample:llama3_2_3b": "node --import tsx src/cli.ts --name llama3-2-3b-worker",
+    "test": "node --import tsx --test tests/index.test.ts"
+  },
+  "dependencies": {
+    "@webai/protocol": "0.1.0",
+    "commander": "^12.1.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/ws": "^8.5.13",
+    "typescript": "^5.7.2"
+  }
+}

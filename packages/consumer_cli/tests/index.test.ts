@@ -31,7 +31,7 @@ Test('validates large-language-model input', () => {
 });
 
 Test('builds the task input for every task type a consumer may submit', () => {
-	Assert.deepEqual(taskTypeNames, ['dev_formula', 'llm_qwen3_0_6b_sharded', 'llm_gemma_nano_chrome_full', 'llm_qwen3_5_0_8b_full']);
+	Assert.deepEqual(taskTypeNames, ['dev_formula', 'llm_qwen3_0_6b_sharded', 'llm_gemma_nano_chrome_full', 'llm_qwen3_5_0_8b_full', 'llm_llama3_2_3b_full']);
 	Assert.equal(TaskInputFactory.isTaskTypeName('llm_gemma_nano_chrome_full'), true);
 	Assert.equal(TaskInputFactory.isTaskTypeName('task_type_llm_gemma_nano_chrome_full'), false);
 	Assert.deepEqual(TaskInputFactory.createTaskInput('dev_formula', '5'), { taskType: 'task_type_dev_formula', input: 5 });
@@ -40,6 +40,8 @@ Test('builds the task input for every task type a consumer may submit', () => {
 	Assert.throws(() => TaskInputFactory.createTaskInput('llm_gemma_nano_chrome_full', '  '), /Input must be a non-empty string/);
 	Assert.deepEqual(TaskInputFactory.createTaskInput('llm_qwen3_5_0_8b_full', 'hello'), { taskType: 'task_type_llm_qwen3_5_0_8b_full', input: 'hello' });
 	Assert.throws(() => TaskInputFactory.createTaskInput('llm_qwen3_5_0_8b_full', '  '), /Input must be a non-empty string/);
+	Assert.deepEqual(TaskInputFactory.createTaskInput('llm_llama3_2_3b_full', 'hello'), { taskType: 'task_type_llm_llama3_2_3b_full', input: 'hello' });
+	Assert.throws(() => TaskInputFactory.createTaskInput('llm_llama3_2_3b_full', '  '), /Input must be a non-empty string/);
 });
 
 Test('carries the generation settings a consumer asked for, and refuses one the task type cannot honour', () => {

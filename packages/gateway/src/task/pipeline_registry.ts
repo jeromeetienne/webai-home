@@ -149,4 +149,24 @@ export const builtinPipelineSpecifications: PipelineSpecification[] = [
 			{ name: 'stage_llm_qwen3_5_0_8b_full', computation: 'llm_qwen3_5_0_8b_full', inputSchemaId: 'llm@1', outputSchemaId: 'llm@1', encoding: 'inline-json', leaseMs: 60_000, prefersSameWorkerOnRetry: true },
 		],
 	},
+	{
+		// Llama 3.2 3B is held complete on one device by a local server that speaks the
+		// OpenAI-compatible Chat Completions API, such as Ollama or LM Studio, and the worker that
+		// runs this stage is a Node.js process that forwards the prompt to that server rather than
+		// a browser tab running the model itself
+		// (https://github.com/webai-at-home/webai-at-home/issues/100). The shape is otherwise the
+		// same as the Qwen3.5-0.8B pipeline above: the worker is asked for an answer once and it is
+		// read back in pieces or in one piece depending on what the consumer asked for, and the
+		// pipeline repeats until a stage result reports generation finished. An answer read in
+		// pieces stays open in the memory of the worker process producing it, so all rounds of one
+		// task must reach that same process, which is what prefersSameWorkerOnRetry protects when
+		// an attempt is retried. The lease is longer than the gateway default because the local
+		// server loads the model on the first request of a task; a run that outlasts even this
+		// lease is carried by the stage heartbeats the worker sends while a completion request is
+		// in flight.
+		pipelineId: 'llm_llama3_2_3b_full', version: 1, taskType: 'task_type_llm_llama3_2_3b_full', repeatsUntilDone: true,
+		stages: [
+			{ name: 'stage_llm_llama3_2_3b_full', computation: 'llm_llama3_2_3b_full', inputSchemaId: 'llm@1', outputSchemaId: 'llm@1', encoding: 'inline-json', leaseMs: 60_000, prefersSameWorkerOnRetry: true },
+		],
+	},
 ];
