@@ -24,7 +24,8 @@
 		"example:chat_completion_llm_qwen3_0_6b_sharded": "tsx examples/chat_completion_llm_qwen3_0_6b_sharded.ts",
 		"example:chat_completion_streaming_llm_qwen3_0_6b_sharded": "tsx examples/chat_completion_streaming_llm_qwen3_0_6b_sharded.ts",
 		"example:chat_completion_llm_qwen3_5_0_8b_full": "tsx examples/chat_completion_llm_qwen3_5_0_8b_full.ts",
-		"example:chat_completion_streaming_llm_qwen3_5_0_8b_full": "tsx examples/chat_completion_streaming_llm_qwen3_5_0_8b_full.ts"
+		"example:chat_completion_streaming_llm_qwen3_5_0_8b_full": "tsx examples/chat_completion_streaming_llm_qwen3_5_0_8b_full.ts",
+		"example:chatbot_tool_calling": "tsx examples/chatbot_tool_calling.ts"
 	},
 	"dependencies": {
 		"@webai/consumer-cli": "0.1.0",
