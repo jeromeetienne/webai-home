@@ -4,7 +4,7 @@ import Fs from 'node:fs';
 import Net from 'node:net';
 import Os from 'node:os';
 import Path from 'node:path';
-import Test, { after, before } from 'node:test';
+import NodeTest from 'node:test';
 import Url from 'node:url';
 import OpenAI from 'openai';
 
@@ -83,6 +83,33 @@ function stop(child: ChildProcess.ChildProcess | undefined): void {
 	}
 }
 
+/** Resolves once `child` has exited, or immediately if it already has, so cleanup does not race a process still shutting down. */
+function waitForExit(child: ChildProcess.ChildProcess | undefined, timeoutMs = 5_000): Promise<void> {
+	if (child === undefined || child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+	return new Promise((resolve) => {
+		const timer = setTimeout(resolve, timeoutMs);
+		child.once('exit', () => { clearTimeout(timer); resolve(); });
+	});
+}
+
+/**
+ * Removes the browser's temporary profile directory, retrying briefly on `ENOTEMPTY`: Chrome's
+ * helper processes (GPU, network service) can still be releasing files in it for a moment after
+ * the main browser process has already exited.
+ */
+async function removeProfileDirectory(directory: string): Promise<void> {
+	const attempts = 10;
+	for (let attempt = 1; attempt <= attempts; attempt += 1) {
+		try {
+			Fs.rmSync(directory, { recursive: true, force: true });
+			return;
+		} catch (error: unknown) {
+			if (attempt === attempts || (error as NodeJS.ErrnoException).code !== 'ENOTEMPTY') throw error;
+			await new Promise((resolve) => setTimeout(resolve, 200));
+		}
+	}
+}
+
 /** Polls `predicate` until it returns something other than `false`, or throws once `waitTimeoutMs` passes. */
 async function waitFor<T>(description: string, predicate: () => Promise<T | false>): Promise<T> {
 	const deadline = Date.now() + waitTimeoutMs;
@@ -122,7 +149,7 @@ async function workerStatus(): Promise<WorkerStatusSnapshot | false> {
 	return JSON.parse(result.stdout) as WorkerStatusSnapshot;
 }
 
-before(async () => {
+NodeTest.before(async () => {
 	await assertPortAvailable(8787);
 	await assertPortAvailable(8788);
 	await assertPortAvailable(8789);
@@ -150,11 +177,11 @@ before(async () => {
 	});
 }, { timeout: 120_000 });
 
-after(() => {
-	stop(browserProcess);
+NodeTest.after(async () => {
 	for (const child of children) stop(child);
-	if (browserProfileDirectory !== undefined) Fs.rmSync(browserProfileDirectory, { recursive: true, force: true });
-});
+	await waitForExit(browserProcess);
+	if (browserProfileDirectory !== undefined) await removeProfileDirectory(browserProfileDirectory);
+}, { timeout: 30_000 });
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -162,7 +189,7 @@ after(() => {
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
-Test('answers 17 for input 5, through a real browser worker cluster and the OpenAI-compatible server', { timeout: 30_000 }, async () => {
+NodeTest.test('answers 17 for input 5, through a real browser worker cluster and the OpenAI-compatible server', { timeout: 30_000 }, async () => {
 	const client = new OpenAI({ baseURL: `${openaiUrl}/v1`, apiKey: 'no-key-required', maxRetries: 0, timeout: 30_000 });
 	const completion = await client.chat.completions.create({ model: 'dev_formula', messages: [{ role: 'user', content: '5' }] });
 	Assert.equal(completion.choices[0]?.message.content, expectedResult);
