@@ -90,6 +90,18 @@ export class GatewayWorkerClient {
 	private sessionRenewalTimer: ReturnType<typeof setTimeout> | undefined;
 	/** The stages this worker advertised, once the gateway's pipelines have been read. */
 	private offeredStageNames: string[] = [];
+	/** The assignments whose stage runs are under way right now. */
+	private readonly runningAssignmentIds = new Set<string>();
+	/**
+	 * The assignments the gateway cancelled while their stage run was still under way.
+	 *
+	 * A cancelled run ends by throwing, because releasing the answer it was reading is what stops
+	 * it waiting, and without this that throw would be reported as `stage.failed` for an
+	 * assignment the gateway has already taken back. The gateway refuses such a result with
+	 * `STALE_ASSIGNMENT`, so nothing breaks, but this worker's own log would announce a failure
+	 * every time a task was cancelled normally.
+	 */
+	private readonly cancelledAssignmentIds = new Set<string>();
 
 	/**
 	 * @param socket The already-built connection to the central gateway.
@@ -202,6 +214,13 @@ export class GatewayWorkerClient {
 			// here is being cancelled, which is what stops this from ending an answer the
 			// replacement run is still reading.
 			StageHelperLlmLlama3_2_3bFull.clearGeneration(message.taskId, message.assignmentId);
+			// Only a run that is actually under way needs remembering: it is about to end by
+			// throwing, and it must not report that as a stage failure. A cancellation that
+			// arrives between two runs has nothing to suppress, so nothing is recorded and the
+			// set cannot grow without bound.
+			if (this.runningAssignmentIds.has(message.assignmentId)) {
+				this.cancelledAssignmentIds.add(message.assignmentId);
+			}
 			return;
 		}
 		// The gateway answers each lease heartbeat with a later expiry. Nothing has to be done
@@ -214,6 +233,15 @@ export class GatewayWorkerClient {
 			return;
 		}
 		if (message.type === 'error') {
+			// A result this worker sent can reach the gateway just after the assignment it belongs
+			// to stopped being current — the task was cancelled, or the lease ran out and the
+			// stage was assigned again — and the gateway then refuses it. That is the gateway
+			// declining work it no longer wants, not this worker malfunctioning, and the race is
+			// not one the worker can avoid: it had already sent the result before it was told.
+			if (message.code === 'STALE_ASSIGNMENT') {
+				this.callbacks.onNotice?.('The gateway had already moved the assignment on, so the result this worker sent was not wanted');
+				return;
+			}
 			this.callbacks.onFailure?.(`${message.code}: ${message.message}`);
 			return;
 		}
@@ -272,6 +300,7 @@ export class GatewayWorkerClient {
 	 */
 	private async runAssignedStage(message: Extract<GatewayMessage, { type: 'stage.assign' }>): Promise<void> {
 		const { taskId, assignmentId, attempt, stage } = message;
+		this.runningAssignmentIds.add(assignmentId);
 		this.send({
 			type: 'stage.accepted',
 			taskId,
@@ -287,6 +316,9 @@ export class GatewayWorkerClient {
 		try {
 			const value = await this.runComputation(message);
 			LeaseHeartbeat.stop(assignmentId);
+			if (this.reportsNothingFor(assignmentId)) {
+				return;
+			}
 			this.send({
 				type: 'stage.result',
 				taskId,
@@ -300,6 +332,9 @@ export class GatewayWorkerClient {
 			// A failed stage abandons the task, so drop whatever this worker was keeping for it:
 			// an answer the local server is still producing. Left alone when no such answer exists.
 			StageHelperLlmLlama3_2_3bFull.clearGeneration(taskId, assignmentId);
+			if (this.reportsNothingFor(assignmentId)) {
+				return;
+			}
 			this.send({
 				type: 'stage.failed',
 				taskId,
@@ -308,7 +343,26 @@ export class GatewayWorkerClient {
 				stage,
 				error: error instanceof Error ? error.message : String(error),
 			});
+		} finally {
+			this.runningAssignmentIds.delete(assignmentId);
+			this.cancelledAssignmentIds.delete(assignmentId);
 		}
+	}
+
+	/**
+	 * Reports whether a finished run should stay silent, because its assignment was cancelled
+	 * while it was still under way.
+	 *
+	 * @param assignmentId The assignment the run was carrying out.
+	 * @returns `true` when the gateway has already taken the assignment back, so neither a result
+	 * nor a failure should be sent for it.
+	 */
+	private reportsNothingFor(assignmentId: string): boolean {
+		if (this.cancelledAssignmentIds.has(assignmentId) === false) {
+			return false;
+		}
+		this.callbacks.onNotice?.('The assignment was cancelled while it was running, so its outcome is not being reported');
+		return true;
 	}
 
 	/**

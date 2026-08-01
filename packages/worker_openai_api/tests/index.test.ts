@@ -247,6 +247,49 @@ Test('registers with no stage, and closes, when the local server does not hold t
 	Assert.equal(socket.closeReason, 'No stage to run');
 });
 
+Test('reports nothing for an assignment the gateway cancelled while its run was under way', async () => {
+	const socket = fakeSocket();
+	const { client, state } = fakeChatClient(['piece-one', 'piece-two']);
+	new GatewayWorkerClient(socket, {
+		name: 'test-worker',
+		authenticationToken: 'development-token',
+		requestedStageNames: [],
+		openaiApiClient: client,
+		modelId: 'llama3.2:3b',
+	});
+	socket.onopen?.();
+	receive(socket, {
+		type: 'stage.assign',
+		taskId: 'task-cancel',
+		assignmentId: 'assignment-cancel',
+		attempt: 1,
+		stage: 'stage_llm_llama3_2_3b_full',
+		computation: 'llm_llama3_2_3b_full',
+		stageIndex: 0,
+		value: { text: 'hello' },
+		leaseUntil: new Date(Date.now() + 60_000).toISOString(),
+	});
+	receive(socket, {
+		type: 'stage.cancel',
+		taskId: 'task-cancel',
+		assignmentId: 'assignment-cancel',
+		attempt: 1,
+		reason: 'the consumer cancelled the task',
+	});
+	await new Promise((resolve) => setImmediate(resolve));
+	await new Promise((resolve) => setImmediate(resolve));
+	// Cancelling releases the answer, which is what stops the run waiting, so the run ends by
+	// throwing. That throw belongs to an assignment the gateway has already taken back, so
+	// neither a result nor a failure is sent for it.
+	const types = socket.sent.map((message) => message.type);
+	Assert.equal(types.includes('stage.accepted'), true);
+	Assert.equal(types.includes('stage.failed'), false);
+	Assert.equal(types.includes('stage.result'), false);
+	// The request to the local server is stopped rather than left producing an answer nobody
+	// will read.
+	Assert.equal(state.abortedCount, 1);
+});
+
 Test('accepts an assignment, and reports a computation it cannot run as a stage failure', async () => {
 	const socket = fakeSocket();
 	new GatewayWorkerClient(socket, {
