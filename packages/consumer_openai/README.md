@@ -45,7 +45,7 @@ The web server is Express, which is what [issue #70](https://github.com/webai-at
 
 ## The models it offers
 
-A model identifier is the cluster's task type name without the leading `task_type_`, which is the same spelling the `-t/--type` option of `@webai/consumer-cli` accepts. The list comes from `taskTypeNames` in that package, so the models offered here cannot drift away from the task types the cluster runs.
+A model identifier is the cluster's task type name without the leading `task_type_`, which is the same spelling the `-t/--task_type` option of `@webai/consumer-cli` accepts. The list comes from `taskTypeNames` in that package, so the models offered here cannot drift away from the task types the cluster runs.
 
 | Model | What runs it | What it needs |
 | --- | --- | --- |

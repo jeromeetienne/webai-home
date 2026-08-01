@@ -11,7 +11,7 @@ Once this package has been built (`npm run build --workspace @webai/consumer-cli
 ```sh
 npx consumer_cli status
 npx consumer_cli submit 5
-npx consumer_cli capacity --task-type dev_formula
+npx consumer_cli capacity --task_type dev_formula
 ```
 
 If the `npx consumer_cli` command is not found, run `npm install` from the repository root once, so npm links the `bin` entry declared in this package's `package.json`.
@@ -49,11 +49,11 @@ npm run dev --workspace @webai/consumer-cli -- submit 5 --url ws://localhost:900
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `-t, --type <type>` | `dev_formula` | `dev_formula`, `llm_qwen3_0_6b_sharded`, `llm_gemma_nano_chrome_full`, or `llm_qwen3_5_0_8b_full`. |
+| `-t, --task_type <type>` | `dev_formula` | `dev_formula`, `llm_qwen3_0_6b_sharded`, `llm_gemma_nano_chrome_full`, or `llm_qwen3_5_0_8b_full`. |
 | `-n, --consumer_name <name>` | `consumer` | Name registered with the gateway. |
 | `-s, --stream` | off | Ask a language-model task to return answer pieces while it runs. |
 
-Use `-t/--type` to choose the task type:
+Use `-t/--task_type` to choose the task type:
 
 - `dev_formula` (default) takes a number.
 - `llm_qwen3_0_6b_sharded` takes free text, and is run by three worker browser tabs, each holding one shard of the Qwen3-0.6B model.
@@ -61,13 +61,13 @@ Use `-t/--type` to choose the task type:
 - `llm_qwen3_5_0_8b_full` takes free text, and is run by one worker browser tab that downloads and holds the complete Qwen3.5-0.8B model.
 
 ```sh
-npm run dev --workspace @webai/consumer-cli -- submit "hello there" --type llm_qwen3_0_6b_sharded
+npm run dev --workspace @webai/consumer-cli -- submit "hello there" --task_type llm_qwen3_0_6b_sharded
 ```
 
 Use `-s/--stream` to ask for the answer in pieces as it is produced, rather than in one result once it is finished. Without it, the cluster answers with the fewest messages the pipeline can manage.
 
 ```sh
-npm run dev --workspace @webai/consumer-cli -- submit "hello there" --type llm_gemma_nano_chrome_full --stream
+npm run dev --workspace @webai/consumer-cli -- submit "hello there" --task_type llm_gemma_nano_chrome_full --stream
 ```
 
 `--stream` is not valid for `dev_formula`, which always returns one numeric
@@ -94,7 +94,7 @@ Without `--watch`, `status` prints one snapshot and exits `0`. With `--watch`, i
 Estimates how many concurrent runs of a task type the cluster can currently support, from the connected workers and the pipeline that serves that task type.
 
 ```sh
-npm run dev --workspace @webai/consumer-cli -- capacity --task-type llm_qwen3_0_6b_sharded
+npm run dev --workspace @webai/consumer-cli -- capacity --task_type llm_qwen3_0_6b_sharded
 ```
 
 ```
@@ -106,11 +106,11 @@ A pipeline whose every stage keeps state on one worker between rounds — such a
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `--task-type <type>` | — | `dev_formula`, `llm_qwen3_0_6b_sharded`, `llm_gemma_nano_chrome_full`, `llm_qwen3_5_0_8b_full`, or `llm_llama3_2_3b_full`. |
+| `--task_type <type>` | — | `dev_formula`, `llm_qwen3_0_6b_sharded`, `llm_gemma_nano_chrome_full`, `llm_qwen3_5_0_8b_full`, or `llm_llama3_2_3b_full`. |
 | `--json` | off | Print the estimate as JSON instead of a sentence. |
 | `--timeout <ms>` | `10000` | How long to wait for the central gateway to answer. |
 
-An unknown task type is an error with a non-zero exit code. `--task-type` is required.
+An unknown task type is an error with a non-zero exit code. `--task_type` is required.
 
 ## Exit codes
 

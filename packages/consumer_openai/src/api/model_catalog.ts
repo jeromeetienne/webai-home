@@ -14,7 +14,7 @@ const modelOwner = 'webai-at-home';
  * The models this server offers, one for each kind of work the cluster can run.
  *
  * A model identifier is the cluster's task type name without the leading `task_type_`, which
- * is the same spelling the consumer command line option `-t/--type` accepts, as recorded in
+ * is the same spelling the consumer command line option `-t/--task_type` accepts, as recorded in
  * `docs/naming_scheme.md`. The list comes from `taskTypeNames` in `@webai/consumer-cli`, so
  * the models offered here cannot drift away from the task types the cluster actually runs:
  * adding a task type adds a model without a change to this file.

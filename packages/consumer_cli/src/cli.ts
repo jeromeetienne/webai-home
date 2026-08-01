@@ -40,16 +40,16 @@ export class Cli {
 		program
 			.command('submit')
 			.argument('<input>', 'number for dev_formula, free text for every language-model task type')
-			.option('-t, --type <type>', `task type: ${taskTypeNames.join(', ')}`, 'dev_formula')
+			.option('-t, --task_type <type>', `task type: ${taskTypeNames.join(', ')}`, 'dev_formula')
 			.option('-n, --consumer_name <name>', 'consumer name', 'consumer')
 			.option('-s, --stream', 'ask for the answer in pieces as it is produced, rather than in one result once it is finished')
-			.action(async (input: string, localOptions: { type: string; consumer_name: string; stream?: boolean }, command: Commander.Command) => {
+			.action(async (input: string, localOptions: { task_type: string; consumer_name: string; stream?: boolean }, command: Commander.Command) => {
 				const options = command.optsWithGlobals<GlobalOptions & typeof localOptions>();
-				if (TaskInputFactory.isTaskTypeName(options.type) === false) throw new Error(`Type must be one of ${taskTypeNames.join(', ')}`);
+				if (TaskInputFactory.isTaskTypeName(options.task_type) === false) throw new Error(`Type must be one of ${taskTypeNames.join(', ')}`);
 				await SubmitCommand.run({
 					url: options.url,
 					authToken: Cli.resolveAuthToken(options.authToken),
-					type: options.type,
+					type: options.task_type,
 					name: options.consumer_name,
 					stream: options.stream === true,
 					input,
@@ -75,16 +75,16 @@ export class Cli {
 
 		program
 			.command('capacity')
-			.requiredOption('--task-type <type>', `task type: ${taskTypeNames.join(', ')}`)
+			.requiredOption('--task_type <type>', `task type: ${taskTypeNames.join(', ')}`)
 			.option('--json', 'print the estimate as JSON instead of a sentence')
 			.option('--timeout <ms>', 'how long to wait for the central gateway to answer', '10000')
-			.action(async (localOptions: { taskType: string; json?: boolean; timeout: string }, command: Commander.Command) => {
+			.action(async (localOptions: { task_type: string; json?: boolean; timeout: string }, command: Commander.Command) => {
 				const options = command.optsWithGlobals<GlobalOptions & typeof localOptions>();
 				await CapacityCommand.run({
 					url: options.url,
 					authToken: Cli.resolveAuthToken(options.authToken),
 					timeoutMs: Number(options.timeout),
-					type: options.taskType,
+					type: options.task_type,
 					json: options.json === true,
 				});
 			});

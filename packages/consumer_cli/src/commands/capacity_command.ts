@@ -9,12 +9,12 @@ import { TaskInputFactory, taskTypeNames } from '../libs/task_input_factory.js';
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
-/** What `consumer_cli capacity --task-type <type>` needs to connect and what to estimate capacity for. */
+/** What `consumer_cli capacity --task_type <type>` needs to connect and what to estimate capacity for. */
 export type CapacityCommandOptions = {
 	url: string;
 	authToken: string;
 	timeoutMs: number;
-	/** A task type name, spelled the same way as `submit`'s `-t/--type` (without `task_type_`). */
+	/** A task type name, spelled the same way as `submit`'s `-t/--task_type` (without `task_type_`). */
 	type: string;
 	json: boolean;
 };

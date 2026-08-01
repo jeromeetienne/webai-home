@@ -8,7 +8,7 @@ import type { GenerationSettings, TaskInput } from '@webai/protocol';
 
 /**
  * The task types a consumer may submit, each named as its task type without the leading
- * `task_type_`. This is the list the `-t/--type` command line option accepts.
+ * `task_type_`. This is the list the `-t/--task_type` command line option accepts.
  */
 export const taskTypeNames = ['dev_formula', 'llm_qwen3_0_6b_sharded', 'llm_gemma_nano_chrome_full', 'llm_qwen3_5_0_8b_full', 'llm_llama3_2_3b_full'] as const;
 
