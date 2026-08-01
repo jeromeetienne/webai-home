@@ -41,6 +41,18 @@ npm run start --workspace @webai/worker-openai-api
 | `-m, --model <model>` | `llama3.2:3b` | The model the local server is asked for, exactly as that server names it. |
 | `-s, --stage-names <name...>` | every stage this worker can run | Restrict this worker to particular stages. |
 
+## How an answer is generated
+
+The worker asks the local server for a streaming chat completion and reads the pieces of the
+answer as they arrive. What one stage run does with those pieces follows the `isStreaming`
+generation setting the consumer submitted, exactly as the browser-based full-model tasks behave:
+
+- A task that asked for nothing has one run read every piece and return the whole answer, so it
+  finishes in a single stage run.
+- A task that asked for its answer in pieces has one run read one piece and return it, leaving
+  the request to the local server open for the run that follows, plus one final run that finds
+  generation finished and returns the whole answer.
+
 ## What this worker checks before it registers
 
 Before it advertises `stage_llm_llama3_2_3b_full`, this worker asks the configured base URL for

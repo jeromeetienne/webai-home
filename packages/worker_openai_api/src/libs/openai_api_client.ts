@@ -4,8 +4,8 @@
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
-/** How long a request to the local server may take before it is given up on, in milliseconds. */
-const requestTimeoutMs = 10_000;
+/** How long the model list request may take before it is given up on, in milliseconds. */
+const modelListTimeoutMs = 10_000;
 
 /**
  * One entry of the model list a server returns from `GET /v1/models`.
@@ -24,6 +24,15 @@ type ModelListResponse = {
 	data: ModelListEntry[];
 };
 
+/** The shape of one Chat Completions streaming event this client reads, and ignores the rest of. */
+type ChatCompletionChunk = {
+	choices?: {
+		delta?: {
+			content?: string;
+		};
+	}[];
+};
+
 /**
  * Talks to one locally running server that speaks the OpenAI-compatible API, such as Ollama or
  * LM Studio.
@@ -32,8 +41,12 @@ type ModelListResponse = {
  * talks to is decided by whoever starts the worker process. The client holds that base URL, so
  * it has state and its methods are instance methods.
  *
- * This client covers the model list today. The Chat Completions endpoint that carries out a
- * stage is added in step 3 of https://github.com/webai-at-home/webai-at-home/issues/103.
+ * Confirmed live against a running Ollama instance, version 0.32.5, before this class was
+ * written (see the de-risk gate recorded in
+ * https://github.com/webai-at-home/webai-at-home/issues/103): `POST /v1/chat/completions` with
+ * `stream: true` delivers one piece of the answer per streamed event, each carrying its piece in
+ * `choices[0].delta.content`, and ends with an event whose `finish_reason` is set followed by a
+ * literal `data: [DONE]` line.
  */
 export class OpenaiApiClient {
 	/**
@@ -52,7 +65,7 @@ export class OpenaiApiClient {
 	 */
 	async listModelIds(): Promise<string[]> {
 		const response = await fetch(`${this.baseUrl}/models`, {
-			signal: AbortSignal.timeout(requestTimeoutMs),
+			signal: AbortSignal.timeout(modelListTimeoutMs),
 		}).catch((error: unknown) => {
 			throw new Error(`The server at ${this.baseUrl} could not be reached: ${error instanceof Error ? error.message : String(error)}`);
 		});
@@ -64,5 +77,97 @@ export class OpenaiApiClient {
 			throw new Error(`The server at ${this.baseUrl} answered its model list without a "data" array`);
 		}
 		return body.data.map((entry) => entry.id);
+	}
+
+	/**
+	 * Starts a Chat Completions request and returns the pieces of the answer as they stream in.
+	 *
+	 * @param modelId The model to ask for, exactly as the local server names it.
+	 * @param prompt The prompt to answer.
+	 * @param abortController Aborts the request when the answer is no longer wanted. The stream's
+	 * own `cancel` calls this, so cancelling the reader stops the request to the local server
+	 * rather than only stopping this side from reading it.
+	 * @returns A stream of the pieces of text the model produces, in order.
+	 * @throws If the server cannot be reached, or answers with a failure status.
+	 */
+	async chatCompletionStream(modelId: string, prompt: string, abortController: AbortController): Promise<ReadableStream<string>> {
+		const response = await fetch(`${this.baseUrl}/chat/completions`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				model: modelId,
+				stream: true,
+				messages: [{ role: 'user', content: prompt }],
+			}),
+			signal: abortController.signal,
+		}).catch((error: unknown) => {
+			throw new Error(`The server at ${this.baseUrl} could not be reached: ${error instanceof Error ? error.message : String(error)}`);
+		});
+		if (response.ok === false) {
+			throw new Error(`The server at ${this.baseUrl} answered the chat completion with status ${response.status}`);
+		}
+		if (response.body === null) {
+			throw new Error(`The server at ${this.baseUrl} answered the chat completion with no body`);
+		}
+		return OpenaiApiClient.textPiecesOf(response.body, abortController);
+	}
+
+	/**
+	 * Reads a Chat Completions streaming response body and delivers the text piece of each event,
+	 * as `server-sent events` carrying the shape of {@link ChatCompletionChunk}.
+	 *
+	 * @param body The response body, a stream of raw bytes.
+	 * @param abortController Aborted when the returned stream is cancelled, so a reader giving up
+	 * on the answer stops the request rather than only stopping its own read.
+	 * @returns A stream of the pieces of text the events carry, skipping events that carry none.
+	 */
+	private static textPiecesOf(body: ReadableStream<Uint8Array>, abortController: AbortController): ReadableStream<string> {
+		const bodyReader = body.getReader();
+		const decoder = new TextDecoder();
+		let buffer = '';
+		return new ReadableStream<string>({
+			// This must not return until it has enqueued a piece, closed the stream, or failed.
+			// A pull that returns having done none of the three is never called again while a
+			// read is outstanding, which deadlocks the stream: the reader waits for a piece that
+			// only another pull could deliver. Reading more bytes from the body is therefore part
+			// of this loop rather than a step that ends the pull.
+			async pull(controller) {
+				for (;;) {
+					const newlineIndex = buffer.indexOf('\n');
+					if (newlineIndex === -1) {
+						const { value, done } = await bodyReader.read();
+						if (done) {
+							controller.close();
+							return;
+						}
+						buffer += decoder.decode(value, { stream: true });
+						continue;
+					}
+					const line = buffer.slice(0, newlineIndex).trim();
+					buffer = buffer.slice(newlineIndex + 1);
+					if (line.startsWith('data:') === false) {
+						continue;
+					}
+					const data = line.slice('data:'.length).trim();
+					if (data === '[DONE]') {
+						controller.close();
+						return;
+					}
+					if (data === '') {
+						continue;
+					}
+					const chunk = JSON.parse(data) as ChatCompletionChunk;
+					const content = chunk.choices?.[0]?.delta?.content;
+					if (typeof content === 'string' && content !== '') {
+						controller.enqueue(content);
+						return;
+					}
+				}
+			},
+			cancel() {
+				abortController.abort();
+				return bodyReader.cancel().catch(() => undefined);
+			},
+		});
 	}
 }

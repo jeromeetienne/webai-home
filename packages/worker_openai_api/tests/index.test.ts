@@ -28,6 +28,37 @@ const fakeOpenaiApiClient = (modelIds: string[] | Error): OpenaiApiClient => ({
 	},
 } as unknown as OpenaiApiClient);
 
+/**
+ * A local server's Chat Completions stream, standing in for one Ollama or LM Studio would
+ * answer with: it delivers the given pieces in order and tracks whether the request was aborted.
+ *
+ * @param pieces The text pieces the fake stream delivers, one per `pull`.
+ * @returns The fake client, and the state tracking whether it was aborted.
+ */
+const fakeChatClient = (pieces: string[]): { client: OpenaiApiClient; state: { abortedCount: number } } => {
+	const state = { abortedCount: 0 };
+	const client = {
+		listModelIds: async (): Promise<string[]> => ['llama3.2:3b'],
+		chatCompletionStream: async (_modelId: string, _prompt: string, abortController: AbortController): Promise<ReadableStream<string>> => {
+			abortController.signal.addEventListener('abort', () => {
+				state.abortedCount += 1;
+			});
+			let index = 0;
+			return new ReadableStream<string>({
+				pull(controller) {
+					if (index >= pieces.length) {
+						controller.close();
+						return;
+					}
+					controller.enqueue(pieces[index]);
+					index += 1;
+				},
+			});
+		},
+	};
+	return { client: client as unknown as OpenaiApiClient, state };
+};
+
 /** The pipelines a gateway with the built-in specifications would answer `pipelines.get` with. */
 const loadedPipelines = [
 	{
@@ -120,6 +151,56 @@ Test('is ready only when the local server offers the model this worker was told 
 	const unreachable = await StageHelperLlmLlama3_2_3bFull.readiness(fakeOpenaiApiClient(new Error('connection refused')), 'llama3.2:3b');
 	Assert.equal(unreachable.status, 'unavailable');
 	Assert.match(unreachable.status === 'unavailable' ? unreachable.message : '', /connection refused/);
+});
+
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+//	Generating An Answer
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+Test('reads the whole answer in one run when the consumer asked for nothing', async () => {
+	const { client } = fakeChatClient(['Paris', ' is', ' the capital.']);
+	const result = await StageHelperLlmLlama3_2_3bFull.compute(
+		'task-a', 'assignment-a', { text: 'What is the capital of France?' }, undefined, client, 'llama3.2:3b',
+	);
+	Assert.deepEqual(result, { text: 'Paris is the capital.', done: true });
+});
+
+Test('reads one piece per run, and joins them across a continuation, when asked for pieces', async () => {
+	const { client } = fakeChatClient(['Paris', ' is', ' the capital.']);
+	const first = await StageHelperLlmLlama3_2_3bFull.compute(
+		'task-b', 'assignment-b', { text: 'What is the capital of France?' }, { isStreaming: true }, client, 'llama3.2:3b',
+	);
+	Assert.deepEqual(first, { newText: 'Paris', isContinuation: true, done: false });
+	const second = await StageHelperLlmLlama3_2_3bFull.compute(
+		'task-b', 'assignment-b', { isContinuation: true }, { isStreaming: true }, client, 'llama3.2:3b',
+	);
+	Assert.deepEqual(second, { newText: ' is', isContinuation: true, done: false });
+	const third = await StageHelperLlmLlama3_2_3bFull.compute(
+		'task-b', 'assignment-b', { isContinuation: true }, { isStreaming: true }, client, 'llama3.2:3b',
+	);
+	Assert.deepEqual(third, { newText: ' the capital.', isContinuation: true, done: false });
+	const fourth = await StageHelperLlmLlama3_2_3bFull.compute(
+		'task-b', 'assignment-b', { isContinuation: true }, { isStreaming: true }, client, 'llama3.2:3b',
+	);
+	Assert.deepEqual(fourth, { text: 'Paris is the capital.', done: true });
+});
+
+Test('refuses to carry on an answer this worker is not holding', async () => {
+	const { client } = fakeChatClient(['hello']);
+	await Assert.rejects(
+		() => StageHelperLlmLlama3_2_3bFull.compute('task-c', 'assignment-c', { isContinuation: true }, undefined, client, 'llama3.2:3b'),
+		/not holding one for that task/,
+	);
+});
+
+Test('aborts the request to the local server when an open answer is released', async () => {
+	const { client, state } = fakeChatClient(['piece-one', 'piece-two']);
+	await StageHelperLlmLlama3_2_3bFull.compute('task-d', 'assignment-d', { text: 'hello' }, { isStreaming: true }, client, 'llama3.2:3b');
+	Assert.equal(state.abortedCount, 0);
+	StageHelperLlmLlama3_2_3bFull.clearGeneration('task-d', 'assignment-d');
+	Assert.equal(state.abortedCount, 1);
 });
 
 ///////////////////////////////////////////////////////////////////////////////

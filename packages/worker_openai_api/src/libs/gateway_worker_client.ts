@@ -117,8 +117,10 @@ export class GatewayWorkerClient {
 		socket.onclose = (): void => {
 			this.isRegistered = false;
 			// An answer being read one piece at a time stays open between runs, and only a run
-			// assigned over this connection can carry it on, so nothing is left running when the
-			// connection goes. The heartbeats go with it, since there is no assignment to keep.
+			// assigned over this connection can carry it on. With the connection gone, no run
+			// can arrive, so every open request to the local server is stopped now rather than
+			// left running for as long as this process stays alive.
+			StageHelperLlmLlama3_2_3bFull.clearEveryGeneration();
 			LeaseHeartbeat.stop();
 			this.clearSessionRenewal();
 			this.callbacks.onConnectionChange?.(false);
@@ -195,6 +197,11 @@ export class GatewayWorkerClient {
 		}
 		if (message.type === 'stage.cancel') {
 			LeaseHeartbeat.stop(message.assignmentId);
+			// One worker process can hold two runs of the same task at once, when a lease expires
+			// and the gateway assigns the stage again to the same worker; only the assignment named
+			// here is being cancelled, which is what stops this from ending an answer the
+			// replacement run is still reading.
+			StageHelperLlmLlama3_2_3bFull.clearGeneration(message.taskId, message.assignmentId);
 			return;
 		}
 		// The gateway answers each lease heartbeat with a later expiry. Nothing has to be done
@@ -290,6 +297,9 @@ export class GatewayWorkerClient {
 			});
 		} catch (error: unknown) {
 			LeaseHeartbeat.stop(assignmentId);
+			// A failed stage abandons the task, so drop whatever this worker was keeping for it:
+			// an answer the local server is still producing. Left alone when no such answer exists.
+			StageHelperLlmLlama3_2_3bFull.clearGeneration(taskId, assignmentId);
 			this.send({
 				type: 'stage.failed',
 				taskId,
@@ -318,6 +328,8 @@ export class GatewayWorkerClient {
 				message.assignmentId,
 				message.value as LlmStagePayload,
 				message.generationSettings,
+				this.options.openaiApiClient,
+				this.options.modelId,
 			);
 		}
 		throw new Error(`This worker implements no computation named ${message.computation}`);
