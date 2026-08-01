@@ -102,8 +102,18 @@ Test('selects a pinned compatible pipeline version and rejects invalid definitio
 	const registry = new PipelineRegistry(builtinPipelineSpecifications);
 	Assert.equal(registry.select({ taskType: 'task_type_dev_formula', input: 5 })?.pipelineId, 'dev_formula');
 	Assert.equal(registry.select({ taskType: 'task_type_llm_gemma_nano_chrome_full', input: 'hello' })?.pipelineId, 'llm_gemma_nano_chrome_full');
+	Assert.equal(registry.select({ taskType: 'task_type_llm_qwen3_5_0_8b_full', input: 'hello' })?.pipelineId, 'llm_qwen3_5_0_8b_full');
 	Assert.equal(registry.select({ taskType: 'task_type_dev_formula', input: 5 }, 'dev_formula', 1)?.version, 1);
 	Assert.throws(() => registry.add({ pipelineId: 'bad', version: 1, taskType: 'task_type_dev_formula', stages: [] }));
+});
+
+Test('the Qwen3.5-0.8B full pipeline has exactly one stage that repeats until done', () => {
+	const registry = new PipelineRegistry(builtinPipelineSpecifications);
+	const specification = registry.select({ taskType: 'task_type_llm_qwen3_5_0_8b_full', input: 'hello' });
+	Assert.equal(specification?.repeatsUntilDone, true);
+	Assert.deepEqual(specification?.stages.map((stage) => stage.name), ['stage_llm_qwen3_5_0_8b_full']);
+	Assert.equal(specification?.stages[0]?.prefersSameWorkerOnRetry, true);
+	Assert.equal(registry.definesStage('stage_llm_qwen3_5_0_8b_full'), true);
 });
 
 Test('creates tasks and advances through both stages', () => {
@@ -249,12 +259,17 @@ Test('keeps a state-holding stage on its own device and moves a stateless one aw
 	const shardTask = createTask(store, { taskType: 'task_type_llm_qwen3_0_6b_sharded', input: 'hello' });
 	Assert.equal(resolver.resolve(shardTask, 'stage_llm_qwen3_0_6b_shard2of3').prefersSameWorkerOnRetry, true);
 
+	const fullModelTask = createTask(store, { taskType: 'task_type_llm_qwen3_5_0_8b_full', input: 'hello' });
+	Assert.equal(resolver.resolve(fullModelTask, 'stage_llm_qwen3_5_0_8b_full').prefersSameWorkerOnRetry, true);
+
 	const formulaTask = createTask(store, { taskType: 'task_type_dev_formula', input: 5 });
 	Assert.equal(resolver.resolve(formulaTask, 'stage_dev_formula_add').prefersSameWorkerOnRetry, false);
 
-	// The built-in language-model stage also states a longer lease than the gateway default,
-	// because creating the model session can take much longer than reading one piece of an answer.
+	// The built-in language-model stage and the Qwen3.5-0.8B full-model stage also state a
+	// longer lease than the gateway default, because creating the model session can take much
+	// longer than reading one piece of an answer.
 	Assert.equal(resolver.resolve(builtInModelTask, 'stage_llm_gemma_nano_chrome_full').leaseMs, 60_000);
+	Assert.equal(resolver.resolve(fullModelTask, 'stage_llm_qwen3_5_0_8b_full').leaseMs, 60_000);
 	Assert.equal(resolver.resolve(formulaTask, 'stage_dev_formula_add').leaseMs, 15_000);
 });
 

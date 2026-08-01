@@ -30,6 +30,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--workspace", "@webai/idle-experiments", "--", "--port", "5183", "--strictPort"],
       "port": 5183
+    },
+    {
+      "name": "onnx-experiments",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--workspace", "@webai/onnx-experiments", "--", "--port", "5184", "--strictPort"],
+      "port": 5184
     }
   ]
 }

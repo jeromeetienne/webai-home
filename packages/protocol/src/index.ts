@@ -22,7 +22,12 @@ export const StageName = z.string().min(1).max(100).regex(/^[a-z][a-z0-9_]*$/, '
 export type StageName = z.infer<typeof StageName>;
 
 /** The kinds of work a consumer may submit. */
-export const TaskType = z.enum(['task_type_dev_formula', 'task_type_llm_qwen3_0_6b_sharded', 'task_type_llm_gemma_nano_chrome_full']);
+export const TaskType = z.enum([
+	'task_type_dev_formula',
+	'task_type_llm_qwen3_0_6b_sharded',
+	'task_type_llm_gemma_nano_chrome_full',
+	'task_type_llm_qwen3_5_0_8b_full',
+]);
 /** The kinds of work a consumer may submit. */
 export type TaskType = z.infer<typeof TaskType>;
 
@@ -66,6 +71,7 @@ export const TaskInput = z.discriminatedUnion('taskType', [
 	z.object({ taskType: z.literal('task_type_dev_formula'), input: z.number().finite(), generationSettings: GenerationSettingsSchema.optional() }),
 	z.object({ taskType: z.literal('task_type_llm_qwen3_0_6b_sharded'), input: z.string(), generationSettings: GenerationSettingsSchema.optional() }),
 	z.object({ taskType: z.literal('task_type_llm_gemma_nano_chrome_full'), input: z.string(), generationSettings: GenerationSettingsSchema.optional() }),
+	z.object({ taskType: z.literal('task_type_llm_qwen3_5_0_8b_full'), input: z.string(), generationSettings: GenerationSettingsSchema.optional() }),
 ]);
 /** The work submitted with a task: its kind, the value that kind carries, and how to generate it. */
 export type TaskInput = z.infer<typeof TaskInput>;

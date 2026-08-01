@@ -3,6 +3,7 @@ import { SessionRenewal } from '@webai/protocol/session_renewal';
 import { StageHelperDevFormula } from './stages/stage_helper_dev_formula';
 import { StageHelperLlmQwen3_0_6bSharded } from './stages/stage_helper_llm_qwen3_0_6b_sharded';
 import { StageHelperLlmGemmaNanoChromeFull } from './stages/stage_helper_llm_gemma_nano_chrome_full';
+import { StageHelperLlmQwen3_5_0_8bFull } from './stages/stage_helper_llm_qwen3_5_0_8b_full';
 import { GatewayConfig } from './connection/gateway_config';
 import { GatewayLink } from './connection/gateway_link';
 import { LeaseHeartbeat } from './connection/lease_heartbeat';
@@ -55,7 +56,7 @@ type GatewayMessage = {
 };
 
 /** The stages this browser could offer, as the loaded pipelines describe them. */
-type OfferedStages = { stageNames: string[]; llmShardIndexes: number[]; builtInModelStageNames: string[] };
+type OfferedStages = { stageNames: string[]; llmShardIndexes: number[]; builtInModelStageNames: string[]; fullModelStageNames: string[] };
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -276,6 +277,7 @@ export class WorkerPage {
 			// as this page stays open. The gateway will place the task somewhere it can be started
 			// again.
 			StageHelperLlmGemmaNanoChromeFull.clearEveryGeneration();
+			StageHelperLlmQwen3_5_0_8bFull.clearEveryGeneration();
 			this.isRegistered = false;
 			if (this.sessionRenewalTimer !== undefined) {
 				window.clearTimeout(this.sessionRenewalTimer);
@@ -410,6 +412,7 @@ export class WorkerPage {
 			// stops this from ending an answer the replacement run is still reading.
 			if (message.assignmentId !== undefined) {
 				StageHelperLlmGemmaNanoChromeFull.clearGeneration(message.taskId, message.assignmentId);
+				StageHelperLlmQwen3_5_0_8bFull.clearGeneration(message.taskId, message.assignmentId);
 			}
 			return;
 		}
@@ -533,6 +536,14 @@ export class WorkerPage {
 					message.generationSettings,
 				);
 			}
+			if (StageHelperLlmQwen3_5_0_8bFull.implementsComputation(computation)) {
+				return StageHelperLlmQwen3_5_0_8bFull.compute(
+					taskId,
+					assignmentId,
+					value as Exclude<StagePayload, number>,
+					message.generationSettings,
+				);
+			}
 			return Promise.resolve(StageHelperDevFormula.compute(computation, value as number));
 		};
 		runComputation()
@@ -564,6 +575,7 @@ export class WorkerPage {
 				// model is still producing. Both are left alone when no such state exists.
 				StageHelperLlmQwen3_0_6bSharded.clearTask(taskId);
 				StageHelperLlmGemmaNanoChromeFull.clearGeneration(taskId, assignmentId);
+				StageHelperLlmQwen3_5_0_8bFull.clearGeneration(taskId, assignmentId);
 				const failedMessage: ClientMessage = {
 					type: 'stage.failed',
 					taskId,
@@ -596,12 +608,14 @@ export class WorkerPage {
 	 * Gets this browser ready to run the stages it could offer, and reports which of them it
 	 * can actually offer.
 	 *
-	 * Two stages need something to be in place before work arrives. A language-model shard
+	 * Three stages need something to be in place before work arrives. A language-model shard
 	 * stage needs its shard downloaded, which is done here so that a shard is never downloaded
 	 * while a task is waiting for it. A stage that runs the language model built into the
 	 * browser needs that model to be ready, and this browser drops the stage rather than
 	 * advertising work it would fail, because the browser may have no built-in model at all or
-	 * may not have downloaded it yet.
+	 * may not have downloaded it yet. A stage that runs the complete Qwen3.5-0.8B model needs a
+	 * WebGPU adapter with 16-bit float support and enough free storage, checked the same way and
+	 * for the same reason, and then needs the model itself downloaded and loaded.
 	 *
 	 * @param offered The stages this browser could offer, from the loaded pipelines.
 	 * @returns The stage names this browser can offer, in the order they were found.
@@ -632,6 +646,24 @@ export class WorkerPage {
 		await StageHelperLlmQwen3_0_6bSharded.preload(offered.llmShardIndexes, (phase) => {
 			this.statusEl.textContent = phase === 'downloading' ? 'Downloading model files' : 'Loading model in GPU';
 		});
+		if (offered.fullModelStageNames.length > 0) {
+			this.statusEl.textContent = 'Checking Qwen3.5-0.8B requirements';
+			this.statusEl.className = 'badge text-bg-warning';
+			const readiness = await StageHelperLlmQwen3_5_0_8bFull.readiness();
+			if (readiness.status !== 'ready') {
+				stageNames = stageNames.filter((stageName) => offered.fullModelStageNames.includes(stageName) === false);
+				this.eventLog.add({
+					direction: 'local',
+					type: 'worker.full_model',
+					timestamp: new Date().toISOString(),
+					message: readiness.message,
+				});
+			} else {
+				await StageHelperLlmQwen3_5_0_8bFull.preload((message) => {
+					this.statusEl.textContent = message;
+				});
+			}
+		}
 		return stageNames;
 	}
 

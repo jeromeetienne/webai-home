@@ -88,6 +88,7 @@ const taskTypeDisplayNames: Record<TaskInput['taskType'], string> = {
 	task_type_dev_formula: 'Development formula',
 	task_type_llm_qwen3_0_6b_sharded: 'Qwen3-0.6B sharded language model',
 	task_type_llm_gemma_nano_chrome_full: 'Chrome built-in Gemma Nano language model',
+	task_type_llm_qwen3_5_0_8b_full: 'Qwen3.5-0.8B full language model',
 };
 
 ///////////////////////////////////////////////////////////////////////////////

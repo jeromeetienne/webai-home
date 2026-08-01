@@ -13,6 +13,7 @@ export default defineConfig({
 				debugIframeDevFormula: Path.resolve(import.meta.dirname, 'web/debug_iframe_dev_formula/index.html'),
 				debugIframeLlmQwen3_0_6bSharded: Path.resolve(import.meta.dirname, 'web/debug_iframe_llm_qwen3_0_6b_sharded/index.html'),
 				debugIframeLlmGemmaNanoChromeFull: Path.resolve(import.meta.dirname, 'web/debug_iframe_llm_gemma_nano_chrome_full/index.html'),
+				debugIframeLlmQwen3_5_0_8bFull: Path.resolve(import.meta.dirname, 'web/debug_iframe_llm_qwen3_5_0_8b_full/index.html'),
 			},
 		},
 	},
