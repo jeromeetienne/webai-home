@@ -1,11 +1,11 @@
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
-//	StageDevFormulaHelper — runs the development formula stages in a worker browser
+//	StageHelperDevFormula — runs the development formula stages in a worker browser
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
 /** Formula-stage capabilities and computation for a worker browser. */
-export class StageDevFormulaHelper {
+export class StageHelperDevFormula {
 	/**
 	 * The computations this worker browser implements, named the way a pipeline stage names
 	 * its computation.
@@ -23,7 +23,7 @@ export class StageDevFormulaHelper {
 	 * @returns `true` when this helper can run it.
 	 */
 	static implementsComputation(computation: string): boolean {
-		return StageDevFormulaHelper.computations.includes(computation);
+		return StageHelperDevFormula.computations.includes(computation);
 	}
 
 	/**

@@ -8,7 +8,7 @@ import type { EncodedTensor, LlmStagePayload, StagePayload, TaskInput } from './
 
 /**
  * Builds the `StagePayload` values carried by `stage.assign`/`stage.result` messages, so
- * cli.ts, stage_llm_qwen3_0_6b_helper.ts, and stage_llm_gemma_nano_chrome_helper.ts share one
+ * cli.ts, stage_helper_llm_qwen3_0_6b_sharded.ts, and stage_helper_llm_gemma_nano_chrome_full.ts share one
  * definition of each payload shape instead of repeating the object literals inline.
  */
 export class StagePayloadFactory {

@@ -1,7 +1,7 @@
 import { StageName, type StageName as StageNameType } from '@webai/protocol';
-import { StageDevFormulaHelper } from '../stages/stage_dev_formula_helper';
-import { StageLlmQwen3_0_6bHelper } from '../stages/stage_llm_qwen3_0_6b_helper';
-import { StageLlmGemmaNanoChromeHelper } from '../stages/stage_llm_gemma_nano_chrome_helper';
+import { StageHelperDevFormula } from '../stages/stage_helper_dev_formula';
+import { StageHelperLlmQwen3_0_6bSharded } from '../stages/stage_helper_llm_qwen3_0_6b_sharded';
+import { StageHelperLlmGemmaNanoChromeFull } from '../stages/stage_helper_llm_gemma_nano_chrome_full';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -70,13 +70,13 @@ export class WorkerStageOffer {
 					stageNames.push(stage.name);
 				}
 				if (
-					StageLlmQwen3_0_6bHelper.implementsComputation(stage.computation)
+					StageHelperLlmQwen3_0_6bSharded.implementsComputation(stage.computation)
 					&& llmShardIndexes.includes(stageIndex) === false
 				) {
 					llmShardIndexes.push(stageIndex);
 				}
 				if (
-					StageLlmGemmaNanoChromeHelper.implementsComputation(stage.computation)
+					StageHelperLlmGemmaNanoChromeFull.implementsComputation(stage.computation)
 					&& builtInModelStageNames.includes(stage.name) === false
 				) {
 					builtInModelStageNames.push(stage.name);
@@ -95,8 +95,8 @@ export class WorkerStageOffer {
 	 * @returns `true` when one of this browser's helpers implements it.
 	 */
 	private static implementsComputation(computation: string): boolean {
-		return StageDevFormulaHelper.implementsComputation(computation)
-			|| StageLlmQwen3_0_6bHelper.implementsComputation(computation)
-			|| StageLlmGemmaNanoChromeHelper.implementsComputation(computation);
+		return StageHelperDevFormula.implementsComputation(computation)
+			|| StageHelperLlmQwen3_0_6bSharded.implementsComputation(computation)
+			|| StageHelperLlmGemmaNanoChromeFull.implementsComputation(computation);
 	}
 }

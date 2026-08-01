@@ -4,7 +4,7 @@ import Path from 'node:path';
 import { defineConfig } from 'vite';
 
 /**
- * `stage_llm_qwen3_0_6b_helper.ts` sets `env.wasm.wasmPaths = "/assets/"`, a literal string prefix.
+ * `stage_helper_llm_qwen3_0_6b_sharded.ts` sets `env.wasm.wasmPaths = "/assets/"`, a literal string prefix.
  * Once `wasmPaths` is a plain string, onnxruntime-web builds every runtime file's URL as
  * `wasmPaths + fileName` (see its `wasm-factory.ts`), bypassing the `import.meta.url`-relative
  * resolution that lets Vite auto-bundle assets referenced via `new URL(..., import.meta.url)`.

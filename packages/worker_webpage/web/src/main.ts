@@ -1,8 +1,8 @@
 import type { StageName, StagePayload, ClientMessage, GenerationSettings } from '@webai/protocol';
 import { SessionRenewal } from '@webai/protocol/session_renewal';
-import { StageDevFormulaHelper } from './stages/stage_dev_formula_helper';
-import { StageLlmQwen3_0_6bHelper } from './stages/stage_llm_qwen3_0_6b_helper';
-import { StageLlmGemmaNanoChromeHelper } from './stages/stage_llm_gemma_nano_chrome_helper';
+import { StageHelperDevFormula } from './stages/stage_helper_dev_formula';
+import { StageHelperLlmQwen3_0_6bSharded } from './stages/stage_helper_llm_qwen3_0_6b_sharded';
+import { StageHelperLlmGemmaNanoChromeFull } from './stages/stage_helper_llm_gemma_nano_chrome_full';
 import { GatewayConfig } from './connection/gateway_config';
 import { GatewayLink } from './connection/gateway_link';
 import { LeaseHeartbeat } from './connection/lease_heartbeat';
@@ -275,7 +275,7 @@ export class WorkerPage {
 			// arrive, so the model is stopped now rather than left producing an answer for as long
 			// as this page stays open. The gateway will place the task somewhere it can be started
 			// again.
-			StageLlmGemmaNanoChromeHelper.clearEveryGeneration();
+			StageHelperLlmGemmaNanoChromeFull.clearEveryGeneration();
 			this.isRegistered = false;
 			if (this.sessionRenewalTimer !== undefined) {
 				window.clearTimeout(this.sessionRenewalTimer);
@@ -402,14 +402,14 @@ export class WorkerPage {
 		DiagnosticsReporter.record('received', message.type, frame.id);
 		if (message.type === 'stage.cancel' && message.taskId !== undefined) {
 			LeaseHeartbeat.stop(message.assignmentId);
-			StageLlmQwen3_0_6bHelper.clearTask(message.taskId);
+			StageHelperLlmQwen3_0_6bSharded.clearTask(message.taskId);
 			// Both helpers hold what they hold against the task, but only the built-in model
 			// helper is told which assignment is being cancelled. One tab can hold two runs of the
 			// same task at once, when a lease expires and the gateway assigns the stage again to
 			// the same tab, and only the superseded one is being cancelled here; naming it is what
 			// stops this from ending an answer the replacement run is still reading.
 			if (message.assignmentId !== undefined) {
-				StageLlmGemmaNanoChromeHelper.clearGeneration(message.taskId, message.assignmentId);
+				StageHelperLlmGemmaNanoChromeFull.clearGeneration(message.taskId, message.assignmentId);
 			}
 			return;
 		}
@@ -522,18 +522,18 @@ export class WorkerPage {
 		 * @returns The stage result, once the computation has produced it.
 		 */
 		const runComputation = (): Promise<StagePayload> => {
-			if (StageLlmQwen3_0_6bHelper.implementsComputation(computation)) {
-				return StageLlmQwen3_0_6bHelper.compute(message.stageIndex ?? 0, taskId, value as Exclude<StagePayload, number>);
+			if (StageHelperLlmQwen3_0_6bSharded.implementsComputation(computation)) {
+				return StageHelperLlmQwen3_0_6bSharded.compute(message.stageIndex ?? 0, taskId, value as Exclude<StagePayload, number>);
 			}
-			if (StageLlmGemmaNanoChromeHelper.implementsComputation(computation)) {
-				return StageLlmGemmaNanoChromeHelper.compute(
+			if (StageHelperLlmGemmaNanoChromeFull.implementsComputation(computation)) {
+				return StageHelperLlmGemmaNanoChromeFull.compute(
 					taskId,
 					assignmentId,
 					value as Exclude<StagePayload, number>,
 					message.generationSettings,
 				);
 			}
-			return Promise.resolve(StageDevFormulaHelper.compute(computation, value as number));
+			return Promise.resolve(StageHelperDevFormula.compute(computation, value as number));
 		};
 		runComputation()
 			.then((computedValue) => {
@@ -562,8 +562,8 @@ export class WorkerPage {
 				// A failed stage abandons the task, so drop whatever this browser was keeping
 				// for it: a shard's key-value cache, or an answer the browser's own language
 				// model is still producing. Both are left alone when no such state exists.
-				StageLlmQwen3_0_6bHelper.clearTask(taskId);
-				StageLlmGemmaNanoChromeHelper.clearGeneration(taskId, assignmentId);
+				StageHelperLlmQwen3_0_6bSharded.clearTask(taskId);
+				StageHelperLlmGemmaNanoChromeFull.clearGeneration(taskId, assignmentId);
 				const failedMessage: ClientMessage = {
 					type: 'stage.failed',
 					taskId,
@@ -611,7 +611,7 @@ export class WorkerPage {
 		if (offered.builtInModelStageNames.length > 0) {
 			this.statusEl.textContent = 'Checking the built-in language model';
 			this.statusEl.className = 'badge text-bg-warning';
-			const readiness = await StageLlmGemmaNanoChromeHelper.readiness();
+			const readiness = await StageHelperLlmGemmaNanoChromeFull.readiness();
 			if (readiness.status === 'ready') {
 				this.hideBuiltInModelNotice();
 			} else {
@@ -629,7 +629,7 @@ export class WorkerPage {
 			this.statusEl.textContent = 'Downloading model files';
 			this.statusEl.className = 'badge text-bg-warning';
 		}
-		await StageLlmQwen3_0_6bHelper.preload(offered.llmShardIndexes, (phase) => {
+		await StageHelperLlmQwen3_0_6bSharded.preload(offered.llmShardIndexes, (phase) => {
 			this.statusEl.textContent = phase === 'downloading' ? 'Downloading model files' : 'Loading model in GPU';
 		});
 		return stageNames;
@@ -642,7 +642,7 @@ export class WorkerPage {
 	private downloadBuiltInModel(): void {
 		this.builtInModelDownloadButtonEl.disabled = true;
 		this.builtInModelMessageEl.textContent = "Downloading the browser's built-in language model.";
-		StageLlmGemmaNanoChromeHelper.download((fraction) => {
+		StageHelperLlmGemmaNanoChromeFull.download((fraction) => {
 			this.builtInModelMessageEl.textContent = `Downloading the browser's built-in language model: ${Math.round(fraction * 100)} per cent.`;
 		})
 			.then((readiness) => {

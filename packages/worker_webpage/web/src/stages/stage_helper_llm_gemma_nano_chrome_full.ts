@@ -2,7 +2,7 @@ import { StagePayloadFactory, type GenerationSettings, type LlmStagePayload } fr
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
-//	StageLlmGemmaNanoChromeHelper — runs the language model built into the browser
+//	StageHelperLlmGemmaNanoChromeFull — runs the language model built into the browser
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -100,7 +100,7 @@ type TaskGenerationState = {
 	/** How many pieces have been read, which bounds how long one answer may be read for. */
 	pieceCount: number;
 	/**
-	 * Whether {@link StageLlmGemmaNanoChromeHelper.clearGeneration} has released this
+	 * Whether {@link StageHelperLlmGemmaNanoChromeFull.clearGeneration} has released this
 	 * generation while the stage run still had it in hand.
 	 *
 	 * It is read at the two points a run can learn that its work is no longer wanted. After a
@@ -161,7 +161,7 @@ const ANSWER_IDLE_TIMEOUT_MS = 300_000;
  * `LanguageModel` object. It is not part of the browser type definitions this project
  * compiles against, so the small part of it that is used is declared above.
  */
-export class StageLlmGemmaNanoChromeHelper {
+export class StageHelperLlmGemmaNanoChromeFull {
 	/**
 	 * The computation this worker browser implements, named the way a pipeline stage names
 	 * its computation.
@@ -175,7 +175,7 @@ export class StageLlmGemmaNanoChromeHelper {
 	 * @returns `true` when this helper can run it.
 	 */
 	static implementsComputation(computation: string): boolean {
-		return computation === StageLlmGemmaNanoChromeHelper.computation;
+		return computation === StageHelperLlmGemmaNanoChromeFull.computation;
 	}
 
 	/**
@@ -203,7 +203,7 @@ export class StageLlmGemmaNanoChromeHelper {
 	 * @returns Whether the stage can be run, and what has to happen first when it cannot yet.
 	 */
 	static async readiness(): Promise<BuiltInModelReadiness> {
-		const factory = StageLlmGemmaNanoChromeHelper.factory();
+		const factory = StageHelperLlmGemmaNanoChromeFull.factory();
 		if (factory === undefined) {
 			return {
 				status: 'unavailable',
@@ -212,7 +212,7 @@ export class StageLlmGemmaNanoChromeHelper {
 		}
 		const availability = await factory.availability();
 		if (availability === 'unavailable') {
-			if (StageLlmGemmaNanoChromeHelper.isDeniedToThisPage()) {
+			if (StageHelperLlmGemmaNanoChromeFull.isDeniedToThisPage()) {
 				return {
 					status: 'unavailable',
 					message: "This page is not allowed to use the browser's built-in language model. A page shown inside a frame from a different address is not allowed to by default, and the page around it has to pass the permission on by setting allow=\"language-model\" on the frame.",
@@ -246,7 +246,7 @@ export class StageLlmGemmaNanoChromeHelper {
 	 * @returns Whether the stage can be run now.
 	 */
 	static async download(onProgress: (fraction: number) => void): Promise<BuiltInModelReadiness> {
-		const factory = StageLlmGemmaNanoChromeHelper.factory();
+		const factory = StageHelperLlmGemmaNanoChromeFull.factory();
 		if (factory === undefined) {
 			return {
 				status: 'unavailable',
@@ -257,7 +257,7 @@ export class StageLlmGemmaNanoChromeHelper {
 			monitor: (monitor) => monitor.addEventListener('downloadprogress', (event) => onProgress(event.loaded)),
 		});
 		session.destroy();
-		return StageLlmGemmaNanoChromeHelper.readiness();
+		return StageHelperLlmGemmaNanoChromeFull.readiness();
 	}
 
 	/**
@@ -285,15 +285,15 @@ export class StageLlmGemmaNanoChromeHelper {
 	): Promise<LlmStagePayload> {
 		const wantsPieces = generationSettings?.isStreaming === true;
 		const state = payload.isContinuation === true
-			? StageLlmGemmaNanoChromeHelper.heldGeneration(taskId, assignmentId)
-			: StageLlmGemmaNanoChromeHelper.newGeneration(taskId, assignmentId);
+			? StageHelperLlmGemmaNanoChromeFull.heldGeneration(taskId, assignmentId)
+			: StageHelperLlmGemmaNanoChromeFull.newGeneration(taskId, assignmentId);
 		// A run that returns a piece leaves the answer open behind it, so it is the one kind of
 		// run that must not release what it was reading. Every other way out of this method —
 		// the finished answer, and every failure — releases it, and releasing is refused anyway
 		// for a run that no longer owns the answer.
 		let leavesAnswerOpen = false;
 		try {
-			const reader = state.reader ?? await StageLlmGemmaNanoChromeHelper.startGeneration(state, payload.text ?? '');
+			const reader = state.reader ?? await StageHelperLlmGemmaNanoChromeFull.startGeneration(state, payload.text ?? '');
 			while (state.pieceCount < MAXIMUM_ANSWER_PIECES) {
 				const piece = await reader.read();
 				if (state.isReleased === true) {
@@ -305,16 +305,16 @@ export class StageLlmGemmaNanoChromeHelper {
 				state.text += piece.value;
 				state.unreportedText += piece.value;
 				state.pieceCount += 1;
-				StageLlmGemmaNanoChromeHelper.refuseIfReplaced(state, assignmentId);
+				StageHelperLlmGemmaNanoChromeFull.refuseIfReplaced(state, assignmentId);
 				if (wantsPieces === true) {
 					leavesAnswerOpen = true;
 					const reported = state.unreportedText;
 					state.unreportedText = '';
-					StageLlmGemmaNanoChromeHelper.waitForTheRunAfterThis(taskId, state);
+					StageHelperLlmGemmaNanoChromeFull.waitForTheRunAfterThis(taskId, state);
 					return StagePayloadFactory.llmPartialText(reported);
 				}
 			}
-			StageLlmGemmaNanoChromeHelper.refuseIfReplaced(state, assignmentId);
+			StageHelperLlmGemmaNanoChromeFull.refuseIfReplaced(state, assignmentId);
 			// The whole answer travels on this one result, whichever way it was read. A consumer
 			// that has been joining the pieces has already received every one of them, so this
 			// result adds no piece of its own and is instead what that consumer can check its own
@@ -322,7 +322,7 @@ export class StageLlmGemmaNanoChromeHelper {
 			return StagePayloadFactory.llmDone(state.text);
 		} finally {
 			if (leavesAnswerOpen === false) {
-				StageLlmGemmaNanoChromeHelper.clearGeneration(taskId, assignmentId);
+				StageHelperLlmGemmaNanoChromeFull.clearGeneration(taskId, assignmentId);
 			}
 		}
 	}
@@ -337,9 +337,9 @@ export class StageLlmGemmaNanoChromeHelper {
 	 * session left running would be held for as long as the page stays open.
 	 */
 	static clearEveryGeneration(): void {
-		for (const [taskId, state] of StageLlmGemmaNanoChromeHelper.stateByTaskId) {
-			StageLlmGemmaNanoChromeHelper.stateByTaskId.delete(taskId);
-			StageLlmGemmaNanoChromeHelper.release(state);
+		for (const [taskId, state] of StageHelperLlmGemmaNanoChromeFull.stateByTaskId) {
+			StageHelperLlmGemmaNanoChromeFull.stateByTaskId.delete(taskId);
+			StageHelperLlmGemmaNanoChromeFull.release(state);
 		}
 	}
 
@@ -359,12 +359,12 @@ export class StageLlmGemmaNanoChromeHelper {
 	 * @param assignmentId The assignment asking to release it.
 	 */
 	static clearGeneration(taskId: string, assignmentId: string): void {
-		const state = StageLlmGemmaNanoChromeHelper.stateByTaskId.get(taskId);
+		const state = StageHelperLlmGemmaNanoChromeFull.stateByTaskId.get(taskId);
 		if (state === undefined || state.owningAssignmentId !== assignmentId) {
 			return;
 		}
-		StageLlmGemmaNanoChromeHelper.stateByTaskId.delete(taskId);
-		StageLlmGemmaNanoChromeHelper.release(state);
+		StageHelperLlmGemmaNanoChromeFull.stateByTaskId.delete(taskId);
+		StageHelperLlmGemmaNanoChromeFull.release(state);
 	}
 
 	/**
@@ -381,9 +381,9 @@ export class StageLlmGemmaNanoChromeHelper {
 		// A task asks for its answer once, so anything still held for this task is left over from
 		// an attempt that was given up on without being cancelled. Releasing it here is what stops
 		// a retried task from leaving a model session open for the answer it abandoned.
-		const abandoned = StageLlmGemmaNanoChromeHelper.stateByTaskId.get(taskId);
+		const abandoned = StageHelperLlmGemmaNanoChromeFull.stateByTaskId.get(taskId);
 		if (abandoned !== undefined) {
-			StageLlmGemmaNanoChromeHelper.release(abandoned);
+			StageHelperLlmGemmaNanoChromeFull.release(abandoned);
 		}
 		const state: TaskGenerationState = {
 			session: undefined,
@@ -395,7 +395,7 @@ export class StageLlmGemmaNanoChromeHelper {
 			pieceCount: 0,
 			isReleased: false,
 		};
-		StageLlmGemmaNanoChromeHelper.stateByTaskId.set(taskId, state);
+		StageHelperLlmGemmaNanoChromeFull.stateByTaskId.set(taskId, state);
 		return state;
 	}
 
@@ -409,7 +409,7 @@ export class StageLlmGemmaNanoChromeHelper {
 	 * @throws If this browser holds no answer for the task.
 	 */
 	private static heldGeneration(taskId: string, assignmentId: string): TaskGenerationState {
-		const state = StageLlmGemmaNanoChromeHelper.stateByTaskId.get(taskId);
+		const state = StageHelperLlmGemmaNanoChromeFull.stateByTaskId.get(taskId);
 		// The answer lives in the memory of the tab producing it and nowhere else, so a run asked
 		// to carry on an answer this tab is not holding cannot produce one. Starting a fresh
 		// answer instead would answer a prompt this run was not given, since a run that carries an
@@ -458,11 +458,11 @@ export class StageLlmGemmaNanoChromeHelper {
 		state.idleTimer = setTimeout(() => {
 			// Read from the map rather than closing over the decision: by now this answer may have
 			// been released and a different one started for the same task.
-			if (StageLlmGemmaNanoChromeHelper.stateByTaskId.get(taskId) !== state) {
+			if (StageHelperLlmGemmaNanoChromeFull.stateByTaskId.get(taskId) !== state) {
 				return;
 			}
-			StageLlmGemmaNanoChromeHelper.stateByTaskId.delete(taskId);
-			StageLlmGemmaNanoChromeHelper.release(state);
+			StageHelperLlmGemmaNanoChromeFull.stateByTaskId.delete(taskId);
+			StageHelperLlmGemmaNanoChromeFull.release(state);
 		}, ANSWER_IDLE_TIMEOUT_MS);
 	}
 
@@ -508,7 +508,7 @@ export class StageLlmGemmaNanoChromeHelper {
 		if (prompt.trim() === '') {
 			throw new Error('A prompt is needed to start an answer.');
 		}
-		const factory = StageLlmGemmaNanoChromeHelper.factory();
+		const factory = StageHelperLlmGemmaNanoChromeFull.factory();
 		if (factory === undefined) {
 			throw new Error('This browser has no built-in language model.');
 		}

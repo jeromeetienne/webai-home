@@ -30,7 +30,7 @@ When no enabled stages are provided, the worker advertises all available formula
 
 The three Qwen3-0.6B ONNX model shards are stored in the public [Hugging Face model repository](https://huggingface.co/jerome-etienne/webai-at-home-qwen3-0.6b-shards), rather than in the Worker web build or the central gateway. The Worker downloads only the shard assigned to its stage and stores downloaded shard bytes in the browser's IndexedDB cache.
 
-The Worker uses the immutable Hugging Face revision [`8ba2b869c4dbb96de8b72e448e79b4ec5825ae47`](https://huggingface.co/jerome-etienne/webai-at-home-qwen3-0.6b-shards/tree/8ba2b869c4dbb96de8b72e448e79b4ec5825ae47). Upload a new model revision and update the revision in `web/src/stage_llm_qwen3_0_6b_helper.ts` when the shard files change. The GitHub Pages Worker deployment therefore publishes the small application and runtime assets, not the roughly 860 megabytes of model shards.
+The Worker uses the immutable Hugging Face revision [`8ba2b869c4dbb96de8b72e448e79b4ec5825ae47`](https://huggingface.co/jerome-etienne/webai-at-home-qwen3-0.6b-shards/tree/8ba2b869c4dbb96de8b72e448e79b4ec5825ae47). Upload a new model revision and update the revision in `web/src/stages/stage_helper_llm_qwen3_0_6b_sharded.ts` when the shard files change. The GitHub Pages Worker deployment therefore publishes the small application and runtime assets, not the roughly 860 megabytes of model shards.
 
 ## Chrome Apps on device permission
 
