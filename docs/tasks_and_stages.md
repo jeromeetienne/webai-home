@@ -4,9 +4,9 @@ This document lists every kind of task the `webai-at-home` cluster can run, what
 
 ## How a task turns into stages
 
-A task is submitted by a consumer as a task input: a task type together with one value. The task type is one of exactly four values, checked by `TaskType` in [`packages/protocol/src/index.ts`](../packages/protocol/src/index.ts).
+A task is submitted by a consumer as a task input: a task type together with one value. The task type is one of exactly five values, checked by `TaskType` in [`packages/protocol/src/index.ts`](../packages/protocol/src/index.ts).
 
-When a task is submitted, the gateway picks a pipeline for it. A pipeline is a specification that names the task type it serves and lists the ordered stages that make that task type up. The gateway chooses the highest version among the pipelines that serve the task's type and are not retired, and it copies that pipeline's stage sequence onto the task. The stage sequence is therefore data the task carries, not a sequence built into the gateway. The pipelines the gateway knows without being given a pipeline file are in `builtinPipelineSpecifications` in [`packages/gateway/src/libs/pipeline_registry.ts`](../packages/gateway/src/libs/pipeline_registry.ts), and the `--pipeline-file` command line option can add more.
+When a task is submitted, the gateway picks a pipeline for it. A pipeline is a specification that names the task type it serves and lists the ordered stages that make that task type up. The gateway chooses the highest version among the pipelines that serve the task's type and are not retired, and it copies that pipeline's stage sequence onto the task. The stage sequence is therefore data the task carries, not a sequence built into the gateway. The pipelines the gateway knows without being given a pipeline file are in `builtinPipelineSpecifications` in [`packages/gateway/src/task/pipeline_registry.ts`](../packages/gateway/src/task/pipeline_registry.ts), and the `--pipeline-file` command line option can add more.
 
 Two different names are involved in every stage, and they mean different things:
 
@@ -17,14 +17,14 @@ Each stage also states the identifier of the schema its input must match, the id
 
 A stage may state two optional scheduling settings:
 
-- `leaseMs` is how long the assignment lease for that stage lasts. A stage that does not state one uses the gateway's `--lease-ms` default of 15000 milliseconds. `stage_llm_gemma_nano_chrome_full` and `stage_llm_qwen3_5_0_8b_full` each state their own value, 60000 milliseconds; every other built-in stage uses the default. A worker keeps a lease alive while it is still working by sending a stage heartbeat message.
+- `leaseMs` is how long the assignment lease for that stage lasts. A stage that does not state one uses the gateway's `--lease-ms` default of 15000 milliseconds. `stage_llm_gemma_nano_chrome_full`, `stage_llm_qwen3_5_0_8b_full`, and `stage_llm_llama3_2_3b_full` each state their own value, 60000 milliseconds; every other built-in stage uses the default. A worker keeps a lease alive while it is still working by sending a stage heartbeat message.
 - `prefersSameWorkerOnRetry` makes a stage go back to the device that already holds the state that stage keeps in memory, instead of deliberately avoiding that device. It applies to three moments: a retried attempt after a lease expiry, the assignment of the stage that follows a finished one, and the assignment of a stage on a task that had to wait in the `queued` state. A stage that does not set it is instead preferably moved to a device other than the one that just ran a stage of the task.
 
-Which device holds the state a stage needs depends on which stage is about to run, not on which device ran last: in a pipeline that repeats, the device holding the state for the upcoming stage is the device that ran that same stage in the previous round. The gateway therefore records, on the task itself, which device most recently completed each stage of that task, in the field `stageWorkerDeviceIds`. The placement is decided by `WorkerPlacement` in [`packages/gateway/src/libs/worker_placement.ts`](../packages/gateway/src/libs/worker_placement.ts), which reads that record first and falls back to the device that just finished a stage, for the first round of a repeating pipeline and for a stage whose state is handed to it by the stage before it on the same device.
+Which device holds the state a stage needs depends on which stage is about to run, not on which device ran last: in a pipeline that repeats, the device holding the state for the upcoming stage is the device that ran that same stage in the previous round. The gateway therefore records, on the task itself, which device most recently completed each stage of that task, in the field `stageWorkerDeviceIds`. The placement is decided by `WorkerPlacement` in [`packages/gateway/src/device/worker_placement.ts`](../packages/gateway/src/device/worker_placement.ts), which reads that record first and falls back to the device that just finished a stage, for the first round of a repeating pipeline and for a stage whose state is handed to it by the stage before it on the same device.
 
 The preferred device is a preference and not a requirement, because the device holding the state may have disconnected, may have stopped offering the stage, or may already be running as many assignments as its own limit allows. In any of those cases the stage is given to another device that advertises it, and a stage that cannot be continued elsewhere fails there and says so.
 
-A pipeline may also state `repeatsUntilDone`. A pipeline that does not state it runs each of its stages exactly once and then the task is complete. A pipeline that does state it runs its stages again from the first once the last stage finishes, and stops only when the last stage returns a result whose `done` field is `true`. The decision is made by `TaskStore.nextStage` in [`packages/gateway/src/libs/task_store.ts`](../packages/gateway/src/libs/task_store.ts).
+A pipeline may also state `repeatsUntilDone`. A pipeline that does not state it runs each of its stages exactly once and then the task is complete. A pipeline that does state it runs its stages again from the first once the last stage finishes, and stops only when the last stage returns a result whose `done` field is `true`. The decision is made by `TaskStore.nextStage` in [`packages/gateway/src/task/task_store.ts`](../packages/gateway/src/task/task_store.ts).
 
 A task is retried at most `--max-attempts` times per stage, three by default. When no connected worker advertises the stage that comes next, the task is put back into the `queued` state and waits, rather than failing.
 
@@ -212,9 +212,62 @@ That script submits the prompt "What is the capital of France?" under the consum
 npm run dev --workspace @webai/consumer-cli -- submit --type llm_qwen3_5_0_8b_full "Write one sentence about rain."
 ```
 
+### Task type `task_type_llm_llama3_2_3b_full`
+
+**Name:** `task_type_llm_llama3_2_3b_full`, served by the pipeline whose identifier is `llm_llama3_2_3b_full`, at version 1.
+
+**Input:** one text prompt, which must not be empty.
+
+**What it does:** it generates text with the complete Llama 3.2 3B language model, held and run by a server already running on the worker's own device that speaks the OpenAI-compatible Chat Completions API, such as [Ollama](https://ollama.com) or [LM Studio](https://lmstudio.ai). Nothing about the model is downloaded, held, or run by this project: the worker forwards the prompt to that server and reads the answer back.
+
+The worker that runs this task is not a browser tab. It is the Node.js command line process in [`packages/worker_openai_api`](../packages/worker_openai_api), which is the first worker in this project that is not a web page, and the first concrete backend for the pluggable worker architecture explored in [issue #33](https://github.com/webai-at-home/webai-at-home/issues/33). It speaks exactly the same worker protocol as a worker browser tab, so nothing in the gateway distinguishes the two.
+
+The task type names the model and not the server, because Llama 3.2 3B held complete on one device is the same arrangement whichever local server holds it. Which server the worker talks to, and which model it asks that server for, are options of the worker process, `--base-url` and `--model`. The reasoning is recorded in [`naming_scheme.md`](./naming_scheme.md).
+
+The worker asks the local server for the answer once and then reads it in pieces, the same way `task_type_llm_gemma_nano_chrome_full` and `task_type_llm_qwen3_5_0_8b_full` do, and how many stage runs those pieces are read in is decided the same way, by the `isStreaming` generation setting the consumer submitted:
+
+- A task that asked for nothing has every piece read by one run, which returns the complete answer as its result, marked finished.
+- A task that asked for its answer in pieces has one piece read per run, and the worker process keeps the request to the local server open for the run that follows.
+
+Generation stops when the local server finishes the answer, or on the safety bound of 2000 read pieces, defined in [`packages/worker_openai_api/src/stages/stage_helper_llm_llama3_2_3b_full.ts`](../packages/worker_openai_api/src/stages/stage_helper_llm_llama3_2_3b_full.ts). There is no bound on generated tokens here, unlike the two tasks that run a model this project loads itself, because the number of tokens is the local server's own decision rather than a value this project passes.
+
+**Purpose:** it lets the cluster use a model that no browser tab could run, on hardware a browser cannot reach, without this project shipping, downloading, or loading that model. It is also what proves the worker protocol is not tied to browsers: everything the gateway does for a worker browser tab — registration, stage assignment, leases, heartbeats, cancellation, results — works unchanged for a worker that is an ordinary command line process.
+
+**Stages the cluster must carry out**, one run per answer, or one run per piece plus a final one for a task that asked for its answer in pieces:
+
+| Order | Stage name | Computation | Input schema | Output schema | Encoding | What this stage does |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | `stage_llm_llama3_2_3b_full` | `llm_llama3_2_3b_full` | `llm@1` | `llm@1` | `inline-json` | It asks the local server for a streaming chat completion for the submitted prompt, or, on a run that carries an answer on, finds the request this worker process is already holding open. It then reads either every remaining piece or one piece, according to what the consumer asked for, stopping at the safety bound above. It returns one piece with the answer marked unfinished, or the complete answer marked finished. |
+
+The stage states a lease of 60000 milliseconds rather than using the gateway default, because the local server loads the model on the first request of a task, which is far slower than the gateway's own default lease allows for. What carries a run past even that lease is the stage heartbeat messages the worker sends while a completion request is in flight.
+
+The stage sets `prefersSameWorkerOnRetry`. An answer read in pieces is an open request held by the one worker process producing it, so every run of it has to reach that process, the same reasoning `stage_llm_gemma_nano_chrome_full` follows and the same release, idle-timeout, and replaced-run handling it uses.
+
+Cancelling a task stops the local server generating, rather than leaving it producing text nobody will read. This was measured against a running Ollama instance rather than assumed: reading the same answer to the end had the server generate 641 tokens in 31.8 seconds, while cancelling after five pieces had it stop at 48 tokens in 0.6 seconds and report its slots idle. Killing the worker process mid-answer has the same effect from the other direction — the server ends the request with status 499, client closed request — and the gateway then returns the task to the queue, since the answer lived in the memory of the process that has gone, until the submission deadline fails it.
+
+**What the cluster needs in order to run it:** one running worker process from `packages/worker_openai_api`, on a device where a server speaking the OpenAI-compatible API is running and already has the model. Before the worker advertises the stage it asks that server for `GET /v1/models` and checks that the model named by `--model` is in the answer. A worker whose server cannot be reached, or does not have that model, registers no stage at all, names the models the server does offer, and exits, rather than accepting work it would fail. A task submitted while no such worker is connected waits in the `queued` state.
+
+There is no debug page for this task, because the debug pages exist to open worker browser tabs inside inline frames. The worker is started from a command line instead:
+
+```bash
+npm run dev --workspace @webai/worker-openai-api
+```
+
+**How to submit one:**
+
+```bash
+npm run sample:llm_llama3_2_3b_full --workspace @webai/consumer-cli
+```
+
+That script submits the prompt "What is the capital of France?" under the consumer name `llm-llama3-2-3b-full-consumer`. To submit a different prompt, call the command line client directly:
+
+```bash
+npm run dev --workspace @webai/consumer-cli -- submit --type llm_llama3_2_3b_full "Write one sentence about rain."
+```
+
 ## Every stage in the cluster
 
-Seven stage names exist across the four built-in pipelines, using five distinct computations.
+Eight stage names exist across the five built-in pipelines, using six distinct computations.
 
 | Stage name | Pipeline | Task type | Computation |
 | --- | --- | --- | --- |
@@ -225,35 +278,37 @@ Seven stage names exist across the four built-in pipelines, using five distinct 
 | `stage_llm_qwen3_0_6b_shard3of3` | `llm_qwen3_0_6b_sharded` version 1 | `task_type_llm_qwen3_0_6b_sharded` | `llm_qwen3_0_6b_shard` |
 | `stage_llm_gemma_nano_chrome_full` | `llm_gemma_nano_chrome_full` version 1 | `task_type_llm_gemma_nano_chrome_full` | `llm_gemma_nano_chrome_full` |
 | `stage_llm_qwen3_5_0_8b_full` | `llm_qwen3_5_0_8b_full` version 1 | `task_type_llm_qwen3_5_0_8b_full` | `llm_qwen3_5_0_8b_full` |
+| `stage_llm_llama3_2_3b_full` | `llm_llama3_2_3b_full` version 1 | `task_type_llm_llama3_2_3b_full` | `llm_llama3_2_3b_full` |
 
-A worker browser tab decides which of these it offers by asking the gateway for its loaded pipelines and keeping every stage whose computation the tab implements. The page address may narrow that set further through its `enabledStages` parameter, which is how the three debug pages give each inline frame a single stage. A tab that names no stages at all offers every stage the loaded pipelines define whose computation it implements. The choice is made by `offeredStages` in [`packages/worker_webpage/web/src/main.ts`](../packages/worker_webpage/web/src/main.ts).
+A worker decides which of these it offers by asking the gateway for its loaded pipelines and keeping every stage whose computation it implements. A worker browser tab and the Node.js worker in `packages/worker_openai_api` follow the same rule, each in its own copy of it, and neither ever decides from a stage name. The page address may narrow that set further through its `enabledStages` parameter, which is how the three debug pages give each inline frame a single stage. A tab that names no stages at all offers every stage the loaded pipelines define whose computation it implements. The choice is made by `offeredStages` in [`packages/worker_webpage/web/src/main.ts`](../packages/worker_webpage/web/src/main.ts).
 
-Being able to run a computation is not always enough to offer its stage. A tab drops `stage_llm_gemma_nano_chrome_full` again when its browser's own language model is not ready, and it drops `stage_llm_qwen3_5_0_8b_full` again when its browser lacks WebGPU, 16-bit float shader support, or enough free storage. It downloads the shards for the language-model shard stages it offers, and downloads and loads the complete Qwen3.5-0.8B model for the stage that needs it, before it registers, so that neither is downloaded while a task waits for it. All of this happens between asking for the pipelines and registering.
+Being able to run a computation is not always enough to offer its stage. A tab drops `stage_llm_gemma_nano_chrome_full` again when its browser's own language model is not ready, and it drops `stage_llm_qwen3_5_0_8b_full` again when its browser lacks WebGPU, 16-bit float shader support, or enough free storage. The Node.js worker drops `stage_llm_llama3_2_3b_full` for the same kind of reason, when the local server it was pointed at cannot be reached or does not hold the model it was told to serve. It downloads the shards for the language-model shard stages it offers, and downloads and loads the complete Qwen3.5-0.8B model for the stage that needs it, before it registers, so that neither is downloaded while a task waits for it. All of this happens between asking for the pipelines and registering.
 
 ## The values carried between stages
 
 Every value sent to a stage or returned by one is built by `StagePayloadFactory` in [`packages/protocol/src/stage_payload_factory.ts`](../packages/protocol/src/stage_payload_factory.ts), so the gateway and the worker browsers share one definition of each shape:
 
 - A formula stage carries a plain number, unchanged.
-- The first stage of a task is given its value by `StagePayloadFactory.initial`, which answers every task type: the submitted number for a development formula task, and the submitted prompt text for either language-model task. Nothing outside that one method decides what a first stage value looks like.
+- The first stage of a task is given its value by `StagePayloadFactory.initial`, which answers every task type: the submitted number for a development formula task, and the submitted prompt text for every language-model task. Nothing outside that one method decides what a first stage value looks like.
 - The first round of a sharded language-model task carries the submitted prompt text to `stage_llm_qwen3_0_6b_shard1of3`.
 - A hand-off from one shard to the next within one round carries the boundary tensors, the token identifiers processed in that round, and the position of the first of those tokens within the whole sequence.
 - A third-stage result that continues generation carries the text that round produced in `newText`, the single token just chosen, that token's position, and `done` set to `false`. It does not carry the answer so far. An answer re-sent in full once per token would be sent once for every token that precedes it, so the bytes on the connection would grow with the square of the number of tokens.
 - A third-stage result that ends generation carries the complete generated text in `text`, the piece that last round produced in `newText`, and `done` set to `true`. This is the one result that carries the whole answer.
 - A result of the Chrome built-in language-model stage that finishes an answer carries the complete answer in `text` and `done` set to `true`, exactly as the sharded task's last stage does.
-- A result of the Chrome built-in language-model stage that leaves an answer open carries that one piece in `newText` and `isContinuation` set to `true`. Only a task that asked for its answer in pieces produces such a result. The Qwen3.5-0.8B full-model stage produces results in exactly these same two shapes, for the same reasons.
+- A result of the Chrome built-in language-model stage that leaves an answer open carries that one piece in `newText` and `isContinuation` set to `true`. Only a task that asked for its answer in pieces produces such a result. The Qwen3.5-0.8B full-model stage and the Llama 3.2 3B full-model stage each produce results in exactly these same two shapes, for the same reasons.
 - The `isContinuation` field marks a payload that continues a generation held open in the memory of the device that produced the previous result. A worker given one that it holds no generation for fails the stage, rather than starting a second answer to a prompt it was not sent.
 - A worker never has to know which of these it will produce before it starts. What it produces follows from the `isStreaming` generation setting carried on its assignment, and from whether the model has finished.
 
 ## Where these definitions live
 
 - Task types and task inputs: `TaskType` and `TaskInput` in [`packages/protocol/src/index.ts`](../packages/protocol/src/index.ts).
-- Pipeline and stage specifications, including the three built-in pipelines: [`packages/gateway/src/libs/pipeline_registry.ts`](../packages/gateway/src/libs/pipeline_registry.ts).
-- The rule that decides which stage comes next, including the repeating case: `TaskStore.nextStage` in [`packages/gateway/src/libs/task_store.ts`](../packages/gateway/src/libs/task_store.ts).
+- Pipeline and stage specifications, including the three built-in pipelines: [`packages/gateway/src/task/pipeline_registry.ts`](../packages/gateway/src/task/pipeline_registry.ts).
+- The rule that decides which stage comes next, including the repeating case: `TaskStore.nextStage` in [`packages/gateway/src/task/task_store.ts`](../packages/gateway/src/task/task_store.ts).
 - Stage assignment, worker selection, leases, and retries: [`packages/gateway/src/cli.ts`](../packages/gateway/src/cli.ts).
 - The formula computations: [`packages/worker_webpage/web/src/stages/stage_helper_dev_formula.ts`](../packages/worker_webpage/web/src/stages/stage_helper_dev_formula.ts).
 - The language-model shard computation: [`packages/worker_webpage/web/src/stages/stage_helper_llm_qwen3_0_6b_sharded.ts`](../packages/worker_webpage/web/src/stages/stage_helper_llm_qwen3_0_6b_sharded.ts).
 - The computation that uses the language model built into the browser: [`packages/worker_webpage/web/src/stages/stage_helper_llm_gemma_nano_chrome_full.ts`](../packages/worker_webpage/web/src/stages/stage_helper_llm_gemma_nano_chrome_full.ts).
 - The computation that downloads and runs the complete Qwen3.5-0.8B model: [`packages/worker_webpage/web/src/stages/stage_helper_llm_qwen3_5_0_8b_full.ts`](../packages/worker_webpage/web/src/stages/stage_helper_llm_qwen3_5_0_8b_full.ts).
+- The computation that forwards a prompt to a local server speaking the OpenAI-compatible API: [`packages/worker_openai_api/src/stages/stage_helper_llm_llama3_2_3b_full.ts`](../packages/worker_openai_api/src/stages/stage_helper_llm_llama3_2_3b_full.ts), in the one worker package that is a command line process rather than a browser page.
 - Submitting a task from the command line: [`packages/consumer_cli/src/cli.ts`](../packages/consumer_cli/src/cli.ts), [`packages/consumer_cli/src/libs/consumer_client.ts`](../packages/consumer_cli/src/libs/consumer_client.ts), and [`packages/consumer_cli/src/libs/task_input_factory.ts`](../packages/consumer_cli/src/libs/task_input_factory.ts).
-- Submitting a task through the OpenAI completion interface, which is the second way a task can be submitted: [`packages/consumer_openai`](../packages/consumer_openai). That server turns one chat completion request into one task of one of the four task types above, chosen by the request's `model` field, and reuses the same `ConsumerClient` and `TaskInputFactory` as the command line client.
+- Submitting a task through the OpenAI completion interface, which is the second way a task can be submitted: [`packages/consumer_openai`](../packages/consumer_openai). That server turns one chat completion request into one task of one of the five task types above, chosen by the request's `model` field, and reuses the same `ConsumerClient` and `TaskInputFactory` as the command line client.

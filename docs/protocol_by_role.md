@@ -30,10 +30,18 @@ line consumer closes its connection when the task reaches `completed` or
 
 ### Worker
 
-A worker is a browser tab that performs one or more named stages. A worker
-registers its name and the stages that it supports. The gateway sends a
-`stage.assign` message when the worker is selected. The worker computes the
-stage and replies with either `stage.result` or `stage.failed`.
+A worker performs one or more named stages. A worker registers its name and the
+stages that it supports. The gateway sends a `stage.assign` message when the
+worker is selected. The worker computes the stage and replies with either
+`stage.result` or `stage.failed`.
+
+Most workers are browser tabs running `packages/worker_webpage`, and this
+document says "worker browser tab" wherever something is true only of those. A
+worker does not have to be a browser: `packages/worker_openai_api` is a Node.js
+command line process that carries out its stage by calling a language-model
+server running on its own device, and it speaks everything described here
+unchanged. The gateway does not distinguish the two, and nothing in this
+protocol names a browser.
 
 For formula tasks, the gateway normally uses different workers for the two
 stages when suitable workers are available. For language-model tasks, all
@@ -168,7 +176,7 @@ How long a session lasts is set by `--session-ms`, and defaults to one hour.
 
 ## Diagnostics do not travel on the scheduling connection
 
-A worker browser page cannot write files, so it tells the gateway which messages it saw and the gateway appends them to that worker's log file on its behalf. That reporting used to travel over the same WebSocket connection as scheduling, where it was 37 percent of all messages and 49 percent of all bytes in a measured run, was never validated against a schema, and had no limit of any kind. Diagnostic traffic therefore competed with the messages that assign stages and collect results (see [issue #50](https://github.com/webai-at-home/webai-at-home/issues/50)).
+A worker browser page cannot write files, so it tells the gateway which messages it saw and the gateway appends them to that worker's log file on its behalf. This whole path exists for that one reason, so a worker that is an ordinary process, such as `packages/worker_openai_api`, does not use it at all and writes its own output instead. That reporting used to travel over the same WebSocket connection as scheduling, where it was 37 percent of all messages and 49 percent of all bytes in a measured run, was never validated against a schema, and had no limit of any kind. Diagnostic traffic therefore competed with the messages that assign stages and collect results (see [issue #50](https://github.com/webai-at-home/webai-at-home/issues/50)).
 
 Reporting now travels over HTTP instead, and the scheduling connection refuses it outright.
 
@@ -258,7 +266,7 @@ That refusal only reaches as far as the settings block itself. A gateway built b
 
 Every `stage.assign` carries a `leaseUntil` time. If that time passes and the assignment is still not finished, the gateway takes the stage away from the worker and assigns it again. The worker's eventual result is then refused with the error code `STALE_ASSIGNMENT`, and the work it did is thrown away.
 
-A worker that is still running its stage keeps the assignment by sending `stage.heartbeat`, carrying the task identifier, the assignment identifier, and the attempt number. The gateway answers with `stage.lease.extended` and a later `leaseUntil`. The worker browser page sends a heartbeat three times per lease, so one lost or late message does not cost the assignment. A lease extension deliberately does not raise the task's revision, because nothing a consumer or an observer displays has changed; a heartbeat therefore produces no `task.updated` message to anyone.
+A worker that is still running its stage keeps the assignment by sending `stage.heartbeat`, carrying the task identifier, the assignment identifier, and the attempt number. The gateway answers with `stage.lease.extended` and a later `leaseUntil`. A worker sends a heartbeat three times per lease, so one lost or late message does not cost the assignment. Both the worker browser page and the Node.js worker follow that rule. A lease extension deliberately does not raise the task's revision, because nothing a consumer or an observer displays has changed; a heartbeat therefore produces no `task.updated` message to anyone.
 
 The gateway refuses to extend the lease of an assignment that is no longer current, and answers the heartbeat with `stage.cancel` instead. A worker whose assignment was taken away therefore stops work and drops the state it holds, rather than finishing work nobody wants.
 
@@ -384,6 +392,22 @@ browser would generate an answer nobody will read for as long as the page stays
 open. Losing the connection to the gateway gives up every open answer at once,
 for the same reason: no run can arrive over a connection that is gone.
 
+### The other complete-model flows
+
+Two further stages carry an answer the same way, in the same message shapes and
+under the same rules as the flow above, and neither needs a separate account
+here: `stage_llm_qwen3_5_0_8b_full`, which runs a model the worker browser tab
+downloads and holds itself, and `stage_llm_llama3_2_3b_full`, which forwards the
+prompt to a language-model server running on the worker's own device.
+
+What differs between the three is only what holds the answer while it is being
+read. It is a browser-managed model session for the flow above, a loaded model in
+the tab's own memory for Qwen3.5-0.8B, and an open request to a local server for
+Llama 3.2 3B. Each of the three lives in the memory of the one worker producing
+it, which is why all three set `prefersSameWorkerOnRetry`, and each is ended by a
+`stage.cancel`, by a failed stage, by the five-minute idle timeout, and by the
+connection to the gateway closing.
+
 ## Validation and errors
 
 The shared protocol package validates task input at the gateway boundary. The
@@ -401,8 +425,9 @@ from the registry, and its unfinished assignment is retried on another worker.
 
 - Shared message types: [`packages/protocol/src/index.ts`](../packages/protocol/src/index.ts)
 - Gateway routing and scheduling: [`packages/gateway/src/cli.ts`](../packages/gateway/src/cli.ts)
-- Task state and stage sequencing: [`packages/gateway/src/libs/task_store.ts`](../packages/gateway/src/libs/task_store.ts)
-- Worker registration and stage execution: [`packages/worker_webpage/web/src/main.ts`](../packages/worker_webpage/web/src/main.ts)
+- Task state and stage sequencing: [`packages/gateway/src/task/task_store.ts`](../packages/gateway/src/task/task_store.ts)
+- Worker registration and stage execution, in a browser tab: [`packages/worker_webpage/web/src/main.ts`](../packages/worker_webpage/web/src/main.ts)
+- Worker registration and stage execution, in a command line process: [`packages/worker_openai_api/src/libs/gateway_worker_client.ts`](../packages/worker_openai_api/src/libs/gateway_worker_client.ts)
 - Consumer registration and task submission: [`packages/consumer_cli/src/libs/consumer_client.ts`](../packages/consumer_cli/src/libs/consumer_client.ts)
 
 ## Open protocol decisions
