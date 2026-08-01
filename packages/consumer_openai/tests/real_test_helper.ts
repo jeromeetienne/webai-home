@@ -71,6 +71,11 @@ export class RealTestHelper {
 	private readonly devtools: boolean;
 	/** A hook `setup` awaits right after opening the debug page, before waiting for workers to be ready. */
 	private readonly onDebugPageOpen: ((page: Page) => Promise<void>) | undefined;
+	/**
+	 * The command line arguments of a worker process to start instead of a browser, when the task under test
+	 * is carried out by a worker that is not a browser tab. Left undefined for every browser-worker test.
+	 */
+	private readonly nativeWorkerArgs: string[] | undefined;
 	/** The signal handler `setup` registers so a Ctrl-C still tears down the started processes and browser. */
 	private readonly signalHandler: () => void;
 
@@ -95,6 +100,10 @@ export class RealTestHelper {
 	 * @param options.onDebugPageOpen - a hook `setup` awaits right after opening the debug page and before
 	 * waiting for workers to be ready, for a debug page whose worker tab needs a step only a person would
 	 * otherwise do, such as clicking a button that starts a download
+	 * @param options.nativeWorkerArgs - the command line arguments of a worker process to start instead of a
+	 * browser, for a task whose worker is not a browser tab, such as `@webai/worker-openai-api`. Giving this
+	 * means no browser is launched, no debug page is opened, and the worker web page is not started at all,
+	 * because none of the three has anything to do with such a worker
 	 */
 	constructor(options: {
 		debugPath?: string;
@@ -104,6 +113,7 @@ export class RealTestHelper {
 		slowMoMs?: number;
 		devtools?: boolean;
 		onDebugPageOpen?: (page: Page) => Promise<void>;
+		nativeWorkerArgs?: string[];
 	} = {}) {
 		this.debugUrl = `${this.gatewayUrl}${options.debugPath ?? '/debug_iframe_dev_formula'}`;
 		this.expectedWorkerCount = options.expectedWorkerCount ?? 2;
@@ -112,14 +122,16 @@ export class RealTestHelper {
 		this.slowMoMs = options.slowMoMs ?? 0;
 		this.devtools = options.devtools ?? false;
 		this.onDebugPageOpen = options.onDebugPageOpen;
+		this.nativeWorkerArgs = options.nativeWorkerArgs;
 		this.signalHandler = () => {
 			this.teardown().finally(() => process.exit(1));
 		};
 	}
 
 	/**
-	 * Builds the protocol and consumer CLI packages, starts the gateway/worker-page/OpenAI-compatible
-	 * servers and a headless browser, then waits for two ready `dev_formula` workers.
+	 * Builds the protocol and consumer CLI packages, starts the gateway and the OpenAI-compatible
+	 * server, brings up the workers the test needs — a headless browser on a debug page, or a worker
+	 * process for a task whose worker is not a browser tab — and waits for them to report ready.
 	 */
 	async setup(): Promise<void> {
 		// Registered before anything is started so a Ctrl-C during setup still tears down whatever
@@ -127,10 +139,16 @@ export class RealTestHelper {
 		process.on('SIGINT', this.signalHandler);
 		process.on('SIGTERM', this.signalHandler);
 
+		// A worker that is not a browser tab needs no browser, no debug page, and no worker web
+		// page: it is a process this helper starts directly.
+		const usesBrowserWorker = this.nativeWorkerArgs === undefined;
+
 		// Fail fast on a port conflict, before spending time on the build below.
 		await this._assertPortAvailable(8787);
 		await this._assertPortAvailable(8788);
-		await this._assertPortAvailable(8789);
+		if (usesBrowserWorker) {
+			await this._assertPortAvailable(8789);
+		}
 
 		const build = await this._runToCompletion('npm', [
 			'run', 'build',
@@ -141,32 +159,43 @@ export class RealTestHelper {
 			throw new Error(`Building @webai/protocol and @webai/consumer-cli failed:\n${build.stderr}`);
 		}
 
-		// Started without awaiting each one, so all three come up concurrently; readiness is
+		// Started without awaiting each one, so they come up concurrently; readiness is
 		// confirmed afterward by polling their health endpoints below.
 		this._start('node', ['--import', 'tsx', 'packages/gateway/src/cli.ts']);
-		this._start('npm', [
-			'run', 'dev',
-			'--workspace', '@webai/worker-webpage',
-			'--', '--host', '127.0.0.1', '--port', '8789',
-		]);
+		if (usesBrowserWorker) {
+			this._start('npm', [
+				'run', 'dev',
+				'--workspace', '@webai/worker-webpage',
+				'--', '--host', '127.0.0.1', '--port', '8789',
+			]);
+		}
 		this._start('node', ['--import', 'tsx', 'packages/consumer_openai/src/cli.ts']);
 		await this._waitFor('the central gateway to answer', () => this._httpReady(`${this.gatewayUrl}/health`));
-		await this._waitFor('the worker web page to answer', () => this._httpReady(this.workerUrl));
+		if (usesBrowserWorker) {
+			await this._waitFor('the worker web page to answer', () => this._httpReady(this.workerUrl));
+		}
 		await this._waitFor('the OpenAI-compatible server to answer', () => this._httpReady(`${this.openaiUrl}/health`));
 
-		this.browser = await Puppeteer.launch({
-			channel: 'chrome',
-			headless: this.headless,
-			devtools: this.devtools,
-			slowMo: this.slowMoMs,
-			defaultViewport: null,
-			args: ['--window-size=800,600'],
-			userDataDir: puppeteerUserDataDirectory,
-		});
-		const page = await this.browser.newPage();
-		// The gateway's debug page opens its worker tabs itself.
-		await page.goto(this.debugUrl);
-		await this.onDebugPageOpen?.(page);
+		if (usesBrowserWorker === false) {
+			// The worker is started only once the gateway is answering, because it asks the gateway
+			// for the loaded pipelines before it registers, and it exits rather than retrying when
+			// there is nothing to connect to.
+			this._start('node', this.nativeWorkerArgs ?? []);
+		} else {
+			this.browser = await Puppeteer.launch({
+				channel: 'chrome',
+				headless: this.headless,
+				devtools: this.devtools,
+				slowMo: this.slowMoMs,
+				defaultViewport: null,
+				args: ['--window-size=800,600'],
+				userDataDir: puppeteerUserDataDirectory,
+			});
+			const page = await this.browser.newPage();
+			// The gateway's debug page opens its worker tabs itself.
+			await page.goto(this.debugUrl);
+			await this.onDebugPageOpen?.(page);
+		}
 
 		await this._waitFor(`${this.expectedWorkerCount} ready worker(s)`, async () => {
 			const status = await this._workerStatus();
