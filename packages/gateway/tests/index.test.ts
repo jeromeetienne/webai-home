@@ -612,6 +612,7 @@ const withHttpRoutesServer = async (
 	body: (server: {
 		statusOf: (requestTarget: string) => Promise<number>;
 		headersOf: (requestTarget: string) => Promise<Headers>;
+		redirectLocationOf: (requestTarget: string) => Promise<string | null>;
 		transformedUrls: string[];
 	}) => Promise<void>,
 ): Promise<void> => {
@@ -654,6 +655,15 @@ const withHttpRoutesServer = async (
 				(await fetch(`http://127.0.0.1:${port}${requestTarget}`, { signal: AbortSignal.timeout(5_000) })).status,
 			headersOf: async (requestTarget: string): Promise<Headers> =>
 				(await fetch(`http://127.0.0.1:${port}${requestTarget}`, { signal: AbortSignal.timeout(5_000) })).headers,
+			// Fetches with redirects left unfollowed, so a test can see the redirect response itself
+			// rather than the page it points to.
+			redirectLocationOf: async (requestTarget: string): Promise<string | null> =>
+				(
+					await fetch(`http://127.0.0.1:${port}${requestTarget}`, {
+						redirect: 'manual',
+						signal: AbortSignal.timeout(5_000),
+					})
+				).headers.get('location'),
 			transformedUrls,
 		});
 	} finally {
@@ -670,12 +680,19 @@ Test('a page answers whether or not its address was typed with a trailing slash'
 		Assert.equal(await statusOf('/'), 200);
 
 		// Both spellings resolve to the single route entry the page is listed under, rather than
-		// the trailing-slash spelling reaching a second entry of its own.
-		Assert.deepEqual(transformedUrls, ['/monitor', '/monitor', '/']);
+		// the trailing-slash spelling reaching a second entry of its own. The root redirects to
+		// the home page rather than being a route entry of its own.
+		Assert.deepEqual(transformedUrls, ['/monitor', '/monitor', '/home']);
 
 		// A path no page is listed under is still answered as missing.
 		Assert.equal(await statusOf('/nope'), 404);
 		Assert.equal(await statusOf('/nope/'), 404);
+	});
+});
+
+Test('the site root redirects to the home page', async () => {
+	await withHttpRoutesServer(async ({ redirectLocationOf }) => {
+		Assert.equal(await redirectLocationOf('/'), '/home/');
 	});
 });
 

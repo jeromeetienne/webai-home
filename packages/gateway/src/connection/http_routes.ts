@@ -29,7 +29,6 @@ export type PageDevServer = {
 
 /** Where each page route reads its `index.html` from, relative to the web directory. */
 const pageRoutes: Record<string, string> = {
-	'/': 'home/index.html',
 	'/home': 'home/index.html',
 	'/monitor': 'monitor/index.html',
 	'/debug': 'debug/index.html',
@@ -123,6 +122,15 @@ export class HttpRoutes {
 		}
 
 		if (HttpRoutes.sendOnnxRuntimeAsset(response, pathname)) return;
+
+		// The site root has no page of its own; every visitor is sent on to the home page instead
+		// (see https://github.com/webai-at-home/webai-at-home/issues/88).
+		if (pathname === '/') {
+			response.statusCode = 302;
+			response.setHeader('location', '/home/');
+			response.end();
+			return;
+		}
 
 		// A page route is looked up with any trailing slash removed, so "/monitor/" reaches the
 		// same page as "/monitor". Every page names its own assets with absolute paths, such as
@@ -405,8 +413,8 @@ export class HttpRoutes {
 	 * path without any trailing slash.
 	 *
 	 * A person typing a page address by hand, and a link written with a trailing slash, both
-	 * reach the page rather than a "Not found" answer. The site root stays "/", since that is
-	 * the key the home page is listed under.
+	 * reach the page rather than a "Not found" answer. The site root is handled separately, as a
+	 * redirect, before this is ever reached.
 	 *
 	 * @param pathname The requested path.
 	 * @returns The path to look up in the page route table.
