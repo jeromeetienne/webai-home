@@ -36,6 +36,7 @@ export default defineConfig({
         webWorkerCpuLog: resolve(import.meta.dirname, 'public/web_worker_cpu_log/index.html'),
         silentAudioLog: resolve(import.meta.dirname, 'public/silent_audio_log/index.html'),
         webrtcDatachannelLog: resolve(import.meta.dirname, 'public/webrtc_datachannel_log/index.html'),
+        workerAudioComboLog: resolve(import.meta.dirname, 'public/worker_audio_combo_log/index.html'),
       },
     },
   },
