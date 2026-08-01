@@ -17,7 +17,7 @@ import OpenAI, { APIError } from 'openai';
 // It needs the gateway running and worker browser tabs that between them offer all three shard
 // stages, for example the page http://localhost:8787/debug_iframe_llm_qwen3_0_6b_sharded. The
 // three shard files are about 860 megabytes together and are not in version control, so they
-// have to be generated once first; `docs/tasks-and-stages.md` says how.
+// have to be generated once first; `docs/tasks_and_stages.md` says how.
 //
 // This is the slowest example by a wide margin. The whole answer is generated before this
 // server answers, and generation stops at the end-of-sequence token or at 160 tokens.

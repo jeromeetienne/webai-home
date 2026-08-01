@@ -53,7 +53,7 @@ A model identifier is the cluster's task type name without the leading `task_typ
 | `llm_qwen3_0_6b_sharded` | The Qwen3-0.6B model split into three shards, one per worker browser tab. | Worker browser tabs offering all three shard stages, and the shard files generated first. |
 | `llm_gemma_nano_chrome_full` | The Gemma Nano language model built into the Chrome browser. | One worker browser tab in a recent Chrome whose own language model is ready. |
 
-[`docs/tasks-and-stages.md`](../../docs/tasks-and-stages.md) describes each of these tasks in full, and [`docs/naming-scheme.md`](../../docs/naming-scheme.md) is the authoritative account of how the names are built.
+[`docs/tasks_and_stages.md`](../../docs/tasks_and_stages.md) describes each of these tasks in full, and [`docs/naming_scheme.md`](../../docs/naming_scheme.md) is the authoritative account of how the names are built.
 
 ## Try it
 

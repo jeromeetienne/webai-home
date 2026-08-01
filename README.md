@@ -77,11 +77,11 @@ partitioning across very different devices.
 
 ## Documentation
 
-- [`docs/tasks-and-stages.md`](docs/tasks-and-stages.md) — every kind of task the cluster can run and every
+- [`docs/tasks_and_stages.md`](docs/tasks_and_stages.md) — every kind of task the cluster can run and every
   stage each one needs.
-- [`docs/protocol-by-role.md`](docs/protocol-by-role.md) — the messages the gateway, the consumers, and the
+- [`docs/protocol_by_role.md`](docs/protocol_by_role.md) — the messages the gateway, the consumers, and the
   workers exchange.
-- [`docs/naming-scheme.md`](docs/naming-scheme.md) — how every task, task type, pipeline, and stage name
+- [`docs/naming_scheme.md`](docs/naming_scheme.md) — how every task, task type, pipeline, and stage name
   is built.
 - [`docs/readme-audit-89.md`](docs/readme-audit-89.md) — the README audit checklist and validation record for issue #89.
 

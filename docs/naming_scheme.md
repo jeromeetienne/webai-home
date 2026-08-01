@@ -1,6 +1,6 @@
 # Naming scheme for tasks, task types, pipelines, and stages
 
-This document is the one authoritative place that says how a task, a task type, a pipeline, and a stage are named in `webai-at-home`. Every name that exists today follows it, and every new name must follow it as well. The companion document [`tasks-and-stages.md`](./tasks-and-stages.md) describes what each task actually does, and [`protocol-by-role.md`](./protocol-by-role.md) describes the messages these names travel in.
+This document is the one authoritative place that says how a task, a task type, a pipeline, and a stage are named in `webai-at-home`. Every name that exists today follows it, and every new name must follow it as well. The companion document [`tasks_and_stages.md`](./tasks_and_stages.md) describes what each task actually does, and [`protocol_by_role.md`](./protocol_by_role.md) describes the messages these names travel in.
 
 The reason the scheme exists is that a name in this project has to answer three questions on sight: which kind of work is being done, which model is doing it, and how that model is arranged across devices. A name such as `task_type_llm` answered none of them, because the project intends to run more than one language model, and to run some of them split across several devices and some of them whole on one device.
 

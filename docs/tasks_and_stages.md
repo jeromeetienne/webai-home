@@ -1,6 +1,6 @@
 # Tasks and stages
 
-This document lists every kind of task the `webai-at-home` cluster can run, what each kind of task does, why it exists, and every stage the cluster has to carry out to finish it. The companion document [`protocol-by-role.md`](./protocol-by-role.md) describes the messages the gateway, the consumers, and the workers exchange while this happens, and [`naming-scheme.md`](./naming-scheme.md) is the authoritative account of how every task, task type, pipeline, and stage name is built.
+This document lists every kind of task the `webai-at-home` cluster can run, what each kind of task does, why it exists, and every stage the cluster has to carry out to finish it. The companion document [`protocol_by_role.md`](./protocol_by_role.md) describes the messages the gateway, the consumers, and the workers exchange while this happens, and [`naming_scheme.md`](./naming_scheme.md) is the authoritative account of how every task, task type, pipeline, and stage name is built.
 
 ## How a task turns into stages
 

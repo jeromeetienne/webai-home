@@ -17,7 +17,7 @@ import OpenAI from 'openai';
 // It needs the gateway running and worker browser tabs that between them offer all three shard
 // stages, for example the page http://localhost:8787/debug_iframe_llm_qwen3_0_6b_sharded. The
 // three shard files are about 860 megabytes together and are not in version control, so they
-// have to be generated once first; `docs/tasks-and-stages.md` says how.
+// have to be generated once first; `docs/tasks_and_stages.md` says how.
 //
 // A request that asks for `stream: true` is answered as the answer is written, as server-sent
 // events: one chunk per piece of the answer, ended by a `[DONE]` line. Joining the pieces gives
