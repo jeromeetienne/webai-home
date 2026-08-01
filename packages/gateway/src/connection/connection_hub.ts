@@ -3,7 +3,7 @@ import type { WebSocket } from 'ws';
 import type { ClientMessage, GatewayMessage } from '@webai/protocol';
 import { Envelope } from '@webai/protocol/envelope';
 import { MessageLogger, type LogCounterpart } from '@webai/protocol/message_logger';
-import type { DeviceRegistry } from './device_registry.js';
+import type { DeviceRegistry } from '../device/device_registry.js';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////

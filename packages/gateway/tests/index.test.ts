@@ -8,19 +8,19 @@ import Test from 'node:test';
 
 // local imports
 import { MessageLogger } from '@webai/protocol/message_logger';
-import { ConnectionHub } from '../src/libs/connection_hub.js';
-import { DeviceAnnouncer } from '../src/libs/device_announcer.js';
-import { HttpRoutes } from '../src/libs/http_routes.js';
-import type { PageDevServer } from '../src/libs/http_routes.js';
-import { DeviceRegistry } from '../src/libs/device_registry.js';
-import { TaskStore } from '../src/libs/task_store.js';
-import { PipelineRegistry, builtinPipelineSpecifications } from '../src/libs/pipeline_registry.js';
-import { StagePolicyResolver } from '../src/libs/stage_policy_resolver.js';
+import { ConnectionHub } from '../src/connection/connection_hub.js';
+import { DeviceAnnouncer } from '../src/device/device_announcer.js';
+import { HttpRoutes } from '../src/connection/http_routes.js';
+import type { PageDevServer } from '../src/connection/http_routes.js';
+import { DeviceRegistry } from '../src/device/device_registry.js';
+import { TaskStore } from '../src/task/task_store.js';
+import { PipelineRegistry, builtinPipelineSpecifications } from '../src/task/pipeline_registry.js';
+import { StagePolicyResolver } from '../src/task/stage_policy_resolver.js';
 import { DiagnosticsRateLimiter } from '../src/libs/diagnostics_rate_limiter.js';
-import { SessionRegistry } from '../src/libs/session_registry.js';
-import { TaskScheduler } from '../src/libs/task_scheduler.js';
-import { ClientMessageHandler } from '../src/libs/client_message_handler.js';
-import { WorkerPlacement } from '../src/libs/worker_placement.js';
+import { SessionRegistry } from '../src/task/session_registry.js';
+import { TaskScheduler } from '../src/task/task_scheduler.js';
+import { ClientMessageHandler } from '../src/task/client_message_handler.js';
+import { WorkerPlacement } from '../src/device/worker_placement.js';
 import { Dashboard } from '../src/dashboard.js';
 import type { ClientMessage, GatewayMessage, StageName, TaskInput } from '@webai/protocol';
 

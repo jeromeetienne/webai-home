@@ -2,13 +2,13 @@ import { ClientEnvelopeSchema, protocolVersion, supportedProtocolVersions } from
 import { Envelope } from '@webai/protocol/envelope';
 import type { MessageLogger } from '@webai/protocol/message_logger';
 import type { WebSocket } from 'ws';
-import type { ClientMessageHandler } from './client_message_handler.js';
+import type { ClientMessageHandler } from '../task/client_message_handler.js';
 import type { ConnectionHub } from './connection_hub.js';
-import type { DeviceAnnouncer } from './device_announcer.js';
-import type { DeviceRegistry } from './device_registry.js';
-import type { DiagnosticsRateLimiter } from './diagnostics_rate_limiter.js';
-import type { SessionRegistry } from './session_registry.js';
-import type { TaskScheduler } from './task_scheduler.js';
+import type { DeviceAnnouncer } from '../device/device_announcer.js';
+import type { DeviceRegistry } from '../device/device_registry.js';
+import type { DiagnosticsRateLimiter } from '../libs/diagnostics_rate_limiter.js';
+import type { SessionRegistry } from '../task/session_registry.js';
+import type { TaskScheduler } from '../task/task_scheduler.js';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////

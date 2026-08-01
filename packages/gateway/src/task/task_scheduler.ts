@@ -1,11 +1,11 @@
 import { StagePayloadFactory, type StageName, type StagePayload } from '@webai/protocol';
 import { TaskProjection } from '@webai/protocol/task_projection';
-import type { ConnectionHub } from './connection_hub.js';
-import type { DeviceAnnouncer } from './device_announcer.js';
-import type { DeviceRegistry } from './device_registry.js';
+import type { ConnectionHub } from '../connection/connection_hub.js';
+import type { DeviceAnnouncer } from '../device/device_announcer.js';
+import type { DeviceRegistry } from '../device/device_registry.js';
 import type { StagePolicyResolver } from './stage_policy_resolver.js';
 import { TaskStore } from './task_store.js';
-import { WorkerPlacement } from './worker_placement.js';
+import { WorkerPlacement } from '../device/worker_placement.js';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////

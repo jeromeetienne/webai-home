@@ -1,6 +1,6 @@
 import type { Device, StageName, Task } from '@webai/protocol';
 import type { DeviceRegistry } from './device_registry.js';
-import type { StagePolicy } from './stage_policy_resolver.js';
+import type { StagePolicy } from '../task/stage_policy_resolver.js';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////

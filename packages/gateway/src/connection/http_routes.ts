@@ -4,9 +4,9 @@ import Path from 'node:path';
 import Url from 'node:url';
 import { DiagnosticsBatchSchema } from '@webai/protocol';
 import type { ConnectionHub } from './connection_hub.js';
-import type { DeviceAnnouncer } from './device_announcer.js';
-import type { DiagnosticsRateLimiter } from './diagnostics_rate_limiter.js';
-import type { SessionRegistry } from './session_registry.js';
+import type { DeviceAnnouncer } from '../device/device_announcer.js';
+import type { DiagnosticsRateLimiter } from '../libs/diagnostics_rate_limiter.js';
+import type { SessionRegistry } from '../task/session_registry.js';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////

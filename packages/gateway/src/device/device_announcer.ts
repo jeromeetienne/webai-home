@@ -1,5 +1,5 @@
 import type { Device, DeviceActivity } from '@webai/protocol';
-import type { ConnectionHub } from './connection_hub.js';
+import type { ConnectionHub } from '../connection/connection_hub.js';
 import type { DeviceRegistry, DeviceRegistryChange } from './device_registry.js';
 
 ///////////////////////////////////////////////////////////////////////////////

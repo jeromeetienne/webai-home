@@ -10,19 +10,19 @@ import { WebSocketServer } from 'ws';
 import { MessageLogger } from '@webai/protocol/message_logger';
 
 // local imports
-import { ClientMessageHandler } from './libs/client_message_handler.js';
-import { ConnectionHub } from './libs/connection_hub.js';
-import { DeviceAnnouncer } from './libs/device_announcer.js';
-import { DeviceRegistry } from './libs/device_registry.js';
+import { ClientMessageHandler } from './task/client_message_handler.js';
+import { ConnectionHub } from './connection/connection_hub.js';
+import { DeviceAnnouncer } from './device/device_announcer.js';
+import { DeviceRegistry } from './device/device_registry.js';
 import { DiagnosticsRateLimiter } from './libs/diagnostics_rate_limiter.js';
 import { GatewaySettings } from './libs/gateway_settings.js';
-import { HttpRoutes, type PageDevServer } from './libs/http_routes.js';
-import { PipelineRegistry, builtinPipelineSpecifications } from './libs/pipeline_registry.js';
-import { SessionRegistry } from './libs/session_registry.js';
-import { StagePolicyResolver } from './libs/stage_policy_resolver.js';
-import { TaskScheduler } from './libs/task_scheduler.js';
-import { TaskStore } from './libs/task_store.js';
-import { WebsocketRouter } from './libs/websocket_router.js';
+import { HttpRoutes, type PageDevServer } from './connection/http_routes.js';
+import { PipelineRegistry, builtinPipelineSpecifications } from './task/pipeline_registry.js';
+import { SessionRegistry } from './task/session_registry.js';
+import { StagePolicyResolver } from './task/stage_policy_resolver.js';
+import { TaskScheduler } from './task/task_scheduler.js';
+import { TaskStore } from './task/task_store.js';
+import { WebsocketRouter } from './connection/websocket_router.js';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
