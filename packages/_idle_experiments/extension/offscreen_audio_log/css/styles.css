@@ -1,0 +1,26 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap');
+:root { font-family: 'Manrope', sans-serif; color: #eef1f0; background: #0f1412; font-synthesis: none; }
+* { box-sizing: border-box; }
+body { margin: 0; width: 480px; background: #0f1412; }
+code { font-family: 'DM Mono', monospace; background: #1a221e; padding: 1px 5px; border-radius: 3px; font-size: 12px; }
+.shell { padding: 20px; }
+.eyebrow { font-family: 'DM Mono', monospace; text-transform: uppercase; letter-spacing: .08em; font-size: 11px; color: #8ea89b; margin: 0 0 14px; }
+h1 { font-size: 28px; line-height: 1.05; letter-spacing: -.03em; margin: 0; font-weight: 700; }
+h1 em { font-style: normal; color: #6fae8f; }
+.intro { color: #a8b3ae; font-size: 13px; line-height: 1.6; margin: 14px 0 0; }
+
+.panel { background: #131916; border: 1px solid #29332e; padding: 14px 16px; margin-top: 16px; }
+.panel h2 { font-size: 14px; margin: 0 0 8px; letter-spacing: -.01em; }
+.panel ol { color: #9aa6a0; font-size: 12px; line-height: 1.6; margin: 0; padding-left: 18px; }
+.panel li { margin-bottom: 4px; }
+
+.log-panel { margin-top: 16px; }
+.log-table-wrap { max-height: 320px; overflow-y: auto; border: 1px solid #29332e; }
+table.log-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+table.log-table th { position: sticky; top: 0; background: #151b18; text-align: left; padding: 6px 8px; color: #7d8b84; font-family: 'DM Mono', monospace; text-transform: uppercase; letter-spacing: .06em; font-size: 9px; border-bottom: 1px solid #29332e; }
+table.log-table td { padding: 5px 8px; border-bottom: 1px solid #1d2521; color: #cfd8d3; vertical-align: top; }
+.log-row.kind-audio td.kind { color: #f0a860; }
+.log-row.kind-timer td.kind { color: #6fae8f; }
+.log-row.kind-cpu td.kind { color: #d98fce; }
+td.time { white-space: nowrap; color: #7d8b84; font-family: 'DM Mono', monospace; font-size: 10px; }
+td.kind { white-space: nowrap; text-transform: uppercase; font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: .04em; }

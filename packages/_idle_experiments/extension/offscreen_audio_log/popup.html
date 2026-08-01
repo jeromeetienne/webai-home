@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="css/styles.css" />
+    <title>Offscreen audio log</title>
+  </head>
+  <body>
+    <main class="shell">
+      <p class="eyebrow">Idle-time experiment / 05</p>
+      <h1>Offscreen audio<br /><em>trick log</em></h1>
+      <p class="intro">This popup only displays the log; the measurement itself runs continuously in a hidden
+        <code>chrome.offscreen</code> document that exists independently of this popup, any tab, and any window.
+        Closing this popup does not stop it — reopen the extension's icon any time to see what has accumulated.</p>
+      <section class="panel">
+        <h2>How to use this extension</h2>
+        <ol>
+          <li>Load it unpacked (see this folder's README), then open this popup once to confirm rows are appearing.</li>
+          <li>Close the popup. There is no tab or window to move — the whole point of <code>chrome.offscreen</code> is
+            that this measurement does not belong to one.</li>
+          <li>Leave Chrome running in the background: switch to a different application so Chrome itself is not the
+            frontmost app, for a few minutes.</li>
+          <li>Reopen this popup and compare the timer drift and CPU benchmark rows logged while Chrome was
+            backgrounded against the ones logged while it was frontmost.</li>
+        </ol>
+      </section>
+      <section class="panel log-panel">
+        <h2>Log</h2>
+        <div class="log-table-wrap">
+          <table class="log-table">
+            <thead><tr><th>Time</th><th>Kind</th><th>Measurement</th></tr></thead>
+            <tbody id="log-body"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>
