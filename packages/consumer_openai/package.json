@@ -1,34 +1,36 @@
 {
-  "name": "@webai/consumer-openai",
-  "version": "0.1.0",
-  "type": "module",
-  "scripts": {
-    "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc -p tsconfig.json",
-    "dev": "tsx src/cli.ts",
-    "start": "node dist/cli.js",
-    "test": "node --import tsx --test tests/index.test.ts",
-    "test:real": "node --import tsx --test tests/real_dev_formula.test.ts",
-    "example:list_models": "tsx examples/list_models.ts",
-    "example:chat_completion_dev_formula": "tsx examples/chat_completion_dev_formula.ts",
-    "example:chat_completion_system_message": "tsx examples/chat_completion_system_message.ts",
-    "example:chat_completion_llm_gemma_nano_chrome_full": "tsx examples/chat_completion_llm_gemma_nano_chrome_full.ts",
-    "example:chat_completion_streaming_llm_gemma_nano_chrome_full": "tsx examples/chat_completion_streaming_llm_gemma_nano_chrome_full.ts",
-    "example:chat_completion_llm_qwen3_0_6b_sharded": "tsx examples/chat_completion_llm_qwen3_0_6b_sharded.ts",
-    "example:chat_completion_streaming_llm_qwen3_0_6b_sharded": "tsx examples/chat_completion_streaming_llm_qwen3_0_6b_sharded.ts"
-  },
-  "dependencies": {
-    "@webai/consumer-cli": "0.1.0",
-    "@webai/protocol": "0.1.0",
-    "commander": "^12.1.0",
-    "express": "^4.21.2",
-    "ws": "^8.18.0",
-    "zod": "^3.24.1"
-  },
-  "devDependencies": {
-    "@types/express": "^4.17.21",
-    "@types/node": "^22.10.2",
-    "@types/ws": "^8.5.13",
-    "openai": "^4.77.0"
-  }
+	"name": "@webai/consumer-openai",
+	"version": "0.1.0",
+	"type": "module",
+	"scripts": {
+		"build": "tsc -p tsconfig.build.json",
+		"typecheck": "tsc -p tsconfig.json",
+		"dev": "tsx src/cli.ts",
+		"start": "node dist/cli.js",
+		"test": "node --import tsx --test tests/index.test.ts",
+		"test:real": "node --import tsx --test tests/real_dev_formula.test.ts",
+		"test:real:headed": "REAL_TEST_HEADED=true node --import tsx --test tests/real_dev_formula.test.ts",
+		"example:list_models": "tsx examples/list_models.ts",
+		"example:chat_completion_dev_formula": "tsx examples/chat_completion_dev_formula.ts",
+		"example:chat_completion_system_message": "tsx examples/chat_completion_system_message.ts",
+		"example:chat_completion_llm_gemma_nano_chrome_full": "tsx examples/chat_completion_llm_gemma_nano_chrome_full.ts",
+		"example:chat_completion_streaming_llm_gemma_nano_chrome_full": "tsx examples/chat_completion_streaming_llm_gemma_nano_chrome_full.ts",
+		"example:chat_completion_llm_qwen3_0_6b_sharded": "tsx examples/chat_completion_llm_qwen3_0_6b_sharded.ts",
+		"example:chat_completion_streaming_llm_qwen3_0_6b_sharded": "tsx examples/chat_completion_streaming_llm_qwen3_0_6b_sharded.ts"
+	},
+	"dependencies": {
+		"@webai/consumer-cli": "0.1.0",
+		"@webai/protocol": "0.1.0",
+		"commander": "^12.1.0",
+		"express": "^4.21.2",
+		"ws": "^8.18.0",
+		"zod": "^3.24.1"
+	},
+	"devDependencies": {
+		"@types/express": "^4.17.21",
+		"@types/node": "^22.10.2",
+		"@types/ws": "^8.5.13",
+		"openai": "^4.77.0",
+		"puppeteer": "^25.4.0"
+	}
 }

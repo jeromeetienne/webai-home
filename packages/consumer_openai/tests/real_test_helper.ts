@@ -1,8 +1,9 @@
 import ChildProcess from 'node:child_process';
-import Fs from 'node:fs';
 import Net from 'node:net';
-import Os from 'node:os';
 import Path from 'node:path';
+
+import Puppeteer from 'puppeteer';
+import type { Browser } from 'puppeteer';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -46,8 +47,6 @@ export class RealTestHelper {
 	/** The gateway's debug page that sets up the two `dev_formula` worker browser tabs. */
 	readonly debugUrl = `${this.gatewayUrl}/debug_iframe_dev_formula`;
 
-	/** Where the local Google Chrome executable lives, so it can be launched headless. */
-	private readonly chromePath = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 	/** How long `_waitFor` polls before giving up. */
 	private readonly waitTimeoutMs = 30_000;
 	/** How long `_waitFor` sleeps between polling attempts. */
@@ -55,16 +54,41 @@ export class RealTestHelper {
 
 	/** Every long-running process this helper has started and not yet stopped. */
 	private readonly children = new Set<ChildProcess.ChildProcess>();
-	/** The headless Chrome process, once `setup` has started it. */
-	private browserProcess: ChildProcess.ChildProcess | undefined;
-	/** The headless Chrome process's temporary user profile directory, once `setup` has created it. */
-	private browserProfileDirectory: string | undefined;
+	/** The Chrome browser Puppeteer launched, once `setup` has started it. */
+	private browser: Browser | undefined;
+	/** Whether `setup` launches Chrome headless (`true`) or as a visible window (`false`). */
+	private readonly headless: boolean;
+	/** How many milliseconds Puppeteer delays each browser operation by, to make a run easier to watch. */
+	private readonly slowMoMs: number;
+	/** The signal handler `setup` registers so a Ctrl-C still tears down the started processes and browser. */
+	private readonly signalHandler: () => void;
+
+	/** Whether `teardown` has already run, so the signal handler does not run it a second time. */
+	private tornDown = false;
+
+	/**
+	 * @param options - construction options
+	 * @param options.headless - whether `setup` launches Chrome headless (`true`, the default) or as a visible
+	 * window (`false`), useful for watching a test run locally
+	 * @param options.slowMoMs - how many milliseconds Puppeteer delays each browser operation by (`0` by default),
+	 * useful for slowing a visible run down to something a person can follow
+	 */
+	constructor(options: { headless?: boolean; slowMoMs?: number } = {}) {
+		this.headless = options.headless ?? true;
+		this.slowMoMs = options.slowMoMs ?? 0;
+		this.signalHandler = () => {
+			this.teardown().finally(() => process.exit(1));
+		};
+	}
 
 	/**
 	 * Builds the protocol and consumer CLI packages, starts the gateway/worker-page/OpenAI-compatible
 	 * servers and a headless browser, then waits for two ready `dev_formula` workers.
 	 */
 	async setup(): Promise<void> {
+		process.on('SIGINT', this.signalHandler);
+		process.on('SIGTERM', this.signalHandler);
+
 		await this._assertPortAvailable(8787);
 		await this._assertPortAvailable(8788);
 		await this._assertPortAvailable(8789);
@@ -89,26 +113,37 @@ export class RealTestHelper {
 		await this._waitFor('the worker web page to answer', () => this._httpReady(this.workerUrl));
 		await this._waitFor('the OpenAI-compatible server to answer', () => this._httpReady(`${this.openaiUrl}/health`));
 
-		this.browserProfileDirectory = Fs.mkdtempSync(Path.join(Os.tmpdir(), 'webai-real-test-'));
-		this.browserProcess = this._start(this.chromePath, [
-			'--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check', '--disable-default-apps',
-			`--user-data-dir=${this.browserProfileDirectory}`,
-			this.debugUrl,
-		]);
+		this.browser = await Puppeteer.launch({
+			headless: this.headless,
+			slowMo: this.slowMoMs,
+			defaultViewport: null,
+			args: ['--window-size=800,600'],
+		});
+		const page = await this.browser.newPage();
+		await page.goto(this.debugUrl);
 
 		await this._waitFor('two ready dev_formula workers', async () => {
 			const status = await this._workerStatus();
 			return status !== false && status.workerCount === 2 && status.readyCount === 2 ? status : false;
 		});
+
+		// wait 10 seconds
+		await new Promise((resolve) => setTimeout(resolve, 10_000));
 	}
 
-	/** Stops every process this helper started and removes the browser's temporary profile directory. */
+	/** Stops every process this helper started and closes the Puppeteer browser. */
 	async teardown(): Promise<void> {
-		for (const childProcess of this.children) this._stop(childProcess);
-		await this._waitForExit(this.browserProcess);
-		if (this.browserProfileDirectory !== undefined) {
-			await this._removeProfileDirectory(this.browserProfileDirectory);
+		if (this.tornDown) {
+			return;
 		}
+		this.tornDown = true;
+		process.off('SIGINT', this.signalHandler);
+		process.off('SIGTERM', this.signalHandler);
+
+		for (const childProcess of this.children) {
+			this._stop(childProcess);
+		}
+		await this.browser?.close();
 	}
 
 	///////////////////////////////////////////////////////////////////////////////
@@ -179,46 +214,6 @@ export class RealTestHelper {
 		} catch (error: unknown) {
 			if ((error as NodeJS.ErrnoException).code !== 'ESRCH') {
 				throw error;
-			}
-		}
-	}
-
-	/**
-	 * Resolves once `childProcess` has exited, or immediately if it already has, so cleanup does not race a
-	 * process still shutting down.
-	 * @param childProcess - the process to wait for, or `undefined` if none was started
-	 * @param timeoutMs - how long to wait before giving up on the exit event
-	 */
-	private _waitForExit(childProcess: ChildProcess.ChildProcess | undefined, timeoutMs = 5_000): Promise<void> {
-		if (childProcess === undefined || childProcess.exitCode !== null || childProcess.signalCode !== null) {
-			return Promise.resolve();
-		}
-		return new Promise((resolve) => {
-			const timer = setTimeout(resolve, timeoutMs);
-			childProcess.once('exit', () => { clearTimeout(timer); resolve(); });
-		});
-	}
-
-	/**
-	 * Removes the browser's temporary profile directory, retrying briefly on `ENOTEMPTY`: Chrome's
-	 * helper processes (GPU, network service) can still be releasing files in it for a moment after
-	 * the main browser process has already exited.
-	 * @param directory - the temporary profile directory to remove
-	 */
-	private async _removeProfileDirectory(directory: string): Promise<void> {
-		const attempts = 10;
-		for (let attempt = 1; attempt <= attempts; attempt += 1) {
-			try {
-				Fs.rmSync(directory, {
-					recursive: true,
-					force: true,
-				});
-				return;
-			} catch (error: unknown) {
-				if (attempt === attempts || (error as NodeJS.ErrnoException).code !== 'ENOTEMPTY') {
-					throw error;
-				}
-				await new Promise((resolve) => setTimeout(resolve, 200));
 			}
 		}
 	}

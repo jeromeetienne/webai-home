@@ -10,6 +10,8 @@ import { RealTestHelper } from './real_test_helper.js';
 ///////////////////////////////////////////////////////////////////////////////
 
 // Run with: npm run test:real --workspace @webai/consumer-openai
+// Or: npm run test:real:headed --workspace @webai/consumer-openai, to watch the browser instead of running it headless.
+// Add REAL_TEST_SLOW=<milliseconds> to slow every browser operation down, for better observability.
 //
 // Unlike tests/index.test.ts, this test is not part of the default `npm run test
 // --workspaces`. It builds the protocol and consumer CLI packages, starts the central gateway,
@@ -26,7 +28,14 @@ import { RealTestHelper } from './real_test_helper.js';
 ///////////////////////////////////////////////////////////////////////////////
 
 const expectedResult = '17';
-const realTestHelper = new RealTestHelper();
+const realTestHelper = new RealTestHelper({
+	headless: process.env.REAL_TEST_HEADED !== 'true',
+	...(process.env.REAL_TEST_SLOW !== undefined
+		? {
+			slowMoMs: Number(process.env.REAL_TEST_SLOW),
+		}
+		: {}),
+});
 
 NodeTest.before(async () => {
 	await realTestHelper.setup();
