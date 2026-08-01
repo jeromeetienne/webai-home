@@ -30,7 +30,9 @@ export class ModelCatalog {
 	 * @returns The task type name, or `undefined` when no model of that name is offered.
 	 */
 	static taskTypeNameOf(modelId: string): TaskTypeName | undefined {
-		if (TaskInputFactory.isTaskTypeName(modelId) === false) return undefined;
+		if (TaskInputFactory.isTaskTypeName(modelId) === false) {
+			return undefined;
+		}
 		return modelId;
 	}
 
@@ -49,6 +51,9 @@ export class ModelCatalog {
 			created: createdAtSeconds,
 			owned_by: modelOwner,
 		}));
-		return { object: 'list', data };
+		return {
+			object: 'list',
+			data,
+		};
 	}
 }

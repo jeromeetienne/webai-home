@@ -592,7 +592,7 @@ Test('never throws when the log directory cannot be created or the log cannot be
 		id: 'request-1', receivedAt: new Date(), method: 'POST', path: '/v1/chat/completions', httpVersion: 'HTTP/1.1',
 		requestHeaders: {}, requestBody: { model: 'dev_formula', messages: [{ role: 'user', content: '5' }] }, model: 'dev_formula', authOutcome: 'not_required',
 		gatewayRequestId: undefined, gatewayTaskId: undefined, outcome: 'completed', status: 200, responseType: 'chat.completion',
-		responseBody: { choices: [{ message: { content: 'hello' } }] }, elapsedMs: 5, callerDisconnected: false,
+		responseBody: { choices: [{ message: { content: 'hello' } }] }, elapsedMs: 5, isCallerDisconnected: false,
 	});
 });
 
@@ -602,7 +602,7 @@ Test('a no-op logger, built from no log file path, writes nothing and never thro
 		id: 'request-1', receivedAt: new Date(), method: 'POST', path: '/v1/chat/completions', httpVersion: 'HTTP/1.1',
 		requestHeaders: {}, requestBody: { model: 'dev_formula', messages: [{ role: 'user', content: '5' }] }, model: 'dev_formula', authOutcome: 'not_required',
 		gatewayRequestId: undefined, gatewayTaskId: undefined, outcome: 'completed', status: 200, responseType: 'chat.completion',
-		responseBody: { choices: [{ message: { content: 'hello' } }] }, elapsedMs: 5, callerDisconnected: false,
+		responseBody: { choices: [{ message: { content: 'hello' } }] }, elapsedMs: 5, isCallerDisconnected: false,
 	});
 });
 
@@ -628,7 +628,7 @@ Test('writes one curl-style block per transaction, with both bodies and every he
 		responseType: 'chat.completion',
 		responseBody: { choices: [{ message: { role: 'assistant', content: 'Paris is the capital of France.' } }] },
 		elapsedMs: 18,
-		callerDisconnected: false,
+		isCallerDisconnected: false,
 	});
 
 	const blocks = Fs.readFileSync(logFilePath, 'utf8').split(transactionSeparator).map((block) => block.trim()).filter((block) => block.length > 0);
@@ -667,7 +667,7 @@ Test('cuts a body short once it runs longer than this logger prints, and says ho
 		id: 'request-1', receivedAt: new Date(), method: 'POST', path: '/v1/chat/completions', httpVersion: 'HTTP/1.1',
 		requestHeaders: {}, requestBody: { model: 'dev_formula', messages: [{ role: 'user', content: '5' }] }, model: 'dev_formula', authOutcome: 'not_required',
 		gatewayRequestId: undefined, gatewayTaskId: undefined, outcome: 'completed', status: 200, responseType: 'chat.completion',
-		responseBody: { choices: [{ message: { content: longAnswer } }] }, elapsedMs: 5, callerDisconnected: false,
+		responseBody: { choices: [{ message: { content: longAnswer } }] }, elapsedMs: 5, isCallerDisconnected: false,
 	});
 
 	const block = Fs.readFileSync(logFilePath, 'utf8');

@@ -1,7 +1,6 @@
 // node imports
 import type Http from 'node:http';
 import Path from 'node:path';
-import Url from 'node:url';
 
 // npm imports
 import Express from 'express';
@@ -12,6 +11,9 @@ import { ClusterTaskRunner } from './libs/cluster_task_runner.js';
 import { CurlStyleTransactionLogger } from './libs/curl_style_transaction_logger.js';
 import { OpenaiRoutes } from './libs/openai_routes.js';
 import { ServerSettings } from './libs/server_settings.js';
+
+const __filename = import.meta.filename;
+const __dirname = import.meta.dirname;
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -43,9 +45,11 @@ export class Cli {
 
 		// This server's own message traffic with the central gateway, one file per run, the way
 		// the consumer command line program records it.
-		const logsDirectory = Url.fileURLToPath(new URL('../logs', import.meta.url));
+		const logsDirectory = Path.join(__dirname, '../logs');
 		const runTimestamp = new Date().toISOString().replace(/[:.]/g, '-');
-		const messageLogger = new MessageLogger(Path.join(logsDirectory, `consumer-openai-${runTimestamp}.log_entry.jsonl`));
+		const messageLogger = new MessageLogger(
+			Path.join(logsDirectory, `consumer-openai-${runTimestamp}.log_entry.jsonl`),
+		);
 
 		// Every `POST /v1/chat/completions` transaction this server answers, kept in its own file
 		// and its own shape rather than folded into the message log above: that file is this
@@ -53,7 +57,9 @@ export class Cli {
 		// server experienced, which are easier to read apart than interleaved.
 		// `metadata.gatewayRequestId` on an entry here joins it back to the matching
 		// `task.submit` in the other file.
-		const transactionLogger = new CurlStyleTransactionLogger(Path.join(logsDirectory, `consumer_openai-${runTimestamp}.log_http.txt`));
+		const transactionLogger = new CurlStyleTransactionLogger(
+			Path.join(logsDirectory, `consumer_openai-${runTimestamp}.log_http.txt`),
+		);
 
 		const runner = new ClusterTaskRunner({
 			gatewayUrl: settings.gatewayUrl,
@@ -72,19 +78,24 @@ export class Cli {
 
 		const httpServer = app.listen(settings.port, () => {
 			console.log(`The OpenAI-compatible server is listening on http://localhost:${settings.port}`);
-			console.log(`Point an OpenAI client at http://localhost:${settings.port}/v1 and submit tasks to the central gateway at ${settings.gatewayUrl}`);
-			if (settings.apiKey === undefined) console.log('No key is required from a caller, because this server was started without --api-key');
+			console.log(
+				`Point an OpenAI client at http://localhost:${settings.port}/v1 and submit tasks to the central ` +
+					`gateway at ${settings.gatewayUrl}`,
+			);
+			if (settings.apiKey === undefined) {
+				console.log('No key is required from a caller, because this server was started without --api-key');
+			}
 		});
 
 		Cli.httpServer = httpServer;
 		Cli.runner = runner;
 
-		process.on('SIGINT', () => Cli.shutdown());
-		process.on('SIGTERM', () => Cli.shutdown());
+		process.on('SIGINT', () => Cli._shutdown());
+		process.on('SIGTERM', () => Cli._shutdown());
 	}
 
 	/** Gives up on every request still waiting, closes the connection, and stops listening. */
-	private static shutdown(): void {
+	private static _shutdown(): void {
 		Cli.runner?.close();
 		Cli.runner = undefined;
 		Cli.httpServer?.close();
@@ -92,4 +103,6 @@ export class Cli {
 	}
 }
 
-if (process.argv[1] !== undefined && Url.fileURLToPath(import.meta.url) === process.argv[1]) Cli.run();
+if (process.argv[1] !== undefined && __filename === process.argv[1]) {
+	Cli.run();
+}

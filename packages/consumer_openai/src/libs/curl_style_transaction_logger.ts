@@ -24,7 +24,10 @@ export type TransactionOutcome = 'completed' | 'failed' | 'cancelled';
 /** What kind of body the response carried. */
 export type TransactionResponseType = 'chat.completion' | 'chat.completion.chunk' | 'error' | 'none';
 
-/** Everything this server has learned about one `POST /v1/chat/completions` transaction, by the time its response has closed. */
+/**
+ * Everything this server has learned about one `POST /v1/chat/completions` transaction, by the
+ * time its response has closed.
+ */
 export type HttpTransactionInput = {
 	/** The identifier of this transaction. */
 	id: string;
@@ -59,7 +62,7 @@ export type HttpTransactionInput = {
 	/** How long the request took to answer, in milliseconds. */
 	elapsedMs: number;
 	/** Whether the caller's connection closed before this server finished answering it. */
-	callerDisconnected: boolean;
+	isCallerDisconnected: boolean;
 };
 
 /**
@@ -120,11 +123,18 @@ export class CurlStyleTransactionLogger {
 	 * logger into a no-op, which a test uses when it has no log file to write to.
 	 */
 	constructor(private readonly logFilePath: string | undefined) {
-		if (logFilePath === undefined) return;
+		if (logFilePath === undefined) {
+			return;
+		}
 		try {
-			Fs.mkdirSync(Path.dirname(logFilePath), { recursive: true });
+			Fs.mkdirSync(Path.dirname(logFilePath), {
+				recursive: true,
+			});
 		} catch (error: unknown) {
-			console.error(`This server's own transaction log directory could not be created: ${error instanceof Error ? error.message : String(error)}`);
+			console.error(
+				`This server's own transaction log directory could not be created: ` +
+					`${error instanceof Error ? error.message : String(error)}`,
+			);
 		}
 	}
 
@@ -135,12 +145,17 @@ export class CurlStyleTransactionLogger {
 	 * was given.
 	 */
 	log(transaction: HttpTransactionInput): void {
-		if (this.logFilePath === undefined) return;
-		const block = CurlStyleTransactionLogger.blockOf(transaction);
+		if (this.logFilePath === undefined) {
+			return;
+		}
+		const block = CurlStyleTransactionLogger._blockOf(transaction);
 		try {
 			Fs.appendFileSync(this.logFilePath, block, 'utf-8');
 		} catch (error: unknown) {
-			console.error(`This server's own transaction log could not be written to: ${error instanceof Error ? error.message : String(error)}`);
+			console.error(
+				`This server's own transaction log could not be written to: ` +
+					`${error instanceof Error ? error.message : String(error)}`,
+			);
 		}
 	}
 
@@ -157,18 +172,24 @@ export class CurlStyleTransactionLogger {
 	 * was given.
 	 * @returns The text to append to the log file.
 	 */
-	private static blockOf(transaction: HttpTransactionInput): string {
+	private static _blockOf(transaction: HttpTransactionInput): string {
 		const lines: string[] = [transactionSeparator, ''];
-		lines.push(...CurlStyleTransactionLogger.requestLinesOf(transaction));
+		lines.push(...CurlStyleTransactionLogger._requestLinesOf(transaction));
 		lines.push('');
-		lines.push(...CurlStyleTransactionLogger.responseLinesOf(transaction));
+		lines.push(...CurlStyleTransactionLogger._responseLinesOf(transaction));
 		lines.push('');
 		lines.push(`Transaction: ${transaction.id}`);
 		lines.push(`Duration: ${transaction.elapsedMs} ms`);
-		if (transaction.model !== undefined) lines.push(`Model: ${transaction.model}`);
+		if (transaction.model !== undefined) {
+			lines.push(`Model: ${transaction.model}`);
+		}
 		lines.push(`Auth: ${transaction.authOutcome}`);
-		if (transaction.gatewayRequestId !== undefined) lines.push(`Gateway request: ${transaction.gatewayRequestId}`);
-		if (transaction.gatewayTaskId !== undefined) lines.push(`Gateway task: ${transaction.gatewayTaskId}`);
+		if (transaction.gatewayRequestId !== undefined) {
+			lines.push(`Gateway request: ${transaction.gatewayRequestId}`);
+		}
+		if (transaction.gatewayTaskId !== undefined) {
+			lines.push(`Gateway task: ${transaction.gatewayTaskId}`);
+		}
 		lines.push(`Outcome: ${transaction.outcome}`);
 		lines.push('', transactionSeparator, '', '');
 		return lines.join('\n');
@@ -184,13 +205,15 @@ export class CurlStyleTransactionLogger {
 	 * was given.
 	 * @returns The lines of the request block, without a trailing blank line.
 	 */
-	private static requestLinesOf(transaction: HttpTransactionInput): string[] {
+	private static _requestLinesOf(transaction: HttpTransactionInput): string[] {
 		const lines = [`> ${transaction.method} ${transaction.path} ${transaction.httpVersion}`];
 		for (const [name, value] of Object.entries(transaction.requestHeaders)) {
-			for (const oneValue of Array.isArray(value) ? value : [value]) lines.push(`> ${name}: ${oneValue}`);
+			for (const oneValue of Array.isArray(value) ? value : [value]) {
+				lines.push(`> ${name}: ${oneValue}`);
+			}
 		}
 		lines.push('>');
-		lines.push(...CurlStyleTransactionLogger.bodyLinesOf('>', transaction.requestBody));
+		lines.push(...CurlStyleTransactionLogger._bodyLinesOf('>', transaction.requestBody));
 		return lines;
 	}
 
@@ -201,14 +224,17 @@ export class CurlStyleTransactionLogger {
 	 * was given.
 	 * @returns The lines of the response block, without a trailing blank line.
 	 */
-	private static responseLinesOf(transaction: HttpTransactionInput): string[] {
-		if (transaction.callerDisconnected === true && transaction.responseType === 'none') return ['< (no response: the caller disconnected before one was sent)'];
+	private static _responseLinesOf(transaction: HttpTransactionInput): string[] {
+		if (transaction.isCallerDisconnected === true && transaction.responseType === 'none') {
+			return ['< (no response: the caller disconnected before one was sent)'];
+		}
 		const reason = Http.STATUS_CODES[transaction.status] ?? 'Unknown Status';
 		// A streamed answer is sent as server-sent events, not as one JSON body, so it states its
 		// own content type rather than the one every other response here carries.
-		const contentType = transaction.responseType === 'chat.completion.chunk' ? 'text/event-stream; charset=utf-8' : 'application/json';
+		const contentType =
+			transaction.responseType === 'chat.completion.chunk' ? 'text/event-stream; charset=utf-8' : 'application/json';
 		const lines = [`< HTTP/1.1 ${transaction.status} ${reason}`, `< content-type: ${contentType}`, '<'];
-		lines.push(...CurlStyleTransactionLogger.bodyLinesOf('<', transaction.responseBody));
+		lines.push(...CurlStyleTransactionLogger._bodyLinesOf('<', transaction.responseBody));
 		return lines;
 	}
 
@@ -221,11 +247,17 @@ export class CurlStyleTransactionLogger {
 	 * @param body The body as it was received or sent. `undefined` means there was none.
 	 * @returns The lines of the body, each already carrying the direction marker.
 	 */
-	private static bodyLinesOf(marker: string, body: unknown): string[] {
-		if (body === undefined) return [];
+	private static _bodyLinesOf(marker: string, body: unknown): string[] {
+		if (body === undefined) {
+			return [];
+		}
 		const written = JSON.stringify(body, null, 2);
-		if (written === undefined) return [];
-		if (written.length <= maximumBodyChars) return written.split('\n').map((line) => `${marker} ${line}`);
+		if (written === undefined) {
+			return [];
+		}
+		if (written.length <= maximumBodyChars) {
+			return written.split('\n').map((line) => `${marker} ${line}`);
+		}
 		const omittedChars = written.length - maximumBodyChars;
 		const lines = written.slice(0, maximumBodyChars).split('\n').map((line) => `${marker} ${line}`);
 		lines.push(`${marker}`, `${marker} Body truncated (${omittedChars} characters omitted of ${written.length})`);

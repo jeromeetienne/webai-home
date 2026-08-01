@@ -55,12 +55,22 @@ export class ServerSettings {
 			.option('-k, --api-key <key>', 'Key a request must present to this server. Omit to require none')
 			.option('-n, --name <name>', 'Consumer name to register under with the central gateway', 'openai-consumer')
 			.option('--request-timeout-ms <number>', 'How long one task may run before it is cancelled', '600000')
-			.option('--connection-wait-ms <number>', 'How long a request waits for a registered gateway connection before it is refused', '5000')
+			.option(
+				'--connection-wait-ms <number>',
+				'How long a request waits for a registered gateway connection before it is refused',
+				'5000',
+			)
 			// The central gateway's own --max-tasks-per-principal defaults to 20, and it refuses a
 			// submission beyond that, so this server holds no more than that in flight either and
 			// answers the caller itself rather than passing on a refusal it could have foreseen.
 			.option('--max-tasks-in-flight <number>', 'How many cluster tasks to have in flight at once', '20');
-		const options = (argv === undefined ? command.parse() : command.parse(argv, { from: 'user' })).opts<RawOptions>();
+		const options = (
+			argv === undefined
+				? command.parse()
+				: command.parse(argv, {
+						from: 'user',
+					})
+		).opts<RawOptions>();
 
 		this.port = Number(options.port);
 		this.gatewayUrl = options.gatewayUrl;

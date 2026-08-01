@@ -9,11 +9,22 @@ import type { z } from 'zod';
 
 // local imports
 import type { ClusterTaskRunner } from './cluster_task_runner.js';
-import type { CurlStyleTransactionLogger, TransactionAuthOutcome, TransactionOutcome, TransactionResponseType } from './curl_style_transaction_logger.js';
+import type {
+	CurlStyleTransactionLogger,
+	TransactionAuthOutcome,
+	TransactionOutcome,
+	TransactionResponseType,
+} from './curl_style_transaction_logger.js';
 import { ModelCatalog } from './model_catalog.js';
 import { OpenaiError } from './openai_error.js';
 import { PromptFlattener } from './prompt_flattener.js';
-import { ChatCompletionRequestSchema, type ChatCompletionChunk, type ChatCompletionChunkChoice, type ChatCompletionResponse, type HealthResponse } from './openai_types.js';
+import {
+	ChatCompletionRequestSchema,
+	type ChatCompletionChunk,
+	type ChatCompletionChunkChoice,
+	type ChatCompletionResponse,
+	type HealthResponse,
+} from './openai_types.js';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -63,7 +74,11 @@ type ChatCompletionTransaction = {
  * spread across the handlers.
  */
 export class OpenaiRoutes {
-	/** Every `POST /v1/chat/completions` request's transaction in flight, keyed by its Express request object, so the response-close handler set up when the request begins can find it later. */
+	/**
+	 * Every `POST /v1/chat/completions` request's transaction in flight, keyed by its Express
+	 * request object, so the response-close handler set up when the request begins can find it
+	 * later.
+	 */
 	private readonly transactions = new WeakMap<Express.Request, ChatCompletionTransaction>();
 
 	/**
@@ -87,36 +102,44 @@ export class OpenaiRoutes {
 	 */
 	router(): Express.Router {
 		const router = Express.Router();
-		router.use(Express.json({ limit: bodySizeLimit }));
+		router.use(
+			Express.json({
+				limit: bodySizeLimit,
+			}),
+		);
 
 		// The state of this server is readable without a key, so that whatever watches it does
 		// not have to hold one.
 		router.get('/health', (_request, response) => {
 			const health: HealthResponse = {
-				ok: this.runner.isGatewayConnected,
+				isHealthy: this.runner.isGatewayConnected,
 				isGatewayConnected: this.runner.isGatewayConnected,
 				tasksInFlight: this.runner.tasksInFlight,
 			};
-			response.status(health.ok ? 200 : 503).json(health);
+			response.status(health.isHealthy ? 200 : 503).json(health);
 		});
 
 		// Registered ahead of the key check below, so a request to this route is tracked for its
 		// transaction log even when that check is what fails it.
 		router.use('/v1/chat/completions', (request, response, next) => {
-			this.beginTransaction(request, response);
+			this._beginTransaction(request, response);
 			next();
 		});
 
 		router.use('/v1', (request, response, next) => {
 			try {
-				this.checkApiKey(request);
+				this._checkApiKey(request);
 				const transaction = this.transactions.get(request);
-				if (transaction !== undefined && this.apiKey !== undefined) transaction.authOutcome = 'ok';
+				if (transaction !== undefined && this.apiKey !== undefined) {
+					transaction.authOutcome = 'ok';
+				}
 				next();
 			} catch (failure: unknown) {
 				const transaction = this.transactions.get(request);
-				if (transaction !== undefined) transaction.authOutcome = 'failed';
-				OpenaiRoutes.sendFailure(response, failure, transaction);
+				if (transaction !== undefined) {
+					transaction.authOutcome = 'failed';
+				}
+				OpenaiRoutes._sendFailure(response, failure, transaction);
 			}
 		});
 
@@ -128,13 +151,20 @@ export class OpenaiRoutes {
 		// itself, so this route catches its own failures rather than relying on that.
 		router.post('/v1/chat/completions', (request, response) => {
 			const transaction = this.transactions.get(request);
-			void this.handleChatCompletion(request, response, transaction).catch((failure: unknown) => OpenaiRoutes.sendFailure(response, failure, transaction));
+			void this._handleChatCompletion(request, response, transaction).catch((failure: unknown) =>
+				OpenaiRoutes._sendFailure(response, failure, transaction),
+			);
 		});
 
 		// A body that is not valid JSON is refused by the reader mounted above, which fails
 		// before any handler runs, so its failure is turned into an answer here.
 		const reportBodyFailure: Express.ErrorRequestHandler = (error, _request, response, _next) => {
-			OpenaiRoutes.sendFailure(response, OpenaiError.invalidRequest(`The request body could not be read as JSON: ${error instanceof Error ? error.message : String(error)}.`));
+			OpenaiRoutes._sendFailure(
+				response,
+				OpenaiError.invalidRequest(
+					`The request body could not be read as JSON: ${error instanceof Error ? error.message : String(error)}.`,
+				),
+			);
 		};
 		router.use(reportBodyFailure);
 
@@ -156,13 +186,23 @@ export class OpenaiRoutes {
 	 * routes without going through {@link router}.
 	 * @throws OpenaiError when the request cannot be read or the cluster cannot serve it.
 	 */
-	private async handleChatCompletion(request: Express.Request, response: Express.Response, transaction: ChatCompletionTransaction | undefined): Promise<void> {
+	private async _handleChatCompletion(
+		request: Express.Request,
+		response: Express.Response,
+		transaction: ChatCompletionTransaction | undefined,
+	): Promise<void> {
 		const parsed = ChatCompletionRequestSchema.safeParse(request.body);
-		if (parsed.success === false) throw OpenaiRoutes.schemaFailureOf(parsed.error);
+		if (parsed.success === false) {
+			throw OpenaiRoutes._schemaFailureOf(parsed.error);
+		}
 		const body = parsed.data;
-		if (transaction !== undefined) transaction.model = body.model;
+		if (transaction !== undefined) {
+			transaction.model = body.model;
+		}
 		const taskTypeName = ModelCatalog.taskTypeNameOf(body.model);
-		if (taskTypeName === undefined) throw OpenaiError.unknownModel(body.model, ModelCatalog.modelIds);
+		if (taskTypeName === undefined) {
+			throw OpenaiError.unknownModel(body.model, ModelCatalog.modelIds);
+		}
 
 		const prompt = PromptFlattener.flatten(body.messages);
 		const isStreaming = body.stream === true;
@@ -172,9 +212,20 @@ export class OpenaiRoutes {
 			// asked only when the caller asked, because a task answered in pieces costs a
 			// scheduling round for every piece. A request that does not ask for a stream submits
 			// exactly what it did before generation settings existed.
-			taskInput = TaskInputFactory.createTaskInput(taskTypeName, prompt, isStreaming ? { isStreaming: true } : undefined);
+			taskInput = TaskInputFactory.createTaskInput(
+				taskTypeName,
+				prompt,
+				isStreaming
+					? {
+							isStreaming: true,
+						}
+					: undefined,
+			);
 		} catch (error: unknown) {
-			throw OpenaiError.unusableMessages(`The model ${body.model} cannot take the text of this request: ${error instanceof Error ? error.message : String(error)}.`);
+			throw OpenaiError.unusableMessages(
+				`The model ${body.model} cannot take the text of this request: ` +
+					`${error instanceof Error ? error.message : String(error)}.`,
+			);
 		}
 
 		// A caller that hangs up before the answer arrives has its task cancelled, so the
@@ -190,16 +241,29 @@ export class OpenaiRoutes {
 		// reason.
 		const abortController = new AbortController();
 		response.on('close', () => {
-			if (response.writableEnded === false) abortController.abort();
+			if (response.writableEnded === false) {
+				abortController.abort();
+			}
 		});
 
 		const onCorrelationIds = (ids: { requestId: string; taskId?: string }): void => {
-			if (transaction === undefined) return;
+			if (transaction === undefined) {
+				return;
+			}
 			transaction.gatewayRequestId = ids.requestId;
-			if (ids.taskId !== undefined) transaction.gatewayTaskId = ids.taskId;
+			if (ids.taskId !== undefined) {
+				transaction.gatewayTaskId = ids.taskId;
+			}
 		};
 		if (isStreaming === true) {
-			await this.streamChatCompletion(body.model, taskInput, response, transaction, abortController.signal, onCorrelationIds);
+			await this._streamChatCompletion(
+				body.model,
+				taskInput,
+				response,
+				transaction,
+				abortController.signal,
+				onCorrelationIds,
+			);
 			return;
 		}
 
@@ -209,7 +273,17 @@ export class OpenaiRoutes {
 			object: 'chat.completion',
 			created: Math.floor(Date.now() / 1000),
 			model: body.model,
-			choices: [{ index: 0, message: { role: 'assistant', content: answer }, logprobs: null, finish_reason: 'stop' }],
+			choices: [
+				{
+					index: 0,
+					message: {
+						role: 'assistant',
+						content: answer,
+					},
+					logprobs: null,
+					finish_reason: 'stop',
+				},
+			],
 		};
 		if (transaction !== undefined) {
 			transaction.respondedAt = new Date();
@@ -218,7 +292,9 @@ export class OpenaiRoutes {
 			transaction.responseType = 'chat.completion';
 			transaction.responseBody = completion;
 		}
-		if (response.writableEnded === true) return;
+		if (response.writableEnded === true) {
+			return;
+		}
 		response.status(200).json(completion);
 	}
 
@@ -244,58 +320,124 @@ export class OpenaiRoutes {
 	 * @param onCorrelationIds Told the identifiers this request is submitted under.
 	 * @throws OpenaiError when the task fails before any chunk has been written.
 	 */
-	private async streamChatCompletion(modelId: string, taskInput: TaskInput, response: Express.Response, transaction: ChatCompletionTransaction | undefined, abortSignal: AbortSignal, onCorrelationIds: (ids: { requestId: string; taskId?: string }) => void): Promise<void> {
+	private async _streamChatCompletion(
+		modelId: string,
+		taskInput: TaskInput,
+		response: Express.Response,
+		transaction: ChatCompletionTransaction | undefined,
+		abortSignal: AbortSignal,
+		onCorrelationIds: (ids: { requestId: string; taskId?: string }) => void,
+	): Promise<void> {
 		const completionId = `chatcmpl-${Crypto.randomUUID()}`;
 		const created = Math.floor(Date.now() / 1000);
-		let hasWrittenAnything = false;
+		let isAnythingWritten = false;
 		/** Writes one chunk of the answer, opening the stream if this is the first. */
 		const writeChunk = (choice: ChatCompletionChunkChoice): void => {
-			if (response.writableEnded === true) return;
-			if (hasWrittenAnything === false) {
-				hasWrittenAnything = true;
+			if (response.writableEnded === true) {
+				return;
+			}
+			if (isAnythingWritten === false) {
+				isAnythingWritten = true;
 				// Announced before anything is written, because the headers can no longer be set
 				// afterwards. `no-cache` keeps anything in between from holding the answer back
 				// until it is complete, which would undo the point of sending it in pieces.
-				response.status(200).set({ 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
+				response.status(200).set({
+					'Content-Type': 'text/event-stream; charset=utf-8',
+					'Cache-Control': 'no-cache',
+					Connection: 'keep-alive',
+				});
 				if (transaction !== undefined) {
 					transaction.status = 200;
 					transaction.responseType = 'chat.completion.chunk';
 				}
 			}
-			const chunk: ChatCompletionChunk = { id: completionId, object: 'chat.completion.chunk', created, model: modelId, choices: [choice] };
+			const chunk: ChatCompletionChunk = {
+				id: completionId,
+				object: 'chat.completion.chunk',
+				created,
+				model: modelId,
+				choices: [choice],
+			};
 			response.write(`data: ${JSON.stringify(chunk)}\n\n`);
 		};
 
 		try {
 			const answer = await this.runner.run(taskInput, modelId, abortSignal, onCorrelationIds, (piece) => {
-				if (hasWrittenAnything === false) writeChunk({ index: 0, delta: { role: 'assistant' }, logprobs: null, finish_reason: null });
-				writeChunk({ index: 0, delta: { content: piece }, logprobs: null, finish_reason: null });
+				if (isAnythingWritten === false) {
+					writeChunk({
+						index: 0,
+						delta: {
+							role: 'assistant',
+						},
+						logprobs: null,
+						finish_reason: null,
+					});
+				}
+				writeChunk({
+					index: 0,
+					delta: {
+						content: piece,
+					},
+					logprobs: null,
+					finish_reason: null,
+				});
 			});
 			// An answer that produced no pieces at all still has to be sent. That happens when the
 			// stage that ran it produced its whole answer in one go, which is what an older worker
 			// does, so the whole answer is sent as one piece rather than the caller being told the
 			// answer was empty.
-			if (hasWrittenAnything === false) {
-				writeChunk({ index: 0, delta: { role: 'assistant' }, logprobs: null, finish_reason: null });
-				if (answer !== '') writeChunk({ index: 0, delta: { content: answer }, logprobs: null, finish_reason: null });
+			if (isAnythingWritten === false) {
+				writeChunk({
+					index: 0,
+					delta: {
+						role: 'assistant',
+					},
+					logprobs: null,
+					finish_reason: null,
+				});
+				if (answer !== '') {
+					writeChunk({
+						index: 0,
+						delta: {
+							content: answer,
+						},
+						logprobs: null,
+						finish_reason: null,
+					});
+				}
 			}
-			writeChunk({ index: 0, delta: {}, logprobs: null, finish_reason: 'stop' });
+			writeChunk({
+				index: 0,
+				delta: {},
+				logprobs: null,
+				finish_reason: 'stop',
+			});
 			if (transaction !== undefined) {
 				transaction.respondedAt = new Date();
 				transaction.outcome = 'completed';
-				transaction.responseBody = { object: 'chat.completion.chunk', answer };
+				transaction.responseBody = {
+					object: 'chat.completion.chunk',
+					answer,
+				};
 			}
-			OpenaiRoutes.endStream(response);
+			OpenaiRoutes._endStream(response);
 		} catch (failure: unknown) {
-			if (hasWrittenAnything === false) throw failure;
-			const error = failure instanceof OpenaiError ? failure : OpenaiError.taskFailed(failure instanceof Error ? failure.message : String(failure));
+			if (isAnythingWritten === false) {
+				throw failure;
+			}
+			const error =
+				failure instanceof OpenaiError
+					? failure
+					: OpenaiError.taskFailed(failure instanceof Error ? failure.message : String(failure));
 			if (transaction !== undefined) {
 				transaction.respondedAt = new Date();
 				transaction.outcome = 'failed';
 				transaction.responseBody = error.body;
 			}
-			if (response.writableEnded === false) response.write(`data: ${JSON.stringify(error.body)}\n\n`);
-			OpenaiRoutes.endStream(response);
+			if (response.writableEnded === false) {
+				response.write(`data: ${JSON.stringify(error.body)}\n\n`);
+			}
+			OpenaiRoutes._endStream(response);
 		}
 	}
 
@@ -304,8 +446,10 @@ export class OpenaiRoutes {
 	 *
 	 * @param response The response carrying the stream.
 	 */
-	private static endStream(response: Express.Response): void {
-		if (response.writableEnded === true) return;
+	private static _endStream(response: Express.Response): void {
+		if (response.writableEnded === true) {
+			return;
+		}
 		response.write('data: [DONE]\n\n');
 		response.end();
 	}
@@ -322,11 +466,15 @@ export class OpenaiRoutes {
 	 * @param failure The reasons the schema gave.
 	 * @returns The failure to answer with.
 	 */
-	private static schemaFailureOf(failure: z.ZodError): OpenaiError {
+	private static _schemaFailureOf(failure: z.ZodError): OpenaiError {
 		const reasons = failure.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; ');
 		const firstPathPart = failure.issues[0]?.path[0];
 		const param = typeof firstPathPart === 'string' ? firstPathPart : null;
-		return OpenaiError.invalidRequest(`The request body is not one this server can read. ${reasons}. A message's content must be a single piece of text; a list of content parts is not accepted.`, param);
+		return OpenaiError.invalidRequest(
+			`The request body is not one this server can read. ${reasons}. A message's content must be a ` +
+				'single piece of text; a list of content parts is not accepted.',
+			param,
+		);
 	}
 
 	/**
@@ -335,17 +483,25 @@ export class OpenaiRoutes {
 	 * @param request The incoming request.
 	 * @throws OpenaiError when the key is absent or does not match.
 	 */
-	private checkApiKey(request: Express.Request): void {
+	private _checkApiKey(request: Express.Request): void {
 		const apiKey = this.apiKey;
-		if (apiKey === undefined) return;
+		if (apiKey === undefined) {
+			return;
+		}
 		const presentedMatch = /^Bearer (.*)$/i.exec(request.header('authorization') ?? '');
-		if (presentedMatch === null) throw OpenaiError.authenticationFailed();
+		if (presentedMatch === null) {
+			throw OpenaiError.authenticationFailed();
+		}
 		const presented = Buffer.from(presentedMatch[1], 'utf8');
 		const expected = Buffer.from(apiKey, 'utf8');
 		// The two are compared in a way that takes the same time whether they match early or
 		// late, which needs them to be the same length before they are compared at all.
-		if (presented.length !== expected.length) throw OpenaiError.authenticationFailed();
-		if (Crypto.timingSafeEqual(presented, expected) === false) throw OpenaiError.authenticationFailed();
+		if (presented.length !== expected.length) {
+			throw OpenaiError.authenticationFailed();
+		}
+		if (Crypto.timingSafeEqual(presented, expected) === false) {
+			throw OpenaiError.authenticationFailed();
+		}
 	}
 
 	/**
@@ -358,9 +514,15 @@ export class OpenaiRoutes {
 	 * @param transaction This request's transaction record, so the failure is recorded on it.
 	 * Absent for a route this server does not log a transaction for, such as `GET /v1/models`.
 	 */
-	private static sendFailure(response: Express.Response, failure: unknown, transaction?: ChatCompletionTransaction): void {
+	private static _sendFailure(
+		response: Express.Response,
+		failure: unknown,
+		transaction?: ChatCompletionTransaction,
+	): void {
 		const openaiFailure = failure instanceof OpenaiError ? failure : OpenaiError.unexpected();
-		if (failure instanceof OpenaiError === false) console.error(failure);
+		if (failure instanceof OpenaiError === false) {
+			console.error(failure);
+		}
 		if (transaction !== undefined) {
 			transaction.respondedAt = new Date();
 			transaction.outcome = 'failed';
@@ -368,7 +530,9 @@ export class OpenaiRoutes {
 			transaction.responseType = 'error';
 			transaction.responseBody = openaiFailure.body;
 		}
-		if (response.writableEnded === true) return;
+		if (response.writableEnded === true) {
+			return;
+		}
 		response.status(openaiFailure.status).json(openaiFailure.body);
 	}
 
@@ -391,7 +555,7 @@ export class OpenaiRoutes {
 	 * @param request The incoming request.
 	 * @param response The response that will answer it.
 	 */
-	private beginTransaction(request: Express.Request, response: Express.Response): void {
+	private _beginTransaction(request: Express.Request, response: Express.Response): void {
 		const transaction: ChatCompletionTransaction = {
 			id: Crypto.randomUUID(),
 			receivedAt: new Date(),
@@ -409,7 +573,7 @@ export class OpenaiRoutes {
 		response.on('close', () => {
 			// A response that was never written to has not answered the request: the caller went
 			// away, whether or not a failure had already been decided for it.
-			const callerDisconnected = response.writableEnded === false;
+			const isCallerDisconnected = response.writableEnded === false;
 			const respondedAt = transaction.respondedAt ?? new Date();
 			this.transactionLogger.log({
 				id: transaction.id,
@@ -423,12 +587,12 @@ export class OpenaiRoutes {
 				authOutcome: transaction.authOutcome ?? 'not_required',
 				gatewayRequestId: transaction.gatewayRequestId,
 				gatewayTaskId: transaction.gatewayTaskId,
-				outcome: callerDisconnected ? 'cancelled' : (transaction.outcome ?? 'failed'),
-				status: callerDisconnected ? 0 : (transaction.status ?? 0),
-				responseType: callerDisconnected ? 'none' : (transaction.responseType ?? 'none'),
-				responseBody: callerDisconnected ? undefined : transaction.responseBody,
+				outcome: isCallerDisconnected ? 'cancelled' : (transaction.outcome ?? 'failed'),
+				status: isCallerDisconnected ? 0 : (transaction.status ?? 0),
+				responseType: isCallerDisconnected ? 'none' : (transaction.responseType ?? 'none'),
+				responseBody: isCallerDisconnected ? undefined : transaction.responseBody,
 				elapsedMs: respondedAt.getTime() - transaction.receivedAt.getTime(),
-				callerDisconnected,
+				isCallerDisconnected,
 			});
 		});
 	}

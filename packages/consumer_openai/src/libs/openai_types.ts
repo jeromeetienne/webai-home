@@ -131,7 +131,8 @@ export type ModelListResponse = {
 
 /** The body returned by `GET /health`. */
 export type HealthResponse = {
-	ok: boolean;
+	/** Whether this server is healthy, which is the same value as {@link isGatewayConnected}. */
+	isHealthy: boolean;
 	/** Whether this server currently holds a registered connection to the central gateway. */
 	isGatewayConnected: boolean;
 	/** How many requests are waiting for a cluster task to finish. */

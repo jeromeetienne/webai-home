@@ -66,7 +66,14 @@ export class OpenaiError extends Error {
 
 	/** The response body to answer this failure with. */
 	get body(): OpenaiErrorBody {
-		return { error: { message: this.message, type: this.kind, param: this.param, code: this.code } };
+		return {
+			error: {
+				message: this.message,
+				type: this.kind,
+				param: this.param,
+				code: this.code,
+			},
+		};
 	}
 
 	///////////////////////////////////////////////////////////////////////////////
@@ -98,7 +105,8 @@ export class OpenaiError extends Error {
 		return new OpenaiError(
 			404,
 			'invalid_request_error',
-			`This server does not offer a model named ${modelId}. The models it offers are ${offeredModelIds.join(', ')}, which can also be read from GET /v1/models.`,
+			`This server does not offer a model named ${modelId}. The models it offers are ` +
+				`${offeredModelIds.join(', ')}, which can also be read from GET /v1/models.`,
 			'model',
 			'model_not_found',
 		);
@@ -128,7 +136,8 @@ export class OpenaiError extends Error {
 		return new OpenaiError(
 			401,
 			'authentication_error',
-			'This server was started with a required key, and the request did not present a matching one. Send it in an Authorization header, as "Bearer" followed by the key.',
+			'This server was started with a required key, and the request did not present a matching one. Send ' +
+				'it in an Authorization header, as "Bearer" followed by the key.',
 			null,
 			'invalid_api_key',
 		);
@@ -150,7 +159,8 @@ export class OpenaiError extends Error {
 		return new OpenaiError(
 			429,
 			'rate_limit_error',
-			`This server is already waiting on ${limit} cluster tasks, which is as many as it holds at once. Send the request again once one of them has finished.`,
+			`This server is already waiting on ${limit} cluster tasks, which is as many as it holds at once. ` +
+				'Send the request again once one of them has finished.',
 			null,
 			'too_many_tasks_in_flight',
 		);
@@ -193,7 +203,9 @@ export class OpenaiError extends Error {
 		return new OpenaiError(
 			503,
 			'api_error',
-			`No volunteer browser is currently offering the work the model ${modelId} needs, so the task waited until the central gateway's submission deadline and was then given up. Open a worker browser tab that offers that model's stages and send the request again.`,
+			`No volunteer browser is currently offering the work the model ${modelId} needs, so the task ` +
+				`waited until the central gateway's submission deadline and was then given up. Open a worker ` +
+				`browser tab that offers that model's stages and send the request again.`,
 			null,
 			'no_volunteer_available',
 		);
@@ -206,7 +218,13 @@ export class OpenaiError extends Error {
 	 * @returns The failure to answer with, as HTTP 502.
 	 */
 	static taskFailed(message: string): OpenaiError {
-		return new OpenaiError(502, 'api_error', `The cluster could not finish this task: ${message}`, null, 'task_failed');
+		return new OpenaiError(
+			502,
+			'api_error',
+			`The cluster could not finish this task: ${message}`,
+			null,
+			'task_failed',
+		);
 	}
 
 	/**
@@ -219,7 +237,8 @@ export class OpenaiError extends Error {
 		return new OpenaiError(
 			504,
 			'api_error',
-			`The cluster did not finish this task within ${requestTimeoutMs} milliseconds, so it was cancelled. Start this server with a longer --request-timeout-ms to wait longer.`,
+			`The cluster did not finish this task within ${requestTimeoutMs} milliseconds, so it was cancelled. ` +
+				`Start this server with a longer --request-timeout-ms to wait longer.`,
 			null,
 			'request_timed_out',
 		);
@@ -231,7 +250,13 @@ export class OpenaiError extends Error {
 	 * @returns The failure to answer with, as HTTP 500.
 	 */
 	static unexpected(): OpenaiError {
-		return new OpenaiError(500, 'api_error', 'This server failed in a way it does not account for. The reason was written to its own output.', null, 'internal_error');
+		return new OpenaiError(
+			500,
+			'api_error',
+			'This server failed in a way it does not account for. The reason was written to its own output.',
+			null,
+			'internal_error',
+		);
 	}
 
 	/**
@@ -242,6 +267,12 @@ export class OpenaiError extends Error {
 	 * @returns The failure to answer with, as HTTP 502.
 	 */
 	static answerUnreadable(taskTypeName: string): OpenaiError {
-		return new OpenaiError(502, 'api_error', `The cluster finished this ${taskTypeName} task but its result carried no text to answer with.`, null, 'answer_unreadable');
+		return new OpenaiError(
+			502,
+			'api_error',
+			`The cluster finished this ${taskTypeName} task but its result carried no text to answer with.`,
+			null,
+			'answer_unreadable',
+		);
 	}
 }

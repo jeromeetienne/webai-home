@@ -29,7 +29,9 @@ export class PromptFlattener {
 	 */
 	static flatten(messages: ChatCompletionMessage[]): string {
 		const onlyMessage = messages.length === 1 ? messages[0] : undefined;
-		if (onlyMessage !== undefined) return onlyMessage.content;
+		if (onlyMessage !== undefined) {
+			return onlyMessage.content;
+		}
 		const labelledLines = messages.map((message) => `${message.role}: ${message.content}`);
 		return [...labelledLines, 'assistant:'].join('\n');
 	}
