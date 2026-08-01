@@ -21,7 +21,9 @@ export class PageElements {
 	 */
 	static getElement(selector: string): HTMLElement {
 		const element: Element | null = document.querySelector(selector);
-		if ((element instanceof HTMLElement) === false) throw new Error(`Element ${selector} was not found`);
+		if ((element instanceof HTMLElement) === false) {
+			throw new Error(`Element ${selector} was not found`);
+		}
 		return element;
 	}
 
@@ -34,7 +36,9 @@ export class PageElements {
 	 */
 	static getInput(selector: string): HTMLInputElement {
 		const element: Element | null = document.querySelector(selector);
-		if ((element instanceof HTMLInputElement) === false) throw new Error(`Input ${selector} was not found`);
+		if ((element instanceof HTMLInputElement) === false) {
+			throw new Error(`Input ${selector} was not found`);
+		}
 		return element;
 	}
 
@@ -47,7 +51,9 @@ export class PageElements {
 	 */
 	static getButton(selector: string): HTMLButtonElement {
 		const element: Element | null = document.querySelector(selector);
-		if ((element instanceof HTMLButtonElement) === false) throw new Error(`Button ${selector} was not found`);
+		if ((element instanceof HTMLButtonElement) === false) {
+			throw new Error(`Button ${selector} was not found`);
+		}
 		return element;
 	}
 }

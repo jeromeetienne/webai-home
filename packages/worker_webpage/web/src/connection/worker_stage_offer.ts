@@ -1,7 +1,7 @@
 import { StageName, type StageName as StageNameType } from '@webai/protocol';
-import { StageDevFormulaHelper } from './stage_dev_formula_helper';
-import { StageLlmQwen3_0_6bHelper } from './stage_llm_qwen3_0_6b_helper';
-import { StageLlmGemmaNanoChromeHelper } from './stage_llm_gemma_nano_chrome_helper';
+import { StageDevFormulaHelper } from '../stages/stage_dev_formula_helper';
+import { StageLlmQwen3_0_6bHelper } from '../stages/stage_llm_qwen3_0_6b_helper';
+import { StageLlmGemmaNanoChromeHelper } from '../stages/stage_llm_gemma_nano_chrome_helper';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -60,11 +60,27 @@ export class WorkerStageOffer {
 		const builtInModelStageNames: string[] = [];
 		for (const pipeline of pipelines) {
 			for (const [stageIndex, stage] of pipeline.stages.entries()) {
-				if (WorkerStageOffer.implementsComputation(stage.computation) === false) continue;
-				if (requestedStageNames.length > 0 && requestedStageNames.includes(stage.name) === false) continue;
-				if (stageNames.includes(stage.name) === false) stageNames.push(stage.name);
-				if (StageLlmQwen3_0_6bHelper.implementsComputation(stage.computation) && llmShardIndexes.includes(stageIndex) === false) llmShardIndexes.push(stageIndex);
-				if (StageLlmGemmaNanoChromeHelper.implementsComputation(stage.computation) && builtInModelStageNames.includes(stage.name) === false) builtInModelStageNames.push(stage.name);
+				if (WorkerStageOffer.implementsComputation(stage.computation) === false) {
+					continue;
+				}
+				if (requestedStageNames.length > 0 && requestedStageNames.includes(stage.name) === false) {
+					continue;
+				}
+				if (stageNames.includes(stage.name) === false) {
+					stageNames.push(stage.name);
+				}
+				if (
+					StageLlmQwen3_0_6bHelper.implementsComputation(stage.computation)
+					&& llmShardIndexes.includes(stageIndex) === false
+				) {
+					llmShardIndexes.push(stageIndex);
+				}
+				if (
+					StageLlmGemmaNanoChromeHelper.implementsComputation(stage.computation)
+					&& builtInModelStageNames.includes(stage.name) === false
+				) {
+					builtInModelStageNames.push(stage.name);
+				}
 			}
 		}
 		return { stageNames, llmShardIndexes, builtInModelStageNames };

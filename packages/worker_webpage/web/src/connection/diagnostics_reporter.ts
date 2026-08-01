@@ -52,7 +52,9 @@ export class DiagnosticsReporter {
 	static start(deviceId: string, authToken: string): void {
 		DiagnosticsReporter.deviceId = deviceId;
 		DiagnosticsReporter.authToken = authToken;
-		if (DiagnosticsReporter.flushTimer !== undefined) return;
+		if (DiagnosticsReporter.flushTimer !== undefined) {
+			return;
+		}
 		DiagnosticsReporter.flushTimer = window.setInterval(() => {
 			void DiagnosticsReporter.flush();
 		}, flushIntervalMs);
@@ -81,7 +83,9 @@ export class DiagnosticsReporter {
 	 * @param messageId The identifier of the frame the message travelled in, when known.
 	 */
 	static record(direction: 'received' | 'sent', messageType: string, messageId?: string): void {
-		if (DiagnosticsReporter.deviceId === undefined) return;
+		if (DiagnosticsReporter.deviceId === undefined) {
+			return;
+		}
 		if (DiagnosticsReporter.buffer.length >= maximumBufferedEntries) {
 			DiagnosticsReporter.buffer.shift();
 			DiagnosticsReporter.droppedEntryCount += 1;
@@ -90,7 +94,9 @@ export class DiagnosticsReporter {
 			direction,
 			messageType,
 			timestamp: new Date().toISOString(),
-			...(messageId === undefined ? {} : { messageId }),
+			...(messageId === undefined ? {} : {
+				messageId,
+			}),
 		});
 	}
 
@@ -105,8 +111,12 @@ export class DiagnosticsReporter {
 	static async flush(): Promise<void> {
 		const deviceId = DiagnosticsReporter.deviceId;
 		const authToken = DiagnosticsReporter.authToken;
-		if (deviceId === undefined || authToken === undefined) return;
-		if (DiagnosticsReporter.buffer.length === 0) return;
+		if (deviceId === undefined || authToken === undefined) {
+			return;
+		}
+		if (DiagnosticsReporter.buffer.length === 0) {
+			return;
+		}
 
 		const entries = DiagnosticsReporter.buffer.splice(0, maximumDiagnosticEntriesPerBatch);
 		try {

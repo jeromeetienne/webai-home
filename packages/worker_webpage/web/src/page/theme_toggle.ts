@@ -35,27 +35,38 @@ export class ThemeToggle {
 	 */
 	static setup(selector = '#theme-toggle'): void {
 		const button: Element | null = document.querySelector(selector);
-		if ((button instanceof HTMLButtonElement) === false) throw new Error(`Theme button ${selector} was not found`);
+		if ((button instanceof HTMLButtonElement) === false) {
+			throw new Error(`Theme button ${selector} was not found`);
+		}
 
 		const storedPreference: StoredThemePreference | undefined = ThemeToggle.readStoredPreference();
 		let theme: Theme = storedPreference?.theme ?? ThemeToggle.systemTheme();
 		let preferenceExpiryTimer: number | undefined;
 		const useSystemTheme = (): void => {
-			if (ThemeToggle.readStoredPreference() !== undefined) return;
+			if (ThemeToggle.readStoredPreference() !== undefined) {
+				return;
+			}
 			theme = ThemeToggle.systemTheme();
 			ThemeToggle.applyTheme(theme);
 			ThemeToggle.updateButton(button, theme);
 		};
 		const schedulePreferenceExpiry = (expiresAt: number): void => {
-			if (preferenceExpiryTimer !== undefined) window.clearTimeout(preferenceExpiryTimer);
+			if (preferenceExpiryTimer !== undefined) {
+				window.clearTimeout(preferenceExpiryTimer);
+			}
 			preferenceExpiryTimer = window.setTimeout(useSystemTheme, Math.max(0, expiresAt - Date.now()));
 		};
-		if (storedPreference !== undefined) schedulePreferenceExpiry(storedPreference.expiresAt);
+		if (storedPreference !== undefined) {
+			schedulePreferenceExpiry(storedPreference.expiresAt);
+		}
 		ThemeToggle.applyTheme(theme);
 		ThemeToggle.updateButton(button, theme);
 		button.addEventListener('click', (): void => {
 			theme = theme === 'dark' ? 'light' : 'dark';
-			const preference: StoredThemePreference = { theme, expiresAt: Date.now() + themePreferenceDurationMs };
+			const preference: StoredThemePreference = {
+				theme,
+				expiresAt: Date.now() + themePreferenceDurationMs,
+			};
 			try {
 				window.localStorage.setItem(themeStorageKey, JSON.stringify(preference));
 			} catch {
@@ -95,15 +106,22 @@ export class ThemeToggle {
 	private static readStoredPreference(): StoredThemePreference | undefined {
 		try {
 			const storedValue: string | null = window.localStorage.getItem(themeStorageKey);
-			if (storedValue === null) return undefined;
+			if (storedValue === null) {
+				return undefined;
+			}
 			const preference: unknown = JSON.parse(storedValue);
-			if (typeof preference !== 'object' || preference === null) return undefined;
+			if (typeof preference !== 'object' || preference === null) {
+				return undefined;
+			}
 			const { theme, expiresAt } = preference as Partial<StoredThemePreference>;
 			if ((theme !== 'light' && theme !== 'dark') || typeof expiresAt !== 'number' || expiresAt <= Date.now()) {
 				window.localStorage.removeItem(themeStorageKey);
 				return undefined;
 			}
-			return { theme, expiresAt };
+			return {
+				theme,
+				expiresAt,
+			};
 		} catch {
 			return undefined;
 		}

@@ -35,12 +35,24 @@ export class LeaseHeartbeat {
 	 * @param socket The open connection to the central gateway.
 	 * @param assignment The task, assignment, attempt, and lease expiry from `stage.assign`.
 	 */
-	static start(socket: WebSocket, assignment: { taskId: string; assignmentId: string; attempt: number; leaseUntil?: string | undefined }): void {
+	static start(
+		socket: WebSocket,
+		assignment: { taskId: string; assignmentId: string; attempt: number; leaseUntil?: string | undefined },
+	): void {
 		const leaseMs = assignment.leaseUntil === undefined ? Number.NaN : Date.parse(assignment.leaseUntil) - Date.now();
-		const intervalMs = Number.isFinite(leaseMs) ? Math.max(minimumHeartbeatIntervalMs, Math.floor(leaseMs / 3)) : minimumHeartbeatIntervalMs;
+		const intervalMs = Number.isFinite(leaseMs)
+			? Math.max(minimumHeartbeatIntervalMs, Math.floor(leaseMs / 3))
+			: minimumHeartbeatIntervalMs;
 		const timer = window.setInterval((): void => {
-			if (socket.readyState !== WebSocket.OPEN) return;
-			const heartbeatMessage: ClientMessage = { type: 'stage.heartbeat', taskId: assignment.taskId, assignmentId: assignment.assignmentId, attempt: assignment.attempt };
+			if (socket.readyState !== WebSocket.OPEN) {
+				return;
+			}
+			const heartbeatMessage: ClientMessage = {
+				type: 'stage.heartbeat',
+				taskId: assignment.taskId,
+				assignmentId: assignment.assignmentId,
+				attempt: assignment.attempt,
+			};
 			GatewayLink.send(socket, heartbeatMessage);
 		}, intervalMs);
 		leaseHeartbeatTimers.set(assignment.assignmentId, timer);
@@ -54,12 +66,16 @@ export class LeaseHeartbeat {
 	 */
 	static stop(assignmentId?: string): void {
 		if (assignmentId === undefined) {
-			for (const timer of leaseHeartbeatTimers.values()) window.clearInterval(timer);
+			for (const timer of leaseHeartbeatTimers.values()) {
+				window.clearInterval(timer);
+			}
 			leaseHeartbeatTimers.clear();
 			return;
 		}
 		const timer = leaseHeartbeatTimers.get(assignmentId);
-		if (timer === undefined) return;
+		if (timer === undefined) {
+			return;
+		}
 		window.clearInterval(timer);
 		leaseHeartbeatTimers.delete(assignmentId);
 	}

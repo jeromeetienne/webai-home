@@ -22,7 +22,9 @@ export class GatewayLink {
 	 */
 	static send(socket: WebSocket, message: ClientMessage): void {
 		const frame = Envelope.fromClient(message);
-		if (socket.readyState !== WebSocket.OPEN) return;
+		if (socket.readyState !== WebSocket.OPEN) {
+			return;
+		}
 		socket.send(JSON.stringify(frame));
 		DiagnosticsReporter.record('sent', message.type, frame.id);
 	}

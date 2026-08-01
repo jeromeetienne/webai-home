@@ -1,17 +1,17 @@
 import type { StageName, StagePayload, ClientMessage, GenerationSettings } from '@webai/protocol';
 import { SessionRenewal } from '@webai/protocol/session_renewal';
-import { StageDevFormulaHelper } from './stage_dev_formula_helper';
-import { StageLlmQwen3_0_6bHelper } from './stage_llm_qwen3_0_6b_helper';
-import { StageLlmGemmaNanoChromeHelper } from './stage_llm_gemma_nano_chrome_helper';
-import { GatewayConfig } from './gateway_config';
-import { GatewayLink } from './gateway_link';
-import { LeaseHeartbeat } from './lease_heartbeat';
-import { DiagnosticsReporter } from './diagnostics_reporter';
-import { PageElements } from './page_elements';
-import { PageMarkup } from './page_markup';
-import { WorkerEventLog } from './worker_event_log';
-import { WorkerStageOffer } from './worker_stage_offer';
-import { ThemeToggle } from './theme_toggle.js';
+import { StageDevFormulaHelper } from './stages/stage_dev_formula_helper';
+import { StageLlmQwen3_0_6bHelper } from './stages/stage_llm_qwen3_0_6b_helper';
+import { StageLlmGemmaNanoChromeHelper } from './stages/stage_llm_gemma_nano_chrome_helper';
+import { GatewayConfig } from './connection/gateway_config';
+import { GatewayLink } from './connection/gateway_link';
+import { LeaseHeartbeat } from './connection/lease_heartbeat';
+import { DiagnosticsReporter } from './connection/diagnostics_reporter';
+import { PageElements } from './page/page_elements';
+import { PageMarkup } from './page/page_markup';
+import { WorkerEventLog } from './page/worker_event_log';
+import { WorkerStageOffer } from './connection/worker_stage_offer';
+import { ThemeToggle } from './page/theme_toggle.js';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -158,7 +158,9 @@ export class WorkerPage {
 
 		/** Closes the WebSocket connection when the disconnect button is clicked. */
 		this.disconnectButtonEl.addEventListener('click', (): void => {
-			if (this.socket !== undefined) this.socket.close(1000, 'Disconnected by worker');
+			if (this.socket !== undefined) {
+				this.socket.close(1000, 'Disconnected by worker');
+			}
 		});
 
 		// Leaving a page does not always destroy it. A browser tab that navigates away keeps the
@@ -173,7 +175,9 @@ export class WorkerPage {
 		// visible to the gateway. The connection is not reopened here, because the page may never
 		// be displayed again.
 		window.addEventListener('pagehide', (): void => {
-			if (this.socket === undefined) return;
+			if (this.socket === undefined) {
+				return;
+			}
 			LeaseHeartbeat.stop();
 			DiagnosticsReporter.stop();
 			this.socket.close(1000, 'Worker page is no longer displayed');
@@ -185,7 +189,9 @@ export class WorkerPage {
 		// connection closed above. The page is not loaded again in that case, so nothing else
 		// would reconnect it, and the restored page would sit there offering no work at all.
 		window.addEventListener('pageshow', (event: PageTransitionEvent): void => {
-			if (event.persisted === false) return;
+			if (event.persisted === false) {
+				return;
+			}
 			// A page put away while its language-model shards were still loading left this set,
 			// which would refuse the reconnection below.
 			this.isPreparing = false;
@@ -210,7 +216,9 @@ export class WorkerPage {
 	 */
 	private connectToGateway(): void {
 		// Do not open a new connection if one is already open or in the process of opening.
-		if (this.isPreparing || (this.socket !== undefined && this.socket.readyState !== WebSocket.CLOSED)) return;
+		if (this.isPreparing || (this.socket !== undefined && this.socket.readyState !== WebSocket.CLOSED)) {
+			return;
+		}
 
 		// The shards this browser preloads depend on which stages it will offer, and that is
 		// decided from the pipelines the gateway sends. So the connection opens first, and the
@@ -237,9 +245,18 @@ export class WorkerPage {
 			this.connectButtonEl.classList.add('d-none');
 			this.disconnectButtonEl.classList.remove('d-none');
 			this.nameInputEl.disabled = true;
-			const message: ClientMessage = { type: 'authenticate', token: GatewayConfig.authToken };
-			if (this.socket !== undefined) GatewayLink.send(this.socket, message);
-			this.eventLog.add({ direction: 'sent', type: message.type, timestamp: new Date().toISOString() });
+			const message: ClientMessage = {
+				type: 'authenticate',
+				token: GatewayConfig.authToken,
+			};
+			if (this.socket !== undefined) {
+				GatewayLink.send(this.socket, message);
+			}
+			this.eventLog.add({
+				direction: 'sent',
+				type: message.type,
+				timestamp: new Date().toISOString(),
+			});
 		});
 
 		/** Handles messages received from the central gateway. */
@@ -249,7 +266,9 @@ export class WorkerPage {
 
 		/** Restores the disconnected state when the WebSocket closes. */
 		this.socket.addEventListener('close', (): void => {
-			if (this.socket !== undefined && this.socket !== openedSocket) return;
+			if (this.socket !== undefined && this.socket !== openedSocket) {
+				return;
+			}
 			LeaseHeartbeat.stop();
 			// An answer being read one piece at a time stays open between runs, and only a run
 			// assigned over this connection can carry it on. With the connection gone, no run can
@@ -258,7 +277,9 @@ export class WorkerPage {
 			// again.
 			StageLlmGemmaNanoChromeHelper.clearEveryGeneration();
 			this.isRegistered = false;
-			if (this.sessionRenewalTimer !== undefined) window.clearTimeout(this.sessionRenewalTimer);
+			if (this.sessionRenewalTimer !== undefined) {
+				window.clearTimeout(this.sessionRenewalTimer);
+			}
 			this.sessionRenewalTimer = undefined;
 			// Posts whatever is still buffered, so the last messages before a disconnection are
 			// still recorded rather than lost with the page's state.
@@ -270,7 +291,9 @@ export class WorkerPage {
 			this.disconnectButtonEl.classList.add('d-none');
 			this.nameInputEl.disabled = false;
 			this.socket = undefined;
-			if (this.isReconnectRequested === false) return;
+			if (this.isReconnectRequested === false) {
+				return;
+			}
 			this.isReconnectRequested = false;
 			this.connectToGateway();
 		});
@@ -287,11 +310,20 @@ export class WorkerPage {
 	 * @param expiresAt When the current session expires, as the gateway stated it.
 	 */
 	private scheduleSessionRenewal(openSocket: WebSocket, expiresAt: string | undefined): void {
-		if (this.sessionRenewalTimer !== undefined) window.clearTimeout(this.sessionRenewalTimer);
-		if (expiresAt === undefined) return;
+		if (this.sessionRenewalTimer !== undefined) {
+			window.clearTimeout(this.sessionRenewalTimer);
+		}
+		if (expiresAt === undefined) {
+			return;
+		}
 		this.sessionRenewalTimer = window.setTimeout((): void => {
-			if (openSocket.readyState !== WebSocket.OPEN) return;
-			GatewayLink.send(openSocket, { type: 'authenticate', token: GatewayConfig.authToken });
+			if (openSocket.readyState !== WebSocket.OPEN) {
+				return;
+			}
+			GatewayLink.send(openSocket, {
+				type: 'authenticate',
+				token: GatewayConfig.authToken,
+			});
 		}, SessionRenewal.renewAfterMs(expiresAt));
 	}
 
@@ -308,15 +340,26 @@ export class WorkerPage {
 	 */
 	private handleGatewayMessage(event: MessageEvent): void {
 		/** The wrapper the gateway message travelled in. */
-		const frame = JSON.parse(event.data as string) as { v?: number; id?: string; inReplyTo?: string; body?: GatewayMessage };
+		const frame = JSON.parse(event.data as string) as {
+			v?: number;
+			id?: string;
+			inReplyTo?: string;
+			body?: GatewayMessage;
+		};
 		/** The decoded gateway message. */
-		const message: GatewayMessage = frame.body ?? ({ type: 'error' } as GatewayMessage);
+		const message: GatewayMessage = frame.body ?? ({
+			type: 'error',
+		} as GatewayMessage);
 		this.eventLog.add({
 			direction: 'received',
 			type: message.type,
 			timestamp: new Date().toISOString(),
-			...(message.taskId === undefined || message.taskId === '' ? {} : { taskId: message.taskId }),
-			...(message.stage === undefined ? {} : { stage: message.stage }),
+			...(message.taskId === undefined || message.taskId === '' ? {} : {
+				taskId: message.taskId,
+			}),
+			...(message.stage === undefined ? {} : {
+				stage: message.stage,
+			}),
 		});
 		// Ask the gateway which pipelines it has loaded before registering, so this browser
 		// can offer every stage whose computation it implements, including stages of a
@@ -329,10 +372,18 @@ export class WorkerPage {
 			// A renewal is answered with "authenticated" too. Asking for the pipelines again
 			// each time would restart the whole registration sequence, so it is only asked
 			// for on the first one.
-			if (this.isRegistered) return;
-			const request: ClientMessage = { type: 'pipelines.get' };
+			if (this.isRegistered) {
+				return;
+			}
+			const request: ClientMessage = {
+				type: 'pipelines.get',
+			};
 			GatewayLink.send(this.socket, request);
-			this.eventLog.add({ direction: 'sent', type: request.type, timestamp: new Date().toISOString() });
+			this.eventLog.add({
+				direction: 'sent',
+				type: request.type,
+				timestamp: new Date().toISOString(),
+			});
 			return;
 		}
 		if (message.type === 'pipelines' && this.socket !== undefined) {
@@ -344,7 +395,9 @@ export class WorkerPage {
 			this.deviceIdEl.textContent = message.deviceId ?? 'Not assigned';
 			// Reporting can only start now: the gateway names the device the report is for,
 			// and it issues that name here.
-			if (message.deviceId !== undefined) DiagnosticsReporter.start(message.deviceId, GatewayConfig.authToken);
+			if (message.deviceId !== undefined) {
+				DiagnosticsReporter.start(message.deviceId, GatewayConfig.authToken);
+			}
 		}
 		DiagnosticsReporter.record('received', message.type, frame.id);
 		if (message.type === 'stage.cancel' && message.taskId !== undefined) {
@@ -355,13 +408,25 @@ export class WorkerPage {
 			// same task at once, when a lease expires and the gateway assigns the stage again to
 			// the same tab, and only the superseded one is being cancelled here; naming it is what
 			// stops this from ending an answer the replacement run is still reading.
-			if (message.assignmentId !== undefined) StageLlmGemmaNanoChromeHelper.clearGeneration(message.taskId, message.assignmentId);
+			if (message.assignmentId !== undefined) {
+				StageLlmGemmaNanoChromeHelper.clearGeneration(message.taskId, message.assignmentId);
+			}
 			return;
 		}
 		// The gateway answers each lease heartbeat with a later expiry. Nothing has to be
 		// done with it: the assignment is still this browser's, which is the whole point.
-		if (message.type === 'stage.lease.extended') return;
-		if (message.type !== 'stage.assign' || message.stage === undefined || message.value === undefined || message.taskId === undefined || message.assignmentId === undefined || message.attempt === undefined) return;
+		if (message.type === 'stage.lease.extended') {
+			return;
+		}
+		const isCompleteAssignment = message.type === 'stage.assign'
+			&& message.stage !== undefined
+			&& message.value !== undefined
+			&& message.taskId !== undefined
+			&& message.assignmentId !== undefined
+			&& message.attempt !== undefined;
+		if (isCompleteAssignment === false) {
+			return;
+		}
 		this.runAssignedStage(message);
 	}
 
@@ -375,27 +440,48 @@ export class WorkerPage {
 		this.prepareOfferedStages(offered)
 			.then((stageNames) => {
 				this.isPreparing = false;
-				if (this.socket === undefined) return;
+				if (this.socket === undefined) {
+					return;
+				}
 				this.enabledStageNames = stageNames;
 				this.renderStages();
 				if (stageNames.length === 0) {
 					this.statusEl.textContent = 'No stage to run';
 					this.statusEl.className = 'badge text-bg-danger';
-					this.eventLog.add({ direction: 'local', type: 'worker.error', timestamp: new Date().toISOString(), message: 'This browser can run none of the stages the loaded pipelines define' });
+					this.eventLog.add({
+						direction: 'local',
+						type: 'worker.error',
+						timestamp: new Date().toISOString(),
+						message: 'This browser can run none of the stages the loaded pipelines define',
+					});
 					this.socket.close(1000, 'No stage to run');
 					return;
 				}
 				this.statusEl.textContent = 'Connected';
 				this.statusEl.className = 'badge text-bg-success';
-				const register: ClientMessage = { type: 'register', role: 'worker', name: this.nameInputEl.value, stageNames };
+				const register: ClientMessage = {
+					type: 'register',
+					role: 'worker',
+					name: this.nameInputEl.value,
+					stageNames,
+				};
 				GatewayLink.send(this.socket, register);
-				this.eventLog.add({ direction: 'sent', type: register.type, timestamp: new Date().toISOString() });
+				this.eventLog.add({
+					direction: 'sent',
+					type: register.type,
+					timestamp: new Date().toISOString(),
+				});
 			})
 			.catch((error: unknown) => {
 				this.isPreparing = false;
 				this.statusEl.textContent = 'Shard loading failed';
 				this.statusEl.className = 'badge text-bg-danger';
-				this.eventLog.add({ direction: 'local', type: 'worker.error', timestamp: new Date().toISOString(), message: error instanceof Error ? error.message : String(error) });
+				this.eventLog.add({
+					direction: 'local',
+					type: 'worker.error',
+					timestamp: new Date().toISOString(),
+					message: error instanceof Error ? error.message : String(error),
+				});
 				this.socket?.close(1000, 'Shard loading failed');
 			});
 	}
@@ -407,10 +493,26 @@ export class WorkerPage {
 	 */
 	private runAssignedStage(message: GatewayMessage): void {
 		/** The task identifier and stage captured for the async result below. */
-		const { taskId, assignmentId, attempt, stage, value } = message as Required<Pick<GatewayMessage, 'taskId' | 'assignmentId' | 'attempt' | 'stage' | 'value'>>;
-		const acceptedMessage: ClientMessage = { type: 'stage.accepted', taskId, assignmentId, attempt };
-		if (this.socket !== undefined) GatewayLink.send(this.socket, acceptedMessage);
-		if (this.socket !== undefined) LeaseHeartbeat.start(this.socket, { taskId, assignmentId, attempt, leaseUntil: message.leaseUntil });
+		const { taskId, assignmentId, attempt, stage, value } = message as Required<
+			Pick<GatewayMessage, 'taskId' | 'assignmentId' | 'attempt' | 'stage' | 'value'>
+		>;
+		const acceptedMessage: ClientMessage = {
+			type: 'stage.accepted',
+			taskId,
+			assignmentId,
+			attempt,
+		};
+		if (this.socket !== undefined) {
+			GatewayLink.send(this.socket, acceptedMessage);
+		}
+		if (this.socket !== undefined) {
+			LeaseHeartbeat.start(this.socket, {
+				taskId,
+				assignmentId,
+				attempt,
+				leaseUntil: message.leaseUntil,
+			});
+		}
 		// The assignment says which computation to run and which position in its pipeline
 		// the stage occupies. This browser never has to recognise the stage name.
 		const computation = message.computation ?? '';
@@ -420,8 +522,17 @@ export class WorkerPage {
 		 * @returns The stage result, once the computation has produced it.
 		 */
 		const runComputation = (): Promise<StagePayload> => {
-			if (StageLlmQwen3_0_6bHelper.implementsComputation(computation)) return StageLlmQwen3_0_6bHelper.compute(message.stageIndex ?? 0, taskId, value as Exclude<StagePayload, number>);
-			if (StageLlmGemmaNanoChromeHelper.implementsComputation(computation)) return StageLlmGemmaNanoChromeHelper.compute(taskId, assignmentId, value as Exclude<StagePayload, number>, message.generationSettings);
+			if (StageLlmQwen3_0_6bHelper.implementsComputation(computation)) {
+				return StageLlmQwen3_0_6bHelper.compute(message.stageIndex ?? 0, taskId, value as Exclude<StagePayload, number>);
+			}
+			if (StageLlmGemmaNanoChromeHelper.implementsComputation(computation)) {
+				return StageLlmGemmaNanoChromeHelper.compute(
+					taskId,
+					assignmentId,
+					value as Exclude<StagePayload, number>,
+					message.generationSettings,
+				);
+			}
 			return Promise.resolve(StageDevFormulaHelper.compute(computation, value as number));
 		};
 		runComputation()
@@ -435,8 +546,16 @@ export class WorkerPage {
 					stage,
 					value: computedValue,
 				};
-				if (this.socket !== undefined) GatewayLink.send(this.socket, resultMessage);
-				this.eventLog.add({ direction: 'sent', type: resultMessage.type, timestamp: new Date().toISOString(), taskId, stage });
+				if (this.socket !== undefined) {
+					GatewayLink.send(this.socket, resultMessage);
+				}
+				this.eventLog.add({
+					direction: 'sent',
+					type: resultMessage.type,
+					timestamp: new Date().toISOString(),
+					taskId,
+					stage,
+				});
 			})
 			.catch((error: unknown) => {
 				LeaseHeartbeat.stop(assignmentId);
@@ -453,8 +572,17 @@ export class WorkerPage {
 					stage,
 					error: error instanceof Error ? error.message : String(error),
 				};
-				if (this.socket !== undefined) GatewayLink.send(this.socket, failedMessage);
-				this.eventLog.add({ direction: 'sent', type: failedMessage.type, timestamp: new Date().toISOString(), taskId, stage, message: failedMessage.error });
+				if (this.socket !== undefined) {
+					GatewayLink.send(this.socket, failedMessage);
+				}
+				this.eventLog.add({
+					direction: 'sent',
+					type: failedMessage.type,
+					timestamp: new Date().toISOString(),
+					taskId,
+					stage,
+					message: failedMessage.error,
+				});
 			});
 	}
 
@@ -489,7 +617,12 @@ export class WorkerPage {
 			} else {
 				stageNames = stageNames.filter((stageName) => offered.builtInModelStageNames.includes(stageName) === false);
 				this.showBuiltInModelNotice(readiness.message, readiness.status === 'user_gesture_required');
-				this.eventLog.add({ direction: 'local', type: 'worker.built_in_model', timestamp: new Date().toISOString(), message: readiness.message });
+				this.eventLog.add({
+					direction: 'local',
+					type: 'worker.built_in_model',
+					timestamp: new Date().toISOString(),
+					message: readiness.message,
+				});
 			}
 		}
 		if (offered.llmShardIndexes.length > 0) {
@@ -519,7 +652,12 @@ export class WorkerPage {
 					return;
 				}
 				this.hideBuiltInModelNotice();
-				this.eventLog.add({ direction: 'local', type: 'worker.built_in_model', timestamp: new Date().toISOString(), message: "The browser's built-in language model is ready" });
+				this.eventLog.add({
+					direction: 'local',
+					type: 'worker.built_in_model',
+					timestamp: new Date().toISOString(),
+					message: "The browser's built-in language model is ready",
+				});
 				if (this.socket === undefined) {
 					this.connectToGateway();
 					return;

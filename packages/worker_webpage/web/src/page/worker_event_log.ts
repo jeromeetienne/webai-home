@@ -54,7 +54,9 @@ export class WorkerEventLog {
 	 */
 	add(event: WorkerEvent): void {
 		this.events.push(event);
-		if (this.events.length > maximumDisplayedEvents) this.events.splice(0, this.events.length - maximumDisplayedEvents);
+		if (this.events.length > maximumDisplayedEvents) {
+			this.events.splice(0, this.events.length - maximumDisplayedEvents);
+		}
 		this.render();
 	}
 }

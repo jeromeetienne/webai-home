@@ -35,8 +35,12 @@ export class StageDevFormulaHelper {
 	 * @throws If the computation is not one this browser implements.
 	 */
 	static compute(computation: string, value: number): number {
-		if (computation === 'dev_formula_multiply') return value * 2;
-		if (computation === 'dev_formula_add') return value + 7;
+		if (computation === 'dev_formula_multiply') {
+			return value * 2;
+		}
+		if (computation === 'dev_formula_add') {
+			return value + 7;
+		}
 		throw new Error(`This browser does not implement the computation ${computation}.`);
 	}
 }
