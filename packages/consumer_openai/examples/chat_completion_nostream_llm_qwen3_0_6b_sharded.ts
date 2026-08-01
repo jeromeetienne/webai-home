@@ -2,24 +2,25 @@ import OpenAI, { APIError } from 'openai';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
-//	Generates text with the language model built into Chrome, through the cluster
+//	Generates text with Qwen3-0.6B split across three worker browser tabs
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
 // Run with:
-//   npm run example:chat_completion_llm_gemma_nano_chrome_full --workspace @webai/consumer-openai
+//   npm run example:chat_completion_nostream_llm_qwen3_0_6b_sharded --workspace @webai/consumer-openai
 //
-// The model `llm_gemma_nano_chrome_full` is the Gemma Nano language model built into the Chrome
-// browser. Nothing about the model is downloaded or held by this project: the worker browser tab
-// asks the browser for the answer through the browser's own prompt interface.
+// The model `llm_qwen3_0_6b_sharded` is the Qwen3-0.6B language model split into three
+// consecutive shards, each held and run by a different worker browser tab. The three stages
+// together produce one token, and the gateway runs them again for each further token, so an
+// answer of many tokens is many rounds of three stages.
 //
-// It needs the gateway running and one worker browser tab open in a recent Chrome whose own
-// language model is ready, for example the page
-// http://localhost:8787/debug_iframe_llm_gemma_nano_chrome_full.
+// It needs the gateway running and worker browser tabs that between them offer all three shard
+// stages, for example the page http://localhost:8787/debug_iframe_llm_qwen3_0_6b_sharded. The
+// three shard files are about 860 megabytes together and are not in version control, so they
+// have to be generated once first; `docs/tasks_and_stages.md` says how.
 //
-// The whole answer is generated before this server answers, one piece of the answer per stage
-// run, so expect to wait. Ask for `stream: true` to be answered as the answer is written instead,
-// which `examples/chat_completion_streaming_llm_gemma_nano_chrome_full.ts` shows.
+// This is the slowest example by a wide margin. The whole answer is generated before this
+// server answers, and generation stops at the end-of-sequence token or at 160 tokens.
 
 const client = new OpenAI({
 	baseURL: process.env.WEBAI_OPENAI_BASE_URL ?? 'http://localhost:8788/v1',
@@ -30,8 +31,8 @@ const client = new OpenAI({
 
 try {
 	const completion = await client.chat.completions.create({
-		model: 'llm_gemma_nano_chrome_full',
-		messages: [{ role: 'user', content: 'What is the capital of France? Answer in one short sentence.' }],
+		model: 'llm_qwen3_0_6b_sharded',
+		messages: [{ role: 'user', content: 'What is the capital of France?' }],
 	});
 	console.log(completion.choices[0]?.message.content);
 } catch (error: unknown) {

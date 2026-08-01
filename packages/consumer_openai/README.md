@@ -65,7 +65,7 @@ The examples in [`examples/`](./examples) use the official `openai` package on n
 npm run example:chat_completion_dev_formula --workspace @webai/consumer-openai
 ```
 
-The others are `example:list_models`, `example:chat_completion_system_message`, `example:chat_completion_llm_gemma_nano_chrome_full`, `example:chat_completion_streaming_llm_gemma_nano_chrome_full`, `example:chat_completion_llm_qwen3_0_6b_sharded`, `example:chat_completion_streaming_llm_qwen3_0_6b_sharded`, `example:chat_completion_llm_qwen3_5_0_8b_full`, `example:chat_completion_streaming_llm_qwen3_5_0_8b_full`, `example:chat_completion_llm_llama3_2_3b_full`, and `example:chat_completion_streaming_llm_llama3_2_3b_full`. Each file says at the top what the cluster has to have running for it to work. Every example reads `WEBAI_OPENAI_BASE_URL` and `OPENAI_API_KEY` from the environment when they are set.
+The others are `example:list_models`, `example:chat_completion_system_message`, `example:chat_completion_nostream_llm_gemma_nano_chrome_full`, `example:chat_completion_streamed_llm_gemma_nano_chrome_full`, `example:chat_completion_nostream_llm_qwen3_0_6b_sharded`, `example:chat_completion_streamed_llm_qwen3_0_6b_sharded`, `example:chat_completion_nostream_llm_qwen3_5_0_8b_full`, `example:chat_completion_streamed_llm_qwen3_5_0_8b_full`, `example:chat_completion_nostream_llm_llama3_2_3b_full`, and `example:chat_completion_streamed_llm_llama3_2_3b_full`. Each file says at the top what the cluster has to have running for it to work. Every example reads `WEBAI_OPENAI_BASE_URL` and `OPENAI_API_KEY` from the environment when they are set.
 
 Without the `openai` package, the same two endpoints with `curl`:
 

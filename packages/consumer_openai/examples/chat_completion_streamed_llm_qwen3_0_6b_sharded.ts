@@ -7,7 +7,7 @@ import OpenAI from 'openai';
 ///////////////////////////////////////////////////////////////////////////////
 
 // Run with:
-//   npm run example:chat_completion_streaming_llm_qwen3_0_6b_sharded --workspace @webai/consumer-openai
+//   npm run example:chat_completion_streamed_llm_qwen3_0_6b_sharded --workspace @webai/consumer-openai
 //
 // The model `llm_qwen3_0_6b_sharded` is the Qwen3-0.6B language model split into three
 // consecutive shards, each held and run by a different worker browser tab. The three stages
@@ -24,7 +24,7 @@ import OpenAI from 'openai';
 // the same text the request would have been answered with in one piece. Every piece here is one
 // token, which is the smallest piece this model produces regardless of whether a stream was
 // asked for, so streaming costs no extra scheduling round for this model the way it does for
-// `examples/chat_completion_streaming_llm_gemma_nano_chrome_full.ts`.
+// `examples/chat_completion_streamed_llm_gemma_nano_chrome_full.ts`.
 //
 // This is the slowest example by a wide margin. Generation stops at the end-of-sequence token or
 // at 160 tokens.

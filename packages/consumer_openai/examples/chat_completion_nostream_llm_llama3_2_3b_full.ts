@@ -7,7 +7,7 @@ import OpenAI, { APIError } from 'openai';
 ///////////////////////////////////////////////////////////////////////////////
 
 // Run with:
-//   npm run example:chat_completion_llm_llama3_2_3b_full --workspace @webai/consumer-openai
+//   npm run example:chat_completion_nostream_llm_llama3_2_3b_full --workspace @webai/consumer-openai
 //
 // The model `llm_llama3_2_3b_full` is the complete Llama 3.2 3B language model, held and run by a
 // server already running on the worker's own device that speaks the OpenAI-compatible Chat
@@ -20,12 +20,12 @@ import OpenAI, { APIError } from 'openai';
 //   npm run sample:lmstudio --workspace @webai/worker-openai-api
 //
 // There is no model download to wait for on the first request, unlike
-// `examples/chat_completion_llm_qwen3_5_0_8b_full.ts`, but the local server does load the model
+// `examples/chat_completion_nostream_llm_qwen3_5_0_8b_full.ts`, but the local server does load the model
 // into memory on the first request of a task, which takes a few seconds.
 //
 // The whole answer is generated before this server answers, one piece of the answer per stage
 // run, so expect to wait. Ask for `stream: true` to be answered as the answer is written instead,
-// which `examples/chat_completion_streaming_llm_llama3_2_3b_full.ts` shows.
+// which `examples/chat_completion_streamed_llm_llama3_2_3b_full.ts` shows.
 
 const client = new OpenAI({
 	baseURL: process.env.WEBAI_OPENAI_BASE_URL ?? 'http://localhost:8788/v1',

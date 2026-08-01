@@ -7,7 +7,7 @@ import OpenAI from 'openai';
 ///////////////////////////////////////////////////////////////////////////////
 
 // Run with:
-//   npm run example:chat_completion_streaming_llm_llama3_2_3b_full --workspace @webai/consumer-openai
+//   npm run example:chat_completion_streamed_llm_llama3_2_3b_full --workspace @webai/consumer-openai
 //
 // The model `llm_llama3_2_3b_full` is the complete Llama 3.2 3B language model, held and run by a
 // server already running on the worker's own device that speaks the OpenAI-compatible Chat
@@ -24,7 +24,7 @@ import OpenAI from 'openai';
 //
 // Asking for a stream is what makes the cluster send pieces at all. It costs a scheduling round
 // for every piece, so a request that does not ask for one is answered with the fewest messages
-// the pipeline can manage, which `examples/chat_completion_llm_llama3_2_3b_full.ts` shows.
+// the pipeline can manage, which `examples/chat_completion_nostream_llm_llama3_2_3b_full.ts` shows.
 
 const client = new OpenAI({
 	baseURL: process.env.WEBAI_OPENAI_BASE_URL ?? 'http://localhost:8788/v1',
