@@ -3,7 +3,7 @@ import Net from 'node:net';
 import Path from 'node:path';
 
 import Puppeteer from 'puppeteer';
-import type { Browser } from 'puppeteer';
+import type { Browser, Page } from 'puppeteer';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -33,9 +33,14 @@ const __dirname = import.meta.dirname;
 
 const repositoryDirectory = Path.resolve(__dirname, '../../..');
 
+// Reused, rather than a fresh temporary profile per run, so a worker tab's downloaded model
+// shards stay cached in its IndexedDB storage across test runs instead of being re-downloaded
+// from Hugging Face every time. Left out of version control by tests/.gitignore.
+const puppeteerUserDataDirectory = Path.resolve(__dirname, '.puppeteer_user_data');
+
 /**
  * Starts the central gateway, the worker web page, the OpenAI-compatible server, and a headless Chrome
- * browser with two ready `dev_formula` workers, then tears them all down again.
+ * browser with the ready worker tabs a given debug page sets up, then tears them all down again.
  */
 export class RealTestHelper {
 	/** The base URL the central gateway answers HTTP requests on. */
@@ -44,13 +49,15 @@ export class RealTestHelper {
 	readonly workerUrl = 'http://127.0.0.1:8789';
 	/** The base URL this package's own OpenAI-compatible server answers on. */
 	readonly openaiUrl = 'http://localhost:8788';
-	/** The gateway's debug page that sets up the two `dev_formula` worker browser tabs. */
-	readonly debugUrl = `${this.gatewayUrl}/debug_iframe_dev_formula`;
+	/** The gateway's debug page that sets up the worker browser tabs this helper waits for. */
+	readonly debugUrl: string;
 
 	/** How long `_waitFor` polls before giving up. */
-	private readonly waitTimeoutMs = 30_000;
+	private readonly waitTimeoutMs: number;
 	/** How long `_waitFor` sleeps between polling attempts. */
 	private readonly pollIntervalMs = 250;
+	/** How many ready workers `setup` waits for before returning, matching the debug page's own tab count. */
+	private readonly expectedWorkerCount: number;
 
 	/** Every long-running process this helper has started and not yet stopped. */
 	private readonly children = new Set<ChildProcess.ChildProcess>();
@@ -60,6 +67,10 @@ export class RealTestHelper {
 	private readonly headless: boolean;
 	/** How many milliseconds Puppeteer delays each browser operation by, to make a run easier to watch. */
 	private readonly slowMoMs: number;
+	/** Whether `setup` opens Chrome DevTools for the debug page, useful for inspecting a failure live. */
+	private readonly devtools: boolean;
+	/** A hook `setup` awaits right after opening the debug page, before waiting for workers to be ready. */
+	private readonly onDebugPageOpen: ((page: Page) => Promise<void>) | undefined;
 	/** The signal handler `setup` registers so a Ctrl-C still tears down the started processes and browser. */
 	private readonly signalHandler: () => void;
 
@@ -68,14 +79,39 @@ export class RealTestHelper {
 
 	/**
 	 * @param options - construction options
+	 * @param options.debugPath - the gateway debug page path that sets up the worker browser tabs a test needs,
+	 * for example `/debug_iframe_dev_formula` (the default) or `/debug_iframe_llm_qwen3_0_6b_sharded`
+	 * @param options.expectedWorkerCount - how many ready worker tabs `setup` waits for, matching the debug
+	 * page's own tab count (`2` by default, for `/debug_iframe_dev_formula`)
+	 * @param options.waitTimeoutMs - how long `_waitFor` polls before giving up (`30_000` milliseconds by
+	 * default), raised for debug pages whose worker tabs must download a large model before reporting ready
 	 * @param options.headless - whether `setup` launches Chrome headless (`true`, the default) or as a visible
 	 * window (`false`), useful for watching a test run locally
 	 * @param options.slowMoMs - how many milliseconds Puppeteer delays each browser operation by (`0` by default),
 	 * useful for slowing a visible run down to something a person can follow
+	 * @param options.devtools - whether `setup` opens Chrome DevTools for the debug page (`false` by default),
+	 * useful for inspecting network requests and console errors live; forces a visible window regardless of
+	 * `headless`
+	 * @param options.onDebugPageOpen - a hook `setup` awaits right after opening the debug page and before
+	 * waiting for workers to be ready, for a debug page whose worker tab needs a step only a person would
+	 * otherwise do, such as clicking a button that starts a download
 	 */
-	constructor(options: { headless?: boolean; slowMoMs?: number } = {}) {
+	constructor(options: {
+		debugPath?: string;
+		expectedWorkerCount?: number;
+		waitTimeoutMs?: number;
+		headless?: boolean;
+		slowMoMs?: number;
+		devtools?: boolean;
+		onDebugPageOpen?: (page: Page) => Promise<void>;
+	} = {}) {
+		this.debugUrl = `${this.gatewayUrl}${options.debugPath ?? '/debug_iframe_dev_formula'}`;
+		this.expectedWorkerCount = options.expectedWorkerCount ?? 2;
+		this.waitTimeoutMs = options.waitTimeoutMs ?? 30_000;
 		this.headless = options.headless ?? true;
 		this.slowMoMs = options.slowMoMs ?? 0;
+		this.devtools = options.devtools ?? false;
+		this.onDebugPageOpen = options.onDebugPageOpen;
 		this.signalHandler = () => {
 			this.teardown().finally(() => process.exit(1));
 		};
@@ -119,23 +155,31 @@ export class RealTestHelper {
 		await this._waitFor('the OpenAI-compatible server to answer', () => this._httpReady(`${this.openaiUrl}/health`));
 
 		this.browser = await Puppeteer.launch({
+			channel: 'chrome',
 			headless: this.headless,
+			devtools: this.devtools,
 			slowMo: this.slowMoMs,
 			defaultViewport: null,
 			args: ['--window-size=800,600'],
+			userDataDir: puppeteerUserDataDirectory,
 		});
 		const page = await this.browser.newPage();
-		// The gateway's debug page opens the two dev_formula worker tabs itself.
+		// The gateway's debug page opens its worker tabs itself.
 		await page.goto(this.debugUrl);
+		await this.onDebugPageOpen?.(page);
 
-		await this._waitFor('two ready dev_formula workers', async () => {
+		await this._waitFor(`${this.expectedWorkerCount} ready worker(s)`, async () => {
 			const status = await this._workerStatus();
-			return status !== false && status.workerCount === 2 && status.readyCount === 2 ? status : false;
+			return status !== false
+				&& status.workerCount === this.expectedWorkerCount
+				&& status.readyCount === this.expectedWorkerCount
+				? status
+				: false;
 		});
 
 		// Extra settling time after the workers report ready. The exact reason is undocumented;
 		// it was added alongside the switch to launching Chrome through Puppeteer.
-		// await new Promise((resolve) => setTimeout(resolve, 10_000));
+		await new Promise((resolve) => setTimeout(resolve, 10_000));
 	}
 
 	/** Stops every process this helper started and closes the Puppeteer browser. */
