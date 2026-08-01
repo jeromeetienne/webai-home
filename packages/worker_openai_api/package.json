@@ -12,7 +12,8 @@
     "typecheck": "tsc -p tsconfig.json",
     "dev": "tsx src/cli.ts",
     "start": "node dist/cli.js",
-    "sample:llama3_2_3b": "node --import tsx src/cli.ts --name llama3-2-3b-worker",
+    "sample:ollama": "node --import tsx src/cli.ts --base-url http://localhost:11434/v1 --model llama3.2:3b --name ollama-llama3-2-3b-worker",
+    "sample:lmstudio": "node --import tsx src/cli.ts --base-url http://localhost:1234/v1 --model llama-3.2-3b-instruct --name lmstudio-llama3-2-3b-worker",
     "test": "node --import tsx --test tests/index.test.ts"
   },
   "dependencies": {

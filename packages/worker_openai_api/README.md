@@ -11,16 +11,27 @@ plan in [issue #103](https://github.com/webai-at-home/webai-at-home/issues/103).
 
 ## Running it
 
-Start Ollama and pull the model first, if it is not already loaded:
+There is one ready-made script per local server. Each one passes the base URL and the model
+name that server uses, so nothing else has to be given on the command line.
+
+With Ollama, pull the model first if it is not already there, then start the worker:
 
 ```sh
 ollama pull llama3.2:3b
+npm run sample:ollama --workspace @webai/worker-openai-api
 ```
 
-Then start the worker:
+With LM Studio, start its local server from the LM Studio application or with `lms server
+start`, then start the worker:
 
 ```sh
-npm run dev --workspace @webai/worker-openai-api
+npm run sample:lmstudio --workspace @webai/worker-openai-api
+```
+
+To point the worker somewhere else, use `npm run dev` and give the options yourself:
+
+```sh
+npm run dev --workspace @webai/worker-openai-api -- --base-url http://localhost:1234/v1 --model llama-3.2-3b-instruct
 ```
 
 Or, against a built package:
