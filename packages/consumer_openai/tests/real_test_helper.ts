@@ -3,7 +3,6 @@ import Fs from 'node:fs';
 import Net from 'node:net';
 import Os from 'node:os';
 import Path from 'node:path';
-import Url from 'node:url';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -13,35 +12,52 @@ import Url from 'node:url';
 
 /** The worker cluster fields this helper reads out of `consumer_cli status --json`. */
 type WorkerStatusSnapshot = {
+	/** How many workers the cluster currently has. */
 	workerCount: number;
+	/** How many of those workers report themselves ready. */
 	readyCount: number;
 };
 
 /** The exit code and output collected from running one command to completion. */
 type CompletionResult = {
+	/** The process's exit code, or `null` if it was killed by a signal. */
 	code: number | null;
+	/** Everything the process wrote to standard output. */
 	stdout: string;
+	/** Everything the process wrote to standard error. */
 	stderr: string;
 };
 
-const repositoryDirectory = Path.resolve(Path.dirname(Url.fileURLToPath(import.meta.url)), '../../..');
+const __dirname = import.meta.dirname;
+
+const repositoryDirectory = Path.resolve(__dirname, '../../..');
 
 /**
  * Starts the central gateway, the worker web page, the OpenAI-compatible server, and a headless Chrome
  * browser with two ready `dev_formula` workers, then tears them all down again.
  */
 export class RealTestHelper {
+	/** The base URL the central gateway answers HTTP requests on. */
 	readonly gatewayUrl = 'http://localhost:8787';
+	/** The base URL the worker web page answers on. */
 	readonly workerUrl = 'http://127.0.0.1:8789';
+	/** The base URL this package's own OpenAI-compatible server answers on. */
 	readonly openaiUrl = 'http://localhost:8788';
+	/** The gateway's debug page that sets up the two `dev_formula` worker browser tabs. */
 	readonly debugUrl = `${this.gatewayUrl}/debug_iframe_dev_formula`;
 
+	/** Where the local Google Chrome executable lives, so it can be launched headless. */
 	private readonly chromePath = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+	/** How long `_waitFor` polls before giving up. */
 	private readonly waitTimeoutMs = 30_000;
+	/** How long `_waitFor` sleeps between polling attempts. */
 	private readonly pollIntervalMs = 250;
 
+	/** Every long-running process this helper has started and not yet stopped. */
 	private readonly children = new Set<ChildProcess.ChildProcess>();
+	/** The headless Chrome process, once `setup` has started it. */
 	private browserProcess: ChildProcess.ChildProcess | undefined;
+	/** The headless Chrome process's temporary user profile directory, once `setup` has created it. */
 	private browserProfileDirectory: string | undefined;
 
 	/**
@@ -118,7 +134,11 @@ export class RealTestHelper {
 			childProcess.stdout?.on('data', (chunk: Buffer) => { stdout += chunk; });
 			childProcess.stderr?.on('data', (chunk: Buffer) => { stderr += chunk; });
 			childProcess.once('error', reject);
-			childProcess.once('exit', (code) => resolve({ code, stdout, stderr }));
+			childProcess.once('exit', (code) => resolve({
+				code,
+				stdout,
+				stderr,
+			}));
 		});
 	}
 
