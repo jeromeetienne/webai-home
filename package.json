@@ -1,13 +1,15 @@
 {
   "name": "webai-at-home",
   "private": true,
-  "workspaces": ["packages/*"],
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "build": "npm run build --workspace @webai/protocol && npm run build --workspace @webai/gateway && npm run build --workspace @webai/consumer-cli && npm run build --workspace @webai/consumer-openai",
     "test": "npm run test --workspaces"
   },
   "devDependencies": {
     "tsx": "^4.19.2",
-    "typescript": "^5.7.2"
+    "typescript": "^7.0.2"
   }
 }
