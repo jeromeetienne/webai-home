@@ -135,7 +135,7 @@ export class RealTestHelper {
 
 		// Extra settling time after the workers report ready. The exact reason is undocumented;
 		// it was added alongside the switch to launching Chrome through Puppeteer.
-		await new Promise((resolve) => setTimeout(resolve, 10_000));
+		// await new Promise((resolve) => setTimeout(resolve, 10_000));
 	}
 
 	/** Stops every process this helper started and closes the Puppeteer browser. */
