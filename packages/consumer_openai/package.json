@@ -2,12 +2,15 @@
 	"name": "@webai/consumer-openai",
 	"version": "0.1.0",
 	"type": "module",
+	"bin": {
+		"consumer_openai": "./dist/cli.js"
+	},
 	"scripts": {
 		"build": "tsc -p tsconfig.build.json",
 		"typecheck": "tsc -p tsconfig.json",
-		"dev": "tsx src/cli.ts",
-		"benchmark": "tsx src/benchmark.ts",
-		"start": "node dist/cli.js",
+		"dev": "tsx src/cli.ts server",
+		"benchmark": "tsx src/cli.ts benchmark",
+		"start": "node dist/cli.js server",
 		"test": "npx tsx --test tests/index.test.ts tests/benchmark.test.ts",
 		"test:real:dev_formula": "npx tsx --test tests/real_dev_formula.test.ts",
 		"test:real:dev_formula:headed": "REAL_TEST_HEADED=true npx tsx --test tests/real_dev_formula.test.ts",

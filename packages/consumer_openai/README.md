@@ -8,13 +8,25 @@ It is a consumer of the cluster in exactly the same sense as [`@webai/consumer-c
 
 ## Run
 
-`@webai/consumer-cli` and `@webai/protocol` are used through their built output, so they have to be built before this server runs:
+This package's command line program is `consumer_openai`, with two subcommands: `server` starts
+the OpenAI-compatible server, and `benchmark` runs the latency benchmark described below. Once
+this package has been built (`npm run build --workspace @webai/consumer-openai`), the binary is
+linked into the repository's own `node_modules/.bin`, so `npx` runs either subcommand from
+anywhere inside the project:
+
+```sh
+npx consumer_openai server
+npx consumer_openai benchmark
+```
+
+`@webai/consumer-cli` and `@webai/protocol` are used through their built output, so they have to be built before either subcommand runs:
 
 ```sh
 npm run build --workspace @webai/protocol && npm run build --workspace @webai/consumer-cli
 ```
 
-Then, with the central gateway running:
+During development, with the central gateway running, `npm run dev` and `npm run benchmark` reach
+the same two subcommands without a build:
 
 ```sh
 npm run dev --workspace @webai/consumer-openai
@@ -264,8 +276,10 @@ The tests cover reading a request, the models on offer, the failure mapping, the
 
 ## The source files
 
-- [`src/cli.ts`](./src/cli.ts) — builds every part and starts serving.
-- [`src/libs/server_settings.ts`](./src/libs/server_settings.ts) — the command line options, read once and typed.
+- [`src/cli.ts`](./src/cli.ts) — the `consumer_openai` command line program: dispatches to the `server` and `benchmark` subcommands.
+- [`src/server_cli.ts`](./src/server_cli.ts) — the `server` subcommand: builds every part and starts serving.
+- [`src/benchmark.ts`](./src/benchmark.ts) — the `benchmark` subcommand: compares direct LM Studio latency with the same model behind webai-at-home.
+- [`src/libs/server_settings.ts`](./src/libs/server_settings.ts) — the `server` subcommand's own command line options, read once and typed.
 - [`src/libs/openai_routes.ts`](./src/libs/openai_routes.ts) — the endpoints, including reading and checking a request.
 - [`src/libs/cluster_task_runner.ts`](./src/libs/cluster_task_runner.ts) — the one gateway connection, and one promise per submitted task.
 - [`src/libs/model_catalog.ts`](./src/libs/model_catalog.ts) — the models on offer, and the task type behind each one.

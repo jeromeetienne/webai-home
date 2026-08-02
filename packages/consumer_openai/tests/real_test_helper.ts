@@ -169,7 +169,7 @@ export class RealTestHelper {
 				'--', '--host', '127.0.0.1', '--port', '8789',
 			]);
 		}
-		this._start('node', ['--import', 'tsx', 'packages/consumer_openai/src/cli.ts']);
+		this._start('node', ['--import', 'tsx', 'packages/consumer_openai/src/cli.ts', 'server']);
 		await this._waitFor('the central gateway to answer', () => this._httpReady(`${this.gatewayUrl}/health`));
 		if (usesBrowserWorker) {
 			await this._waitFor('the worker web page to answer', () => this._httpReady(this.workerUrl));

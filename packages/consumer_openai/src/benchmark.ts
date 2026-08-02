@@ -1,8 +1,5 @@
-#!/usr/bin/env node
 // npm imports
 import { Command } from 'commander';
-
-const __filename = import.meta.filename;
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -377,9 +374,10 @@ export class Benchmark {
 	}
 
 	/**
-	 * Runs the command-line benchmark and prints its report.
+	 * Runs the command-line benchmark and prints its report. This is what `Cli` in `./cli.ts`
+	 * calls for the `consumer_openai benchmark` subcommand.
 	 *
-	 * @param args The command-line arguments, without the runtime and script names.
+	 * @param args The command-line arguments, without the runtime, script, and subcommand names.
 	 * @returns Nothing, once the report has been printed.
 	 */
 	static async runCli(args: string[] = process.argv.slice(2)): Promise<void> {
@@ -820,14 +818,4 @@ export class Benchmark {
 		}
 		return `${blocks.join('\n\n')}\n`;
 	}
-}
-
-///////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////
-//	
-///////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////
-
-if (process.argv[1] !== undefined && __filename === process.argv[1]) {
-	await Benchmark.runCli();
 }
