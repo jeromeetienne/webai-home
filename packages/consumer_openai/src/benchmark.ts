@@ -28,12 +28,20 @@ export type BenchmarkTarget = {
 	readonly apiKey?: string;
 };
 
+/** Which of the two endpoints a benchmark run measures. */
+export type BenchmarkTargetSelection = 'direct' | 'webai' | 'both';
+
+/** Every target selection `benchmark` accepts, in the order the help text lists them. */
+export const benchmarkTargetSelections: BenchmarkTargetSelection[] = ['direct', 'webai', 'both'];
+
 /** The options that control one benchmark run. */
 export type BenchmarkOptions = {
 	/** The direct LM Studio endpoint. */
 	readonly directTarget: BenchmarkTarget;
 	/** The webai-at-home OpenAI-compatible endpoint. */
 	readonly webaiTarget: BenchmarkTarget;
+	/** Which of the two endpoints to measure. */
+	readonly target: BenchmarkTargetSelection;
 	/** The one prompt sent to both endpoints. */
 	readonly prompt: string;
 	/** The number of measured requests per endpoint. */
@@ -91,10 +99,13 @@ export type BenchmarkReport = {
 		/** The number of requests in flight at any moment, always one. */
 		readonly parallelism: 1;
 	};
-	/** The direct LM Studio summary followed by the webai-at-home summary. */
-	readonly summaries: readonly [BenchmarkSummary, BenchmarkSummary];
-	/** The webai-at-home elapsed-time difference from the direct baseline. */
-	readonly webaiOverhead: {
+	/** The direct LM Studio summary, the webai-at-home summary, or both, in that order. */
+	readonly summaries: readonly BenchmarkSummary[];
+	/**
+	 * The webai-at-home elapsed-time difference from the direct baseline, present only when
+	 * both endpoints were measured and there is a baseline to compare against.
+	 */
+	readonly webaiOverhead?: {
 		/** The added average elapsed time per request, in milliseconds. */
 		readonly averageElapsedMs: number;
 		/** The added average elapsed time as a percentage of the direct average. */
@@ -145,6 +156,8 @@ type RawOptions = {
 	apiKey?: string;
 	/** The output format, still unchecked against `benchmarkReportFormats`. */
 	format: string;
+	/** Which endpoints to measure, still unchecked against `benchmarkTargetSelections`. */
+	target: string;
 };
 
 /** The parsed command line, split into the benchmark options and the output format. */
@@ -241,11 +254,13 @@ export class Benchmark {
 	}
 
 	/**
-	 * Runs LM Studio first and webai-at-home second, with no concurrent requests.
+	 * Runs LM Studio first and webai-at-home second, with no concurrent requests, measuring
+	 * whichever of the two `options.target` selects.
 	 *
 	 * @param options The options that control this benchmark run.
 	 * @param requester The completion request used for every measured and warm-up request.
-	 * @returns The full benchmark report, including the direct-versus-WebAI comparison.
+	 * @returns The full benchmark report. It includes the direct-versus-WebAI comparison only
+	 * when `options.target` is `'both'`, since there is no baseline to compare against otherwise.
 	 */
 	static async runBenchmark(
 		options: BenchmarkOptions,
@@ -262,20 +277,28 @@ export class Benchmark {
 		}
 		// These awaits are deliberately sequential. Parallel requests would measure queueing and
 		// shared-model contention, which is outside this first direct-versus-WebAI comparison.
-		const directSummary = await Benchmark._benchmarkTarget(options.directTarget, options, requester);
-		const webaiSummary = await Benchmark._benchmarkTarget(options.webaiTarget, options, requester);
+		const directSummary = options.target === 'webai' ? undefined : await Benchmark._benchmarkTarget(options.directTarget, options, requester);
+		const webaiSummary = options.target === 'direct' ? undefined : await Benchmark._benchmarkTarget(options.webaiTarget, options, requester);
+		const summaries: BenchmarkSummary[] = [directSummary, webaiSummary].filter((summary): summary is BenchmarkSummary => summary !== undefined);
+		const settings: BenchmarkReport['settings'] = {
+			prompt: options.prompt,
+			runs: options.runs,
+			warmupRuns: options.warmupRuns,
+			parallelism: 1,
+		};
+		if (directSummary === undefined || webaiSummary === undefined) {
+			return {
+				settings,
+				summaries,
+			};
+		}
 		const averageElapsedMs = webaiSummary.averageElapsedMs - directSummary.averageElapsedMs;
 		const percentOfDirectAverage = directSummary.averageElapsedMs === 0
 			? 0
 			: (averageElapsedMs / directSummary.averageElapsedMs) * 100;
 		return {
-			settings: {
-				prompt: options.prompt,
-				runs: options.runs,
-				warmupRuns: options.warmupRuns,
-				parallelism: 1,
-			},
-			summaries: [directSummary, webaiSummary],
+			settings,
+			summaries,
 			webaiOverhead: {
 				averageElapsedMs,
 				percentOfDirectAverage,
@@ -320,6 +343,16 @@ export class Benchmark {
 	 */
 	static isReportFormat(value: string): value is BenchmarkReportFormat {
 		return (benchmarkReportFormats as string[]).includes(value);
+	}
+
+	/**
+	 * Reports whether a string names a target selection `runBenchmark` can measure.
+	 *
+	 * @param value The value to check, as typed on the command line.
+	 * @returns `true` when the value names a target selection.
+	 */
+	static isTargetSelection(value: string): value is BenchmarkTargetSelection {
+		return (benchmarkTargetSelections as string[]).includes(value);
 	}
 
 	///////////////////////////////////////////////////////////////////////////////
@@ -400,15 +433,20 @@ export class Benchmark {
 			.option('--warmup-runs <number>', 'unreported warm-up requests per endpoint', '1')
 			.option('--timeout-ms <number>', 'maximum time for one request', '600000')
 			.option('--api-key <key>', 'optional bearer token sent to both endpoints')
-			.option('-f, --format <format>', `output format: ${benchmarkReportFormats.join(', ')}`, 'text');
+			.option('-f, --format <format>', `output format: ${benchmarkReportFormats.join(', ')}`, 'text')
+			.option('-t, --target <target>', `which endpoint to measure: ${benchmarkTargetSelections.join(', ')}`, 'both');
 		const raw = program.parse(args, { from: 'user' }).opts<RawOptions>();
 		if (Benchmark.isReportFormat(raw.format) === false) {
 			throw new Error(`--format must be one of ${benchmarkReportFormats.join(', ')}`);
+		}
+		if (Benchmark.isTargetSelection(raw.target) === false) {
+			throw new Error(`--target must be one of ${benchmarkTargetSelections.join(', ')}`);
 		}
 		return {
 			options: {
 				directTarget: Benchmark._buildTarget('LM Studio', raw.directBaseUrl, raw.directModel, raw.apiKey),
 				webaiTarget: Benchmark._buildTarget('webai-at-home', raw.webaiBaseUrl, raw.webaiModel, raw.apiKey),
+				target: raw.target,
 				prompt: raw.prompt,
 				runs: Benchmark._positiveInteger(raw.runs, '--runs'),
 				warmupRuns: Benchmark._positiveInteger(raw.warmupRuns, '--warmup-runs', true),
@@ -496,10 +534,12 @@ export class Benchmark {
 			lines.push(`  answer:  ${Benchmark._rounded(summary.averageResponseCharacters)} characters on average`);
 			lines.push(`  output:  ${Benchmark._rounded(summary.responseCharactersPerSecond)} characters/second`);
 		}
-		lines.push(
-			`webai-at-home overhead: ${Benchmark._rounded(report.webaiOverhead.averageElapsedMs)} ms per request ` +
-				`(${Benchmark._rounded(report.webaiOverhead.percentOfDirectAverage)}% of the direct average)`,
-		);
+		if (report.webaiOverhead !== undefined) {
+			lines.push(
+				`webai-at-home overhead: ${Benchmark._rounded(report.webaiOverhead.averageElapsedMs)} ms per request ` +
+					`(${Benchmark._rounded(report.webaiOverhead.percentOfDirectAverage)}% of the direct average)`,
+			);
+		}
 		return lines.join('\n');
 	}
 
@@ -529,9 +569,13 @@ export class Benchmark {
 					`| ${Benchmark._rounded(summary.responseCharactersPerSecond)} characters/second |`,
 				].join(' ')),
 			].join('\n'),
-			`webai-at-home overhead: **${Benchmark._rounded(report.webaiOverhead.averageElapsedMs)} ms** per request `
-				+ `(${Benchmark._rounded(report.webaiOverhead.percentOfDirectAverage)}% of the direct average)`,
 		];
+		if (report.webaiOverhead !== undefined) {
+			blocks.push(
+				`webai-at-home overhead: **${Benchmark._rounded(report.webaiOverhead.averageElapsedMs)} ms** per request `
+					+ `(${Benchmark._rounded(report.webaiOverhead.percentOfDirectAverage)}% of the direct average)`,
+			);
+		}
 		return `${blocks.join('\n\n')}\n`;
 	}
 }

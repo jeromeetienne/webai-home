@@ -17,6 +17,7 @@ const webaiTarget: BenchmarkTarget = {
 const options: BenchmarkOptions = {
 	directTarget,
 	webaiTarget,
+	target: 'both',
 	prompt: 'same prompt',
 	runs: 2,
 	warmupRuns: 1,
@@ -88,4 +89,44 @@ Test('accepts only the formats it knows about', () => {
 	Assert.equal(Benchmark.isReportFormat('markdown'), true);
 	Assert.equal(Benchmark.isReportFormat('json'), true);
 	Assert.equal(Benchmark.isReportFormat('yaml'), false);
+});
+
+Test('measures only the direct endpoint, and reports no webai-at-home overhead to compare against', async () => {
+	const calls: string[] = [];
+	const report = await Benchmark.runBenchmark({ ...options, target: 'direct' }, async (target) => {
+		calls.push(target.name);
+		return 'direct answer';
+	});
+	// One warm-up request plus the two measured runs from `options`.
+	Assert.deepEqual(calls, ['LM Studio', 'LM Studio', 'LM Studio']);
+	Assert.equal(report.summaries.length, 1);
+	Assert.equal(report.summaries[0].name, 'LM Studio');
+	Assert.equal(report.webaiOverhead, undefined);
+});
+
+Test('measures only the webai-at-home endpoint, and reports no webai-at-home overhead to compare against', async () => {
+	const calls: string[] = [];
+	const report = await Benchmark.runBenchmark({ ...options, target: 'webai' }, async (target) => {
+		calls.push(target.name);
+		return 'webai answer';
+	});
+	Assert.deepEqual(calls, ['webai-at-home', 'webai-at-home', 'webai-at-home']);
+	Assert.equal(report.summaries.length, 1);
+	Assert.equal(report.summaries[0].name, 'webai-at-home');
+	Assert.equal(report.webaiOverhead, undefined);
+});
+
+Test('leaves the overhead line out of every format when only one endpoint was measured', async () => {
+	const report = await Benchmark.runBenchmark({ ...options, target: 'direct' }, async () => 'direct answer');
+
+	Assert.doesNotMatch(Benchmark.formatReport(report, 'text'), /webai-at-home overhead/);
+	Assert.doesNotMatch(Benchmark.formatReport(report, 'markdown'), /webai-at-home overhead/);
+	Assert.equal(JSON.parse(Benchmark.formatReport(report, 'json')).webaiOverhead, undefined);
+});
+
+Test('accepts only the target selections it knows about', () => {
+	Assert.equal(Benchmark.isTargetSelection('direct'), true);
+	Assert.equal(Benchmark.isTargetSelection('webai'), true);
+	Assert.equal(Benchmark.isTargetSelection('both'), true);
+	Assert.equal(Benchmark.isTargetSelection('neither'), false);
 });

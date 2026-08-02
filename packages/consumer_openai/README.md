@@ -47,6 +47,14 @@ pasting into an issue or a notes file), or `json` (a machine-readable report):
 npm run benchmark --workspace @webai/consumer-openai -- --runs 10 --format json
 ```
 
+Use `-t/--target` to measure only one side instead of both: `direct` (LM Studio only), `webai`
+(webai-at-home only), or `both` (default). The webai-at-home overhead is left out of the report
+when only one side is measured, since there is then no baseline to compare it against:
+
+```sh
+npm run benchmark --workspace @webai/consumer-openai -- --target webai
+```
+
 The report measures wall-clock latency and response size. It reports the webai-at-home latency
 difference from the direct baseline; it does not calculate a monetary price because these
 OpenAI-compatible endpoints do not provide token pricing or usage data.
