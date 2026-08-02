@@ -113,8 +113,13 @@
 			<div class="viz-canvas col">
 				<svg id="timeline-svg" class="timeline-svg" xmlns="http://www.w3.org/2000/svg"></svg>
 			</div>
-			<aside class="event-log-panel col-lg-4 col-xl-3">
-				<h2 class="h6 mb-0">Event log</h2>
+			<aside class="event-log-panel col-lg-4 col-xl-3" id="event-log-panel">
+				<div class="event-log-header">
+					<h2 class="h6 mb-0 event-log-title" id="event-log-title">Event log</h2>
+					<button class="btn btn-sm btn-outline-secondary event-log-toggle" type="button" id="event-log-toggle" aria-controls="event-log-list" aria-expanded="true" aria-label="Hide event log" title="Hide event log">
+						<i class="bi bi-chevron-right" aria-hidden="true"></i>
+					</button>
+				</div>
 				<div class="event-log-list" id="event-log-list"></div>
 			</aside>
 		</main>

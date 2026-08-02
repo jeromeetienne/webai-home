@@ -45,6 +45,8 @@ export class FlowViewerApp {
 	private readonly showChatterEl: HTMLInputElement;
 	private readonly showSignalingEl: HTMLInputElement;
 	private readonly vizMainEl: HTMLElement;
+	private readonly eventLogPanelEl: HTMLElement;
+	private readonly eventLogToggleEl: HTMLButtonElement;
 	private readonly playbackBarEl: HTMLElement;
 	private readonly keyboardHelpTriggerEl: HTMLButtonElement;
 	private readonly keyboardHelpModalEl: HTMLElement;
@@ -79,6 +81,8 @@ export class FlowViewerApp {
 		this.showChatterEl = FlowViewerApp._getElement<HTMLInputElement>('#show-chatter');
 		this.showSignalingEl = FlowViewerApp._getElement<HTMLInputElement>('#show-signaling');
 		this.vizMainEl = FlowViewerApp._getElement('#viz-main');
+		this.eventLogPanelEl = FlowViewerApp._getElement('#event-log-panel');
+		this.eventLogToggleEl = FlowViewerApp._getElement<HTMLButtonElement>('#event-log-toggle');
 		this.playbackBarEl = FlowViewerApp._getElement('#playback-bar');
 		this.keyboardHelpTriggerEl = FlowViewerApp._getElement<HTMLButtonElement>('#keyboard-help-trigger');
 		this.keyboardHelpModalEl = FlowViewerApp._getElement('#keyboard-help-modal');
@@ -138,6 +142,13 @@ export class FlowViewerApp {
 		this.rangeToEl.addEventListener('change', (): void => this._rebuildModel());
 		this.showChatterEl.addEventListener('change', (): void => this._rebuildModel());
 		this.showSignalingEl.addEventListener('change', (): void => this._rebuildModel());
+		this.eventLogToggleEl.addEventListener('click', (): void => {
+			const unfoldedGraphScale: number = this.view.getRenderedScale();
+			const isCollapsed: boolean = this.eventLogPanelEl.classList.toggle('event-log-panel-collapsed');
+			const zoomCardContentScale: number = isCollapsed ? unfoldedGraphScale / this.view.getRenderedScale() : 1;
+			this.view.setZoomCardContentScale(zoomCardContentScale);
+			this._setEventLogCollapsed(isCollapsed);
+		});
 
 		this.playPauseButtonEl.addEventListener('click', (): void => this.controller.togglePlay());
 		this.stopButtonEl.addEventListener('click', (): void => this.controller.stop());
@@ -270,6 +281,16 @@ export class FlowViewerApp {
 		const label: string = isPlaying ? 'Pause' : 'Play';
 		this.playPauseButtonEl.setAttribute('aria-label', label);
 		this.playPauseButtonEl.title = label;
+	}
+
+	/** Updates the event log fold control and its Bootstrap icon. */
+	private _setEventLogCollapsed(isCollapsed: boolean): void {
+		const label: string = isCollapsed ? 'Show event log' : 'Hide event log';
+		const iconEl: HTMLElement | null = this.eventLogToggleEl.querySelector('i');
+		if (iconEl !== null) iconEl.className = isCollapsed ? 'bi bi-chevron-left' : 'bi bi-chevron-right';
+		this.eventLogToggleEl.setAttribute('aria-expanded', String(isCollapsed === false));
+		this.eventLogToggleEl.setAttribute('aria-label', label);
+		this.eventLogToggleEl.title = label;
 	}
 
 	private _getInitialSpeed(fallbackSpeed: number): number {

@@ -9,20 +9,20 @@ import type { ActorNode, ActorPosition, TimelineEvent } from './types.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const COLUMN_X: Record<string, number> = { left: 90, center: 400, right: 710 };
-const ROW_HEIGHT = 100;
-const TOP_MARGIN = 60;
-const NODE_RADIUS = 22;
-const MIN_HEIGHT = 260;
+const ROW_HEIGHT = 72;
+const TOP_MARGIN = 42;
+const NODE_RADIUS = 18;
+const MIN_HEIGHT = 210;
 const ZOOM_PANEL_WIDTH = 460;
 const ZOOM_PANEL_HEIGHT = 300;
-const ZOOM_PANEL_GAP = 16;
+const ZOOM_PANEL_GAP = 10;
 const ZOOM_MULTI_VIEW_GAP = 12;
-const ZOOM_MULTI_VIEW_EXTENSION = 24;
+const ZOOM_MULTI_VIEW_EXTENSION = 78;
 const MAX_ZOOM_VIEWS = 2;
 // Gap between the moving packet and the bottom line of its label, and the spacing between
 // the label's own two lines. Both lines sit above the packet so neither covers it.
-const LABEL_BASELINE_OFFSET = 12;
-const LABEL_LINE_HEIGHT = 12;
+const LABEL_BASELINE_OFFSET = 9;
+const LABEL_LINE_HEIGHT = 10;
 
 type LinkSelection = {
 	key: string;
@@ -55,7 +55,7 @@ export class TimelineView {
 	private zoomedLinks: LinkSelection[];
 	private diagramHeight: number;
 	private currentFrameEvent: TimelineEvent | undefined;
-	private currentFrameProgress: number;
+	private zoomCardContentScale: number;
 
 	/**
 	 * @param svgEl The drawing the diagram is built in.
@@ -72,7 +72,19 @@ export class TimelineView {
 		this.zoomedLinks = [];
 		this.diagramHeight = MIN_HEIGHT;
 		this.currentFrameEvent = undefined;
-		this.currentFrameProgress = 0;
+		this.zoomCardContentScale = 1;
+	}
+
+	/** Returns the current scale from diagram coordinates to screen pixels. */
+	getRenderedScale(): number {
+		const scale: number | undefined = this.svgEl.getScreenCTM()?.a;
+		return scale === undefined || Number.isFinite(scale) === false || scale <= 0 ? 1 : scale;
+	}
+
+	/** Keeps zoom-card controls and text at a fixed screen size while the diagram scales. */
+	setZoomCardContentScale(scale: number): void {
+		this.zoomCardContentScale = Number.isFinite(scale) && scale > 0 ? scale : 1;
+		this._renderZoomView(this.currentFrameEvent);
 	}
 
 	/** Redraws the static scaffold — lane titles, actor nodes, and guide lines — for the given actors and events. */
@@ -82,7 +94,6 @@ export class TimelineView {
 		this.actorsById = new Map(actors.map((actor: ActorNode): [string, ActorNode] => [actor.id, actor]));
 		this.guideLinesByLinkKey = new Map();
 		this.currentFrameEvent = undefined;
-		this.currentFrameProgress = 0;
 
 		const rowCount = Math.max(1, ...actors.map((actor: ActorNode): number => actor.row + 1));
 		const height = Math.max(MIN_HEIGHT, TOP_MARGIN + rowCount * ROW_HEIGHT + 40);
@@ -114,7 +125,7 @@ export class TimelineView {
 		this.svgEl.appendChild(this.zoomViewLayerEl);
 		this.svgEl.appendChild(this.packetLayerEl);
 		this._updateSelectedGuideLines();
-		this._renderZoomView(undefined, 0);
+		this._renderZoomView(undefined);
 	}
 
 	/** Starts or stops monitoring the physical link crossed by the clicked event. */
@@ -130,7 +141,7 @@ export class TimelineView {
 			this.zoomedLinks = [...this.zoomedLinks.slice(-(MAX_ZOOM_VIEWS - 1)), newZoomedLink];
 		}
 		this._updateSelectedGuideLines();
-		this._renderZoomView(this.currentFrameEvent, this.currentFrameProgress);
+		this._renderZoomView(this.currentFrameEvent);
 	}
 
 	/** Draws the packet at an exact point in its visual journey, including while scrubbing. */
@@ -138,15 +149,14 @@ export class TimelineView {
 		this.packetLayerEl.replaceChildren();
 		const clampedProgress: number = Math.min(1, Math.max(0, progress));
 		this.currentFrameEvent = event;
-		this.currentFrameProgress = clampedProgress;
 		if (event === undefined) {
-			this._renderZoomView(undefined, 0);
+			this._renderZoomView(undefined);
 			return;
 		}
 		const from: ActorPosition | undefined = this.positionsByActorId.get(event.fromActorId);
 		const to: ActorPosition | undefined = this.positionsByActorId.get(event.toActorId);
 		if (from === undefined || to === undefined) {
-			this._renderZoomView(event, clampedProgress);
+			this._renderZoomView(event);
 			return;
 		}
 
@@ -198,7 +208,7 @@ export class TimelineView {
 		groupEl.setAttribute('transform', `translate(${x} ${y})`);
 		groupEl.setAttribute('opacity', String(opacity));
 		this.packetLayerEl.appendChild(groupEl);
-		this._renderZoomView(event, clampedProgress);
+		this._renderZoomView(event);
 	}
 
 	///////////////////////////////////////////////////////////////////////////////
@@ -227,7 +237,7 @@ export class TimelineView {
 		const titleEl: SVGTextElement = document.createElementNS(SVG_NS, 'text');
 		titleEl.setAttribute('class', 'lane-title');
 		titleEl.setAttribute('x', String(x));
-		titleEl.setAttribute('y', '24');
+		titleEl.setAttribute('y', '18');
 		titleEl.setAttribute('text-anchor', 'middle');
 		titleEl.textContent = text;
 		this.svgEl.appendChild(titleEl);
@@ -250,7 +260,7 @@ export class TimelineView {
 		}
 	}
 
-	private _renderZoomView(activeEvent: TimelineEvent | undefined, progress: number): void {
+	private _renderZoomView(activeEvent: TimelineEvent | undefined): void {
 		this.zoomViewLayerEl.replaceChildren();
 		this.zoomedLinks = this.zoomedLinks.filter((zoomedLink: LinkSelection): boolean => {
 			return this.positionsByActorId.has(zoomedLink.fromActorId) && this.positionsByActorId.has(zoomedLink.toActorId)
@@ -269,7 +279,7 @@ export class TimelineView {
 			return Math.min(leftFrom.x, leftTo.x) - Math.min(rightFrom.x, rightTo.x);
 		});
 		let viewBoxHeight: number = this.diagramHeight;
-		for (const [zoomViewIndex, zoomedLink] of zoomedLinksForLayout.entries()) {
+		for (const zoomedLink of zoomedLinksForLayout) {
 			const fromPosition: ActorPosition = this.positionsByActorId.get(zoomedLink.fromActorId)!;
 			const toPosition: ActorPosition = this.positionsByActorId.get(zoomedLink.toActorId)!;
 			const fromActor: ActorNode = this.actorsById.get(zoomedLink.fromActorId)!;
@@ -277,13 +287,15 @@ export class TimelineView {
 			const isActiveOnSelectedLink: boolean = activeEvent !== undefined && this._linkKey(activeEvent.fromActorId, activeEvent.toActorId) === zoomedLink.key;
 			const centerDistance: number = Math.abs(toPosition.x - fromPosition.x);
 			const basePanelWidth: number = centerDistance > 0 ? centerDistance : ZOOM_PANEL_WIDTH;
-			const hasTwoZoomViews: boolean = zoomedLinksForLayout.length === 2;
-			const innerGap: number = hasTwoZoomViews ? ZOOM_MULTI_VIEW_GAP / 2 : 0;
-			const outerExtension: number = hasTwoZoomViews ? ZOOM_MULTI_VIEW_EXTENSION : 0;
+			// Keep each inter-lane zoom card in the same slot as the two-card layout. An
+			// absent sibling must not make the remaining card narrower or recenter it.
+			const innerGap: number = centerDistance > 0 ? ZOOM_MULTI_VIEW_GAP / 2 : 0;
+			const outerExtension: number = centerDistance > 0 ? ZOOM_MULTI_VIEW_EXTENSION : 0;
 			const panelWidth: number = basePanelWidth + outerExtension - innerGap;
 			const basePanelX: number = centerDistance > 0 ? Math.min(fromPosition.x, toPosition.x) : Math.max(12, Math.min(800 - basePanelWidth - 12, ((fromPosition.x + toPosition.x) / 2) - basePanelWidth / 2));
-			const panelX: number = hasTwoZoomViews && centerDistance > 0
-				? basePanelX + (zoomViewIndex === 0 ? -outerExtension : innerGap)
+			const panelSide: 'left' | 'right' = Math.min(fromPosition.x, toPosition.x) < COLUMN_X.center ? 'left' : 'right';
+			const panelX: number = centerDistance > 0
+				? basePanelX + (panelSide === 'left' ? -outerExtension : innerGap)
 				: basePanelX;
 			const panelHeight: number = ZOOM_PANEL_HEIGHT;
 			const panelY: number = Math.max(fromPosition.y, toPosition.y) + NODE_RADIUS + ZOOM_PANEL_GAP;
@@ -299,13 +311,43 @@ export class TimelineView {
 			cardEl.className = 'link-zoom-card';
 			cardEl.setAttribute('role', 'region');
 			cardEl.setAttribute('aria-label', `Zoom view of ${fromActor.label} to ${toActor.label}`);
+			const cardContentEl: HTMLDivElement = document.createElement('div');
+			cardContentEl.className = 'link-zoom-card-content';
+			cardContentEl.style.width = `${100 / this.zoomCardContentScale}%`;
+			cardContentEl.style.height = `${100 / this.zoomCardContentScale}%`;
+			cardContentEl.style.transform = `scale(${this.zoomCardContentScale})`;
 
-			const jsonText: string | undefined = isActiveOnSelectedLink && activeEvent !== undefined
-				? JSON.stringify(activeEvent.logEntry, null, 2)
+			const selectedEvent: TimelineEvent | undefined = isActiveOnSelectedLink ? activeEvent : undefined;
+			const hasActiveEvent: boolean = selectedEvent !== undefined;
+			const jsonText: string | undefined = selectedEvent !== undefined
+				? JSON.stringify(selectedEvent.logEntry, null, 2)
 				: undefined;
-			const toolbarEl: HTMLDivElement = document.createElement('div');
-			toolbarEl.className = 'link-zoom-toolbar';
+			const travelsFromLeftToRight: boolean = selectedEvent === undefined || selectedEvent.fromActorId === zoomedLink.fromActorId;
+
+			const actorsEl: HTMLDivElement = document.createElement('div');
+			actorsEl.className = 'link-zoom-actors';
+			actorsEl.append(this._buildZoomActorLabel(fromActor));
+			if (hasActiveEvent) {
+				const directionEl: HTMLSpanElement = document.createElement('span');
+				directionEl.className = 'link-zoom-direction';
+				directionEl.textContent = travelsFromLeftToRight ? '→' : '←';
+				directionEl.setAttribute('aria-label', travelsFromLeftToRight ? 'travels left to right' : 'travels right to left');
+				actorsEl.appendChild(directionEl);
+			}
+			actorsEl.append(this._buildZoomActorLabel(toActor));
+			cardContentEl.appendChild(actorsEl);
+
+			const messageEl: HTMLSpanElement = document.createElement('span');
+			messageEl.className = 'link-zoom-message';
+			messageEl.textContent = selectedEvent?.messageType ?? '';
+			cardContentEl.appendChild(messageEl);
+
+			const jsonContainerEl: HTMLDivElement = document.createElement('div');
+			jsonContainerEl.className = 'link-zoom-json-container';
+			const jsonEl: HTMLPreElement = document.createElement('pre');
+			jsonEl.className = 'link-zoom-json';
 			if (jsonText !== undefined) {
+				jsonEl.textContent = jsonText;
 				const copyButtonEl: HTMLButtonElement = document.createElement('button');
 				copyButtonEl.className = 'link-zoom-copy';
 				copyButtonEl.type = 'button';
@@ -314,42 +356,13 @@ export class TimelineView {
 					domEvent.stopPropagation();
 					void this._copyZoomJson(jsonText, copyButtonEl);
 				});
-				toolbarEl.appendChild(copyButtonEl);
+				jsonContainerEl.append(jsonEl, copyButtonEl);
+			} else {
+				jsonContainerEl.hidden = true;
 			}
-			cardEl.appendChild(toolbarEl);
-
-			const actorsEl: HTMLDivElement = document.createElement('div');
-			actorsEl.className = 'link-zoom-actors';
-			actorsEl.append(this._buildZoomActorLabel(fromActor), this._buildZoomActorLabel(toActor));
-			cardEl.appendChild(actorsEl);
-
-			const trackEl: HTMLDivElement = document.createElement('div');
-			trackEl.className = 'link-zoom-track';
-			const trackLineEl: HTMLSpanElement = document.createElement('span');
-			trackLineEl.className = 'link-zoom-track-line';
-			trackEl.appendChild(trackLineEl);
-			if (isActiveOnSelectedLink && activeEvent !== undefined) {
-				const activeProgress: number = activeEvent.fromActorId === zoomedLink.fromActorId ? progress : 1 - progress;
-				const packetEl: HTMLSpanElement = document.createElement('span');
-				packetEl.className = 'link-zoom-packet';
-				packetEl.style.left = `${Math.min(1, Math.max(0, activeProgress)) * 100}%`;
-				packetEl.style.backgroundColor = TimelineModel.colorForTaskId(activeEvent.taskId);
-				packetEl.setAttribute('aria-label', `${activeEvent.messageType} event`);
-				trackEl.appendChild(packetEl);
-
-				const messageEl: HTMLSpanElement = document.createElement('span');
-				messageEl.className = 'link-zoom-message';
-				messageEl.textContent = activeEvent.messageType;
-				cardEl.appendChild(messageEl);
-			}
-
-			const jsonEl: HTMLPreElement = document.createElement('pre');
-			jsonEl.className = 'link-zoom-json';
-			if (jsonText !== undefined) {
-				jsonEl.textContent = jsonText;
-				cardEl.appendChild(jsonEl);
-			}
-			cardEl.insertBefore(trackEl, cardEl.lastChild);
+			if (jsonText === undefined) jsonContainerEl.appendChild(jsonEl);
+			cardContentEl.appendChild(jsonContainerEl);
+			cardEl.appendChild(cardContentEl);
 			foreignObjectEl.appendChild(cardEl);
 			this.zoomViewLayerEl.appendChild(foreignObjectEl);
 		}
@@ -392,7 +405,7 @@ export class TimelineView {
 		const labelEl: SVGTextElement = document.createElementNS(SVG_NS, 'text');
 		labelEl.setAttribute('class', 'actor-label');
 		labelEl.setAttribute('x', String(x));
-		labelEl.setAttribute('y', String(y - NODE_RADIUS - 8));
+		labelEl.setAttribute('y', String(y - NODE_RADIUS - 6));
 		labelEl.setAttribute('text-anchor', 'middle');
 		labelEl.textContent = actor.label;
 		this.svgEl.appendChild(labelEl);
@@ -401,7 +414,7 @@ export class TimelineView {
 			const sublabelEl: SVGTextElement = document.createElementNS(SVG_NS, 'text');
 			sublabelEl.setAttribute('class', 'actor-sublabel');
 			sublabelEl.setAttribute('x', String(x));
-			sublabelEl.setAttribute('y', String(y + NODE_RADIUS + 16));
+			sublabelEl.setAttribute('y', String(y + NODE_RADIUS + 12));
 			sublabelEl.setAttribute('text-anchor', 'middle');
 			sublabelEl.textContent = actor.sublabel;
 			if (actor.deviceId !== undefined && actor.sublabel !== actor.deviceId.replace('device-', '').slice(0, 8)) {
