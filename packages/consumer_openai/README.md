@@ -22,6 +22,34 @@ npm run dev --workspace @webai/consumer-openai
 
 The server listens on port 8788, and an OpenAI client is pointed at `http://localhost:8788/v1`.
 
+## Benchmarking direct LM Studio and webai-at-home
+
+This package includes a small OpenAI API benchmark. The benchmark sends the same non-streaming
+prompt to LM Studio directly first, then to this webai-at-home OpenAI-compatible server, which
+must be backed by the same LM Studio model through `worker_openai_api`. Requests run strictly one
+at a time, so the first comparison does not include parallel scheduling or shared-model
+contention.
+
+Start LM Studio, the webai-at-home gateway, this `consumer_openai` server, and one
+`worker_openai_api` process first. Then run:
+
+```sh
+npm run benchmark --workspace @webai/consumer-openai
+```
+
+The defaults are LM Studio at `http://localhost:1234/v1` with
+`llama-3.2-3b-instruct`, and webai-at-home at `http://localhost:8788/v1` with
+`llm_llama3_2_3b_full`. Change either endpoint or model with the command-line options. Use
+`--json` to save a machine-readable report:
+
+```sh
+npm run benchmark --workspace @webai/consumer-openai -- --runs 10 --json
+```
+
+The report measures wall-clock latency and response size. It reports the webai-at-home latency
+difference from the direct baseline; it does not calculate a monetary price because these
+OpenAI-compatible endpoints do not provide token pricing or usage data.
+
 ## Command line options
 
 | Option | Default | What it does |
