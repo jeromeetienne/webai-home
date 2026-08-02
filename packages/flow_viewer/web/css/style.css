@@ -182,7 +182,8 @@ html, body {
 .actor-label { fill: #343a40; font-size: 12px; font-weight: 500; }
 .actor-sublabel { fill: #6c757d; font-size: 10px; }
 .lane-title { fill: #6c757d; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
-.guide-line { stroke: #d8e0eb; stroke-width: 1.5; }
+.guide-line { stroke: #d8e0eb; stroke-width: 1.5; transition: stroke 0.15s ease, stroke-width 0.15s ease; }
+.guide-line.link-zoom-selected { stroke: var(--accent); stroke-width: 3; }
 /*
  * The packet label travels with its dot and crosses guide lines, actor nodes, and their
  * labels, so each glyph is painted over a halo of the canvas background colour to stay
@@ -204,9 +205,34 @@ html, body {
 .event-packet { cursor: pointer; stroke: var(--page-bg); stroke-width: 1.5; }
 .event-packet:focus { outline: none; stroke: #212529; stroke-width: 2; }
 
-.event-details-body { position: relative; }
-.event-details-toolbar { display: flex; justify-content: flex-end; margin-bottom: 0.5rem; }
-.event-details-json { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text); font-size: 0.82rem; }
+.link-zoom-card {
+	display: flex;
+	flex-direction: column;
+	width: 100%;
+	height: 100%;
+	padding: 0.65rem 0.8rem;
+	border: 1px solid var(--accent);
+	border-radius: 0.6rem;
+	background: var(--panel-bg);
+	box-shadow: 0 0.35rem 1rem rgba(33, 37, 41, 0.16);
+	color: var(--text);
+	font-family: var(--bs-body-font-family, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
+	font-size: 12px;
+	overflow: hidden;
+}
+
+.link-zoom-toolbar { display: flex; flex: 0 0 auto; justify-content: flex-end; min-height: 1.4rem; margin-bottom: 0.1rem; }
+.link-zoom-copy { padding: 0.15rem 0.5rem; border: 1px solid var(--border); border-radius: 0.25rem; background: var(--accent-soft); color: var(--accent); cursor: pointer; font-size: 0.72rem; }
+.link-zoom-copy:hover { border-color: var(--accent); }
+.link-zoom-actors { display: flex; flex: 0 0 auto; justify-content: space-between; gap: 1rem; margin-top: 0.35rem; font-size: 0.78rem; font-weight: 600; }
+.link-zoom-actor { max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.link-zoom-actor:last-child { text-align: right; }
+.link-zoom-track { position: relative; flex: 0 0 1.6rem; height: 1.6rem; margin: 0.05rem 0 0.1rem; }
+.link-zoom-track-line { position: absolute; top: 50%; left: 0; right: 0; border-top: 2px solid var(--accent); }
+.link-zoom-track-line::after { content: ""; position: absolute; top: -0.35rem; right: -0.05rem; border-top: 0.35rem solid transparent; border-bottom: 0.35rem solid transparent; border-left: 0.45rem solid var(--accent); }
+.link-zoom-packet { position: absolute; top: 50%; width: 0.7rem; height: 0.7rem; border: 2px solid var(--panel-bg); border-radius: 50%; transform: translate(-50%, -50%); box-shadow: 0 0 0 1px var(--accent); }
+.link-zoom-message { display: block; flex: 0 0 auto; margin: -0.15rem 0 0.35rem; color: var(--text-muted); font-size: 0.72rem; text-align: center; }
+.link-zoom-json { flex: 1 1 auto; min-height: 0; max-height: none; margin: 0; padding: 0.5rem; overflow: auto; border: 1px solid var(--border); border-radius: 0.35rem; background: var(--page-bg); color: var(--text); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.68rem; line-height: 1.35; white-space: pre-wrap; overflow-wrap: anywhere; }
 
 :root[data-theme="dark"] .modal-content.text-dark { color: var(--text) !important; }
 

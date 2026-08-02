@@ -48,9 +48,6 @@ export class FlowViewerApp {
 	private readonly playbackBarEl: HTMLElement;
 	private readonly keyboardHelpTriggerEl: HTMLButtonElement;
 	private readonly keyboardHelpModalEl: HTMLElement;
-	private readonly eventDetailsModalEl: HTMLElement;
-	private readonly eventDetailsBodyEl: HTMLElement;
-	private readonly copyEventButtonEl: HTMLButtonElement;
 	private readonly playPauseButtonEl: HTMLButtonElement;
 	private readonly stopButtonEl: HTMLButtonElement;
 	private readonly speedSelectEl: HTMLSelectElement;
@@ -85,9 +82,6 @@ export class FlowViewerApp {
 		this.playbackBarEl = FlowViewerApp._getElement('#playback-bar');
 		this.keyboardHelpTriggerEl = FlowViewerApp._getElement<HTMLButtonElement>('#keyboard-help-trigger');
 		this.keyboardHelpModalEl = FlowViewerApp._getElement('#keyboard-help-modal');
-		this.eventDetailsModalEl = FlowViewerApp._getElement('#event-details-modal');
-		this.eventDetailsBodyEl = FlowViewerApp._getElement('#event-details-body');
-		this.copyEventButtonEl = FlowViewerApp._getElement<HTMLButtonElement>('#copy-event-button');
 		this.playPauseButtonEl = FlowViewerApp._getElement<HTMLButtonElement>('#play-pause-button');
 		this.stopButtonEl = FlowViewerApp._getElement<HTMLButtonElement>('#stop-button');
 		this.speedSelectEl = FlowViewerApp._getElement<HTMLSelectElement>('#speed-select');
@@ -96,8 +90,11 @@ export class FlowViewerApp {
 		this.scrubberEl = FlowViewerApp._getElement<HTMLInputElement>('#scrubber');
 		this.timeReadoutEl = FlowViewerApp._getElement('#time-readout');
 
-		this.view = new TimelineView(FlowViewerApp._getElement<SVGSVGElement>('#timeline-svg'), (event: TimelineEvent): void => this._showEventDetails(event));
-		this.eventLogPanel = new EventLogPanel(FlowViewerApp._getElement('#event-log-list'), (event: TimelineEvent): void => this.controller.seekToEvent(event));
+		this.view = new TimelineView(FlowViewerApp._getElement<SVGSVGElement>('#timeline-svg'), (event: TimelineEvent): void => this.view.toggleLinkZoom(event));
+		this.eventLogPanel = new EventLogPanel(FlowViewerApp._getElement('#event-log-list'), (event: TimelineEvent): void => {
+			this.controller.seekToEvent(event);
+			this.view.toggleLinkZoom(event);
+		});
 		this.controller = new PlaybackController({
 			onSeek: (eventsUpToNow: TimelineEvent[]): void => this.eventLogPanel.showEventsUpTo(eventsUpToNow),
 			onTimeUpdate: (visualTimeMs: number, logTimeMs: number, activeSegment: PlaybackSegment | undefined, packetProgress: number): void => {
@@ -154,7 +151,6 @@ export class FlowViewerApp {
 			this._updateScrubberRange();
 		});
 		this.loopPlaybackEl.addEventListener('change', (): void => this.controller.setLoop(this.loopPlaybackEl.checked));
-		this.copyEventButtonEl.addEventListener('click', (): void => void this._copyEventDetails());
 		document.addEventListener('keydown', (event: KeyboardEvent): void => {
 			if (FlowViewerApp._isFormControl(event.target)) return;
 			if (event.key === '?') {
@@ -274,23 +270,6 @@ export class FlowViewerApp {
 		const label: string = isPlaying ? 'Pause' : 'Play';
 		this.playPauseButtonEl.setAttribute('aria-label', label);
 		this.playPauseButtonEl.title = label;
-	}
-
-	private _showEventDetails(event: TimelineEvent): void {
-		this.eventDetailsBodyEl.textContent = JSON.stringify(event.logEntry, null, 2);
-		this.copyEventButtonEl.textContent = 'Copy';
-		const bootstrap = (window as Window & { bootstrap?: { Modal: { getOrCreateInstance(element: Element): { show(): void } } } }).bootstrap;
-		bootstrap?.Modal.getOrCreateInstance(this.eventDetailsModalEl).show();
-	}
-
-	private async _copyEventDetails(): Promise<void> {
-		try {
-			await navigator.clipboard.writeText(this.eventDetailsBodyEl.textContent ?? '');
-			this.copyEventButtonEl.textContent = 'Copied';
-			window.setTimeout((): void => { this.copyEventButtonEl.textContent = 'Copy'; }, 1500);
-		} catch {
-			this.copyEventButtonEl.textContent = 'Copy failed';
-		}
 	}
 
 	private _getInitialSpeed(fallbackSpeed: number): number {
