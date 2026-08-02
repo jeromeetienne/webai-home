@@ -73,11 +73,11 @@ Test('computes Output Characters per Second from the Time to First and Time to L
 	Assert.equal(sample.timeToLastCharacterMs, 600);
 	Assert.equal(sample.outputCharacters, 10);
 	Assert.equal(sample.inputCharacters, options.prompt.length);
-	// 10 characters over the 500 ms between TTFC and TTLC is 20 characters per second.
+	// 10 characters over the 500 ms between the Time to First Character and the Time to Last Character is 20 characters per second.
 	Assert.equal(sample.outputCharactersPerSecond, 20);
 });
 
-Test('floors the streaming duration at 1 ms rather than dividing by zero when TTFC equals TTLC', async () => {
+Test('floors the streaming duration at 1 ms rather than dividing by zero when the Time to First Character equals the Time to Last Character', async () => {
 	const report = await BenchmarkCommand.runBenchmark({ ...options, target: 'direct', runs: 1, warmupRuns: 0 }, async () => completionResult('whole answer', 50, 50));
 	const sample = report.summaries[0].samples[0];
 	Assert.equal(sample.outputCharactersPerSecond, 'whole answer'.length * 1_000);
@@ -108,15 +108,15 @@ Test('writes the same report out as text, markdown, and JSON', async () => {
 
 	const text = BenchmarkCommand.formatReport(report, 'text');
 	Assert.match(text, /OpenAI API benchmark \(parallelism: 1\)/);
-	Assert.match(text, /TTFC:/);
-	Assert.match(text, /TTLC:/);
-	Assert.match(text, /OCPS:/);
-	Assert.match(text, /webai-at-home TTFC overhead:/);
-	Assert.match(text, /webai-at-home TTLC overhead:/);
+	Assert.match(text, /Time to First Character:/);
+	Assert.match(text, /Time to Last Character:/);
+	Assert.match(text, /Output Characters per Second:/);
+	Assert.match(text, /webai-at-home Time to First Character overhead:/);
+	Assert.match(text, /webai-at-home Time to Last Character overhead:/);
 
 	const markdown = BenchmarkCommand.formatReport(report, 'markdown');
 	Assert.match(markdown, /^# OpenAI API benchmark/);
-	Assert.match(markdown, /\| Endpoint \| Model \| TTFC \| TTLC \| OCPS \| Input chars \| Output chars \|/);
+	Assert.match(markdown, /\| Endpoint \| Model \| Time to First Character \| Time to Last Character \| Output Characters per Second \| Input Characters \| Output Characters \|/);
 	Assert.match(markdown, /\| LM Studio \|/);
 	Assert.match(markdown, /\| webai-at-home \|/);
 
@@ -203,11 +203,12 @@ Test('reads Time to First and Time to Last Character from a real server-sent eve
 		};
 		const result = await BenchmarkCommand.requestOpenaiCompletion(target, 'say hello', 5_000);
 		Assert.equal(result.answer, 'Hello, world');
-		// The two content chunks are spaced 40 ms and then 60 ms apart, so TTFC must land after
-		// roughly the first wait and TTLC after roughly both — proof this measures real elapsed
-		// wall-clock time from a real streamed connection, not just the shape of the numbers.
-		Assert.ok(result.timeToFirstCharacterMs >= 30, `expected TTFC to reflect the 40 ms wait, got ${result.timeToFirstCharacterMs} ms`);
-		Assert.ok(result.timeToLastCharacterMs >= result.timeToFirstCharacterMs + 50, `expected TTLC to be at least ~60 ms after TTFC, got TTFC ${result.timeToFirstCharacterMs} ms and TTLC ${result.timeToLastCharacterMs} ms`);
+		// The two content chunks are spaced 40 ms and then 60 ms apart, so the Time to First
+		// Character must land after roughly the first wait and the Time to Last Character after
+		// roughly both — proof this measures real elapsed wall-clock time from a real streamed
+		// connection, not just the shape of the numbers.
+		Assert.ok(result.timeToFirstCharacterMs >= 30, `expected the Time to First Character to reflect the 40 ms wait, got ${result.timeToFirstCharacterMs} ms`);
+		Assert.ok(result.timeToLastCharacterMs >= result.timeToFirstCharacterMs + 50, `expected the Time to Last Character to be at least ~60 ms after the Time to First Character, got Time to First Character ${result.timeToFirstCharacterMs} ms and Time to Last Character ${result.timeToLastCharacterMs} ms`);
 	} finally {
 		await new Promise<void>((resolve) => server.close(() => resolve()));
 	}

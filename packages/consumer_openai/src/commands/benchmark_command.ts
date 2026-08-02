@@ -78,18 +78,19 @@ export type BenchmarkSample = {
 	/** The one-based measured request number. */
 	readonly run: number;
 	/**
-	 * Time to First Character (TTFC): elapsed time, in milliseconds, from the request being
-	 * sent until the first streamed character arrived. Measures perceived responsiveness.
+	 * Time to First Character: elapsed time, in milliseconds, from the request being sent until
+	 * the first streamed character arrived. Measures perceived responsiveness.
 	 */
 	readonly timeToFirstCharacterMs: number;
 	/**
-	 * Time to Last Character (TTLC): elapsed time, in milliseconds, from the request being
-	 * sent until the final character arrived. Measures end-to-end request latency.
+	 * Time to Last Character: elapsed time, in milliseconds, from the request being sent until
+	 * the final character arrived. Measures end-to-end request latency.
 	 */
 	readonly timeToLastCharacterMs: number;
 	/**
-	 * Output Characters per Second (OCPS): the speed at which the endpoint streamed the answer
-	 * after its first character, computed as `outputCharacters / ((TTLC − TTFC) in seconds)`.
+	 * Output Characters per Second: the speed at which the endpoint streamed the answer after
+	 * its first character, computed as `outputCharacters / (the Time to Last Character minus
+	 * the Time to First Character, in seconds)`.
 	 */
 	readonly outputCharactersPerSecond: number;
 	/** Input Characters: the number of characters sent in the request prompt. */
@@ -106,11 +107,11 @@ export type BenchmarkSummary = {
 	readonly model: string;
 	/** The measured samples, in request order. */
 	readonly samples: readonly BenchmarkSample[];
-	/** Time to First Character (TTFC), across the measured samples. */
+	/** Time to First Character, across the measured samples. */
 	readonly timeToFirstCharacterMs: MetricStatistics;
-	/** Time to Last Character (TTLC), across the measured samples. */
+	/** Time to Last Character, across the measured samples. */
 	readonly timeToLastCharacterMs: MetricStatistics;
-	/** Output Characters per Second (OCPS), across the measured samples. */
+	/** Output Characters per Second, across the measured samples. */
 	readonly outputCharactersPerSecond: MetricStatistics;
 	/** Input Characters sent in the prompt, the same for every sample since one prompt is sent to both endpoints. */
 	readonly inputCharacters: number;
@@ -147,9 +148,9 @@ export type BenchmarkReport = {
 	 * to compare against.
 	 */
 	readonly webaiOverhead?: {
-		/** How Time to First Character (TTFC) differs. */
+		/** How Time to First Character differs. */
 		readonly timeToFirstCharacterMs: OverheadComparison;
-		/** How Time to Last Character (TTLC) differs. */
+		/** How Time to Last Character differs. */
 		readonly timeToLastCharacterMs: OverheadComparison;
 	};
 };
@@ -760,19 +761,19 @@ export class BenchmarkCommand {
 		];
 		for (const summary of report.summaries) {
 			lines.push(`${summary.name} (${summary.model})`);
-			lines.push(`  TTFC:   ${BenchmarkCommand._rounded(summary.timeToFirstCharacterMs.average)} ms average, ${BenchmarkCommand._rounded(summary.timeToFirstCharacterMs.median)} ms median, ${BenchmarkCommand._rounded(summary.timeToFirstCharacterMs.minimum)}–${BenchmarkCommand._rounded(summary.timeToFirstCharacterMs.maximum)} ms range`);
-			lines.push(`  TTLC:   ${BenchmarkCommand._rounded(summary.timeToLastCharacterMs.average)} ms average, ${BenchmarkCommand._rounded(summary.timeToLastCharacterMs.median)} ms median, ${BenchmarkCommand._rounded(summary.timeToLastCharacterMs.minimum)}–${BenchmarkCommand._rounded(summary.timeToLastCharacterMs.maximum)} ms range`);
-			lines.push(`  OCPS:   ${BenchmarkCommand._rounded(summary.outputCharactersPerSecond.average)} characters/second average`);
-			lines.push(`  input:  ${summary.inputCharacters} characters`);
-			lines.push(`  output: ${BenchmarkCommand._rounded(summary.outputCharacters.average)} characters average`);
+			lines.push(`  Time to First Character:      ${BenchmarkCommand._rounded(summary.timeToFirstCharacterMs.average)} ms average, ${BenchmarkCommand._rounded(summary.timeToFirstCharacterMs.median)} ms median, ${BenchmarkCommand._rounded(summary.timeToFirstCharacterMs.minimum)}–${BenchmarkCommand._rounded(summary.timeToFirstCharacterMs.maximum)} ms range`);
+			lines.push(`  Time to Last Character:       ${BenchmarkCommand._rounded(summary.timeToLastCharacterMs.average)} ms average, ${BenchmarkCommand._rounded(summary.timeToLastCharacterMs.median)} ms median, ${BenchmarkCommand._rounded(summary.timeToLastCharacterMs.minimum)}–${BenchmarkCommand._rounded(summary.timeToLastCharacterMs.maximum)} ms range`);
+			lines.push(`  Output Characters per Second: ${BenchmarkCommand._rounded(summary.outputCharactersPerSecond.average)} characters/second average`);
+			lines.push(`  Input Characters:             ${summary.inputCharacters} characters`);
+			lines.push(`  Output Characters:            ${BenchmarkCommand._rounded(summary.outputCharacters.average)} characters average`);
 		}
 		if (report.webaiOverhead !== undefined) {
 			lines.push(
-				`webai-at-home TTFC overhead: ${BenchmarkCommand._rounded(report.webaiOverhead.timeToFirstCharacterMs.averageMs)} ms per request ` +
+				`webai-at-home Time to First Character overhead: ${BenchmarkCommand._rounded(report.webaiOverhead.timeToFirstCharacterMs.averageMs)} ms per request ` +
 					`(${BenchmarkCommand._rounded(report.webaiOverhead.timeToFirstCharacterMs.percentOfDirectAverage)}% of the direct average)`,
 			);
 			lines.push(
-				`webai-at-home TTLC overhead: ${BenchmarkCommand._rounded(report.webaiOverhead.timeToLastCharacterMs.averageMs)} ms per request ` +
+				`webai-at-home Time to Last Character overhead: ${BenchmarkCommand._rounded(report.webaiOverhead.timeToLastCharacterMs.averageMs)} ms per request ` +
 					`(${BenchmarkCommand._rounded(report.webaiOverhead.timeToLastCharacterMs.percentOfDirectAverage)}% of the direct average)`,
 			);
 		}
@@ -791,7 +792,7 @@ export class BenchmarkCommand {
 			'# OpenAI API benchmark',
 			`Parallelism: ${report.settings.parallelism} · measured requests per endpoint: ${report.settings.runs} · warm-up requests: ${report.settings.warmupRuns}`,
 			[
-				'| Endpoint | Model | TTFC | TTLC | OCPS | Input chars | Output chars |',
+				'| Endpoint | Model | Time to First Character | Time to Last Character | Output Characters per Second | Input Characters | Output Characters |',
 				'| --- | --- | ---: | ---: | ---: | ---: | ---: |',
 				...report.summaries.map((summary) => [
 					'|',
@@ -808,11 +809,11 @@ export class BenchmarkCommand {
 		];
 		if (report.webaiOverhead !== undefined) {
 			blocks.push(
-				`webai-at-home TTFC overhead: **${BenchmarkCommand._rounded(report.webaiOverhead.timeToFirstCharacterMs.averageMs)} ms** per request `
+				`webai-at-home Time to First Character overhead: **${BenchmarkCommand._rounded(report.webaiOverhead.timeToFirstCharacterMs.averageMs)} ms** per request `
 					+ `(${BenchmarkCommand._rounded(report.webaiOverhead.timeToFirstCharacterMs.percentOfDirectAverage)}% of the direct average)`,
 			);
 			blocks.push(
-				`webai-at-home TTLC overhead: **${BenchmarkCommand._rounded(report.webaiOverhead.timeToLastCharacterMs.averageMs)} ms** per request `
+				`webai-at-home Time to Last Character overhead: **${BenchmarkCommand._rounded(report.webaiOverhead.timeToLastCharacterMs.averageMs)} ms** per request `
 					+ `(${BenchmarkCommand._rounded(report.webaiOverhead.timeToLastCharacterMs.percentOfDirectAverage)}% of the direct average)`,
 			);
 		}

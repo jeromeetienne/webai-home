@@ -46,14 +46,15 @@ knowledge of the model or its tokenizer, which keeps them comparable across diff
 
 | Metric | Brief |
 | --- | --- |
-| Time to First Character (TTFC) | Elapsed time from sending the request until the first streamed character arrives. Measures perceived responsiveness. |
-| Time to Last Character (TTLC) | Elapsed time from sending the request until the final character arrives. Measures end-to-end request latency. |
-| Output Characters per Second (OCPS) | The speed at which the endpoint streams the answer after the first character, computed as `outputCharacters / (TTLC − TTFC)`. |
+| Time to First Character | Elapsed time from sending the request until the first streamed character arrives. Measures perceived responsiveness. |
+| Time to Last Character | Elapsed time from sending the request until the final character arrives. Measures end-to-end request latency. |
+| Output Characters per Second | The speed at which the endpoint streams the answer after the first character, computed as `outputCharacters / (the Time to Last Character minus the Time to First Character)`. |
 | Input Characters | The number of characters sent in the request prompt. |
 | Output Characters | The number of characters generated in the response. |
 
 An endpoint that ignores the streaming request and answers as one JSON object instead is still
-measurable: its first and last character then arrive at the same moment, so TTFC equals TTLC.
+measurable: its first and last character then arrive at the same moment, so the Time to First
+Character equals the Time to Last Character.
 
 Start LM Studio, the webai-at-home gateway, this `consumer_openai` server, and one
 `worker_openai_api` process first. Then run:
