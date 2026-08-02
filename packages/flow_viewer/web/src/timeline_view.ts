@@ -31,6 +31,11 @@ type LinkSelection = {
 	toggleEventIndex: number;
 };
 
+type TaskDisplayField = {
+	label: string;
+	value: unknown;
+};
+
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 //	TimelineView — draws the actor lanes and animates message packets between them
@@ -300,6 +305,16 @@ export class TimelineView {
 			const panelHeight: number = ZOOM_PANEL_HEIGHT;
 			const panelY: number = Math.max(fromPosition.y, toPosition.y) + NODE_RADIUS + ZOOM_PANEL_GAP;
 			viewBoxHeight = Math.max(viewBoxHeight, panelY + panelHeight + ZOOM_PANEL_GAP);
+			const linkCenterX: number = (fromPosition.x + toPosition.x) / 2;
+			const linkCenterY: number = (fromPosition.y + toPosition.y) / 2;
+
+			const connectorEl: SVGLineElement = document.createElementNS(SVG_NS, 'line');
+			connectorEl.setAttribute('class', 'link-zoom-connector');
+			connectorEl.setAttribute('x1', String(linkCenterX));
+			connectorEl.setAttribute('y1', String(linkCenterY));
+			connectorEl.setAttribute('x2', String(panelX + panelWidth / 2));
+			connectorEl.setAttribute('y2', String(panelY));
+			this.zoomViewLayerEl.appendChild(connectorEl);
 
 			const foreignObjectEl: SVGForeignObjectElement = document.createElementNS(SVG_NS, 'foreignObject');
 			foreignObjectEl.setAttribute('x', String(panelX));
@@ -342,6 +357,8 @@ export class TimelineView {
 			messageEl.textContent = selectedEvent?.messageType ?? '';
 			cardContentEl.appendChild(messageEl);
 
+			const contentAreaEl: HTMLDivElement = document.createElement('div');
+			contentAreaEl.className = 'link-zoom-content-area';
 			const jsonContainerEl: HTMLDivElement = document.createElement('div');
 			jsonContainerEl.className = 'link-zoom-json-container';
 			const jsonEl: HTMLPreElement = document.createElement('pre');
@@ -361,7 +378,40 @@ export class TimelineView {
 				jsonContainerEl.hidden = true;
 			}
 			if (jsonText === undefined) jsonContainerEl.appendChild(jsonEl);
-			cardContentEl.appendChild(jsonContainerEl);
+			if (selectedEvent !== undefined) {
+				const tabsEl: HTMLDivElement = document.createElement('div');
+				tabsEl.className = 'link-zoom-tabs';
+				tabsEl.setAttribute('role', 'tablist');
+				const htmlTabEl: HTMLButtonElement = this._buildZoomTab('HTML', 'html', true);
+				const jsonTabEl: HTMLButtonElement = this._buildZoomTab('JSON', 'json', false);
+				const htmlViewEl: HTMLDivElement = this._buildMessageHtmlView(selectedEvent);
+				htmlViewEl.id = `link-zoom-html-${selectedEvent.index}`;
+				jsonContainerEl.id = `link-zoom-json-${selectedEvent.index}`;
+				htmlTabEl.setAttribute('aria-controls', htmlViewEl.id);
+				jsonTabEl.setAttribute('aria-controls', jsonContainerEl.id);
+				const selectView = (view: 'html' | 'json'): void => {
+					const showHtml: boolean = view === 'html';
+					htmlViewEl.hidden = showHtml === false;
+					jsonContainerEl.hidden = showHtml;
+					htmlTabEl.classList.toggle('active', showHtml);
+					jsonTabEl.classList.toggle('active', showHtml === false);
+					htmlTabEl.setAttribute('aria-selected', String(showHtml));
+					jsonTabEl.setAttribute('aria-selected', String(showHtml === false));
+				};
+				htmlTabEl.addEventListener('click', (): void => selectView('html'));
+				jsonTabEl.addEventListener('click', (): void => selectView('json'));
+				selectView('html');
+				tabsEl.append(htmlTabEl, jsonTabEl);
+				cardContentEl.appendChild(tabsEl);
+				contentAreaEl.append(htmlViewEl, jsonContainerEl);
+				cardContentEl.appendChild(contentAreaEl);
+			}
+			if (hasActiveEvent === false) {
+				const emptyIconEl: HTMLSpanElement = document.createElement('span');
+				emptyIconEl.className = 'bi bi-slash-circle link-zoom-empty-icon';
+				emptyIconEl.setAttribute('aria-hidden', 'true');
+				cardContentEl.appendChild(emptyIconEl);
+			}
 			cardEl.appendChild(cardContentEl);
 			foreignObjectEl.appendChild(cardEl);
 			this.zoomViewLayerEl.appendChild(foreignObjectEl);
@@ -386,6 +436,119 @@ export class TimelineView {
 		labelEl.className = 'link-zoom-actor';
 		labelEl.textContent = actor.sublabel === undefined ? actor.label : `${actor.label} · ${actor.sublabel}`;
 		return labelEl;
+	}
+
+	private _buildZoomTab(label: string, view: 'html' | 'json', isSelected: boolean): HTMLButtonElement {
+		const tabEl: HTMLButtonElement = document.createElement('button');
+		tabEl.className = `link-zoom-tab${isSelected ? ' active' : ''}`;
+		tabEl.type = 'button';
+		tabEl.setAttribute('role', 'tab');
+		tabEl.setAttribute('aria-selected', String(isSelected));
+		tabEl.dataset.view = view;
+		tabEl.textContent = label;
+		return tabEl;
+	}
+
+	/** Builds a readable message summary without exposing payload text as HTML. */
+	private _buildMessageHtmlView(event: TimelineEvent): HTMLDivElement {
+		const htmlViewEl: HTMLDivElement = document.createElement('div');
+		htmlViewEl.className = 'link-zoom-html';
+		htmlViewEl.setAttribute('role', 'tabpanel');
+		const payload: Record<string, unknown> | undefined = TimelineView._record(event.logEntry.messagePayload);
+		if (payload === undefined) {
+			const emptyEl: HTMLParagraphElement = document.createElement('p');
+			emptyEl.className = 'link-zoom-html-empty';
+			emptyEl.textContent = 'No message details are available for this message.';
+			htmlViewEl.appendChild(emptyEl);
+			return htmlViewEl;
+		}
+
+		const fields: TaskDisplayField[] = event.messageType.startsWith('task.')
+			? this._taskDisplayFields(payload)
+			: TimelineView._messageDisplayFields(payload);
+		this._appendDisplayFields(htmlViewEl, fields, 'No message details were recorded for this message.');
+		return htmlViewEl;
+	}
+
+	/** Pulls the scheduling fields into a consistent order for every task message. */
+	private _taskDisplayFields(payload: Record<string, unknown>): TaskDisplayField[] {
+		const task: Record<string, unknown> | undefined = TimelineView._record(payload.task) ?? TimelineView._record(payload.update);
+		const input: Record<string, unknown> | undefined = TimelineView._record(task?.input) ?? TimelineView._record(payload.input);
+		const stageAssignment: Record<string, unknown> | undefined = TimelineView._record(task?.stageAssignment);
+		return [
+			{ label: 'Task request', value: task?.taskRequestId ?? payload.taskRequestId },
+			{ label: 'Task', value: task?.taskId },
+			{ label: 'Task type', value: input?.taskType },
+			{ label: 'State', value: task?.state },
+			{ label: 'Pipeline', value: task?.pipelineId },
+			{ label: 'Pipeline version', value: task?.pipelineVersion },
+			{ label: 'Pipeline stages', value: task?.pipelineStages },
+			{ label: 'Current stage', value: task?.currentStage },
+			{ label: 'Completed stages', value: task?.completedStageCount ?? task?.completedStages },
+			{ label: 'Stage attempts', value: task?.currentStageAttempts },
+			{ label: 'Task revision', value: task?.taskRevision },
+			{ label: 'Updated', value: task?.updatedAt },
+			{ label: 'Worker', value: stageAssignment?.workerDeviceId },
+			{ label: 'Assignment', value: stageAssignment?.stageAssignmentId },
+			{ label: 'Assignment attempt', value: stageAssignment?.attempt },
+			{ label: 'Lease ends', value: stageAssignment?.leaseUntil },
+			{ label: 'Accepted', value: stageAssignment?.acceptedAt },
+			{ label: 'Input', value: input?.input },
+			{ label: 'Result', value: task?.result },
+			{ label: 'Error', value: task?.error },
+		];
+	}
+
+	private _appendDisplayFields(containerEl: HTMLDivElement, fields: TaskDisplayField[], emptyText: string): void {
+		const visibleFields: TaskDisplayField[] = fields.filter((field: TaskDisplayField): boolean => field.value !== undefined);
+		if (visibleFields.length === 0) {
+			const emptyEl: HTMLParagraphElement = document.createElement('p');
+			emptyEl.className = 'link-zoom-html-empty';
+			emptyEl.textContent = emptyText;
+			containerEl.appendChild(emptyEl);
+			return;
+		}
+
+		const fieldsEl: HTMLDListElement = document.createElement('dl');
+		fieldsEl.className = 'link-zoom-task-fields';
+		for (const field of visibleFields) {
+			const labelEl: HTMLElement = document.createElement('dt');
+			labelEl.textContent = field.label;
+			const valueEl: HTMLElement = document.createElement('dd');
+			valueEl.textContent = TimelineView._displayTaskValue(field.value);
+			fieldsEl.append(labelEl, valueEl);
+		}
+		containerEl.appendChild(fieldsEl);
+	}
+
+	private static _record(value: unknown): Record<string, unknown> | undefined {
+		return typeof value === 'object' && value !== null && Array.isArray(value) === false ? value as Record<string, unknown> : undefined;
+	}
+
+	private static _displayTaskValue(value: unknown): string {
+		if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return String(value);
+		return JSON.stringify(value);
+	}
+
+	/** Flattens every non-task payload so all protocol messages have a readable HTML view. */
+	private static _messageDisplayFields(payload: Record<string, unknown>, prefix = ''): TaskDisplayField[] {
+		const fields: TaskDisplayField[] = [];
+		for (const [key, value] of Object.entries(payload)) {
+			if (key === 'type') continue;
+			const fieldName: string = prefix.length === 0 ? key : `${prefix}.${key}`;
+			const nestedRecord: Record<string, unknown> | undefined = TimelineView._record(value);
+			if (nestedRecord !== undefined) {
+				fields.push(...TimelineView._messageDisplayFields(nestedRecord, fieldName));
+				continue;
+			}
+			fields.push({ label: TimelineView._humanizeFieldName(fieldName), value });
+		}
+		return fields;
+	}
+
+	private static _humanizeFieldName(fieldName: string): string {
+		const label: string = fieldName.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/\./g, ' ');
+		return label.charAt(0).toUpperCase() + label.slice(1);
 	}
 
 	private _setViewBoxHeight(height: number): void {

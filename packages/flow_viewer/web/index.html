@@ -28,6 +28,9 @@
 				<button class="btn btn-light btn-sm flex-shrink-0" type="button" data-bs-toggle="modal" data-bs-target="#range-modal">
 					<i class="bi bi-calendar3 me-1" aria-hidden="true"></i>Time range
 				</button>
+				<button class="btn btn-light btn-sm flex-shrink-0 configuration-button" type="button" data-bs-toggle="modal" data-bs-target="#configuration-modal" aria-label="Open playback configuration" title="Playback configuration">
+					<i class="bi bi-gear-fill" aria-hidden="true"></i>
+				</button>
 				<button class="btn btn-light btn-sm flex-shrink-0" type="button" id="theme-toggle">Use dark theme</button>
 				</nav>
 			</div>
@@ -109,6 +112,48 @@
 			</div>
 		</div>
 
+		<div class="modal fade" id="configuration-modal" tabindex="-1" aria-labelledby="configuration-title" aria-hidden="true">
+			<div class="modal-dialog modal-dialog-centered">
+				<div class="modal-content text-dark">
+					<div class="modal-header">
+						<h2 class="modal-title fs-5" id="configuration-title">Playback configuration</h2>
+						<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+					</div>
+					<div class="modal-body">
+						<div class="mb-3">
+							<label class="form-label" for="speed-select">Playback speed</label>
+							<i class="bi bi-question-circle configuration-help-icon" tabindex="0" aria-label="Playback speed help" data-bs-toggle="tooltip" data-bs-title="Changes how quickly playback moves through the capture." data-bs-placement="top" data-bs-container="body"></i>
+							<select class="form-select form-select-sm speed-select" id="speed-select">
+								<option value="0.01">0.01×</option>
+								<option value="0.1">0.1×</option>
+								<option value="0.5">0.5×</option>
+								<option value="1" selected>1×</option>
+								<option value="2">2×</option>
+								<option value="5">5×</option>
+								<option value="20">20×</option>
+							</select>
+						</div>
+						<div class="mb-3">
+							<label class="form-label" for="packet-duration-select">Message speed</label>
+							<i class="bi bi-question-circle configuration-help-icon" tabindex="0" aria-label="Message speed help" data-bs-toggle="tooltip" data-bs-title="Sets how long each message takes to travel between actors. A shorter duration moves messages faster." data-bs-placement="top" data-bs-container="body"></i>
+							<select class="form-select form-select-sm" id="packet-duration-select">
+								<option value="500">0.5s travel</option>
+								<option value="1000">1s travel</option>
+								<option value="1500" selected>1.5s travel</option>
+								<option value="2000">2s travel</option>
+								<option value="3000">3s travel</option>
+							</select>
+						</div>
+						<div class="form-check">
+							<input class="form-check-input" type="checkbox" id="loop-playback" />
+							<label class="form-check-label" for="loop-playback">Loop playback</label>
+							<i class="bi bi-question-circle configuration-help-icon" tabindex="0" aria-label="Loop playback help" data-bs-toggle="tooltip" data-bs-title="Restarts playback from the beginning after the final message." data-bs-placement="top" data-bs-container="body"></i>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+
 		<main class="viz-main row g-0" id="viz-main" hidden>
 			<div class="viz-canvas col">
 				<svg id="timeline-svg" class="timeline-svg" xmlns="http://www.w3.org/2000/svg"></svg>
@@ -152,33 +197,9 @@
 			<button class="btn btn-primary" type="button" id="play-pause-button" aria-label="Play" title="Play">
 				<i class="bi bi-play-fill" aria-hidden="true"></i>
 			</button>
-			<button class="btn btn-outline-secondary" type="button" id="stop-button" aria-label="Stop" title="Stop">
-				<i class="bi bi-stop-fill" aria-hidden="true"></i>
-			</button>
-			</div>
-			<select class="form-select form-select-sm speed-select" id="speed-select" aria-label="Playback speed">
-				<option value="0.01">0.01×</option>
-				<option value="0.1">0.1×</option>
-				<option value="0.5">0.5×</option>
-				<option value="1" selected>1×</option>
-				<option value="2">2×</option>
-				<option value="5">5×</option>
-				<option value="20">20×</option>
-			</select>
-			<label class="visually-hidden" for="packet-duration-select">Packet travel duration</label>
-			<select class="form-select form-select-sm packet-duration-select" id="packet-duration-select" aria-label="Packet travel duration">
-				<option value="500">0.5s travel</option>
-				<option value="1000">1s travel</option>
-				<option value="1500" selected>1.5s travel</option>
-				<option value="2000">2s travel</option>
-				<option value="3000">3s travel</option>
-			</select>
-			<div class="form-check loop-check">
-				<input class="form-check-input" type="checkbox" id="loop-playback" />
-				<label class="form-check-label" for="loop-playback">Loop</label>
 			</div>
 			<input class="form-range" type="range" id="scrubber" min="0" max="1000" value="0" aria-label="Playback position" />
-			<span class="time-readout text-secondary" id="time-readout">--:--:--.---</span>
+			<span class="time-readout text-secondary" id="time-readout">0.000 s</span>
 		</footer>
 	</div>
 

@@ -17,6 +17,8 @@ import { ThemeToggle } from './theme_toggle.js';
 
 const SESSION_API_PATH = '/api/session.json';
 const SPEED_STORAGE_KEY = 'webai-flow-viewer-speed';
+const PACKET_DURATION_STORAGE_KEY = 'webai-flow-viewer-packet-duration';
+const LOOP_STORAGE_KEY = 'webai-flow-viewer-loop';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -51,7 +53,6 @@ export class FlowViewerApp {
 	private readonly keyboardHelpTriggerEl: HTMLButtonElement;
 	private readonly keyboardHelpModalEl: HTMLElement;
 	private readonly playPauseButtonEl: HTMLButtonElement;
-	private readonly stopButtonEl: HTMLButtonElement;
 	private readonly speedSelectEl: HTMLSelectElement;
 	private readonly packetDurationSelectEl: HTMLSelectElement;
 	private readonly loopPlaybackEl: HTMLInputElement;
@@ -87,7 +88,6 @@ export class FlowViewerApp {
 		this.keyboardHelpTriggerEl = FlowViewerApp._getElement<HTMLButtonElement>('#keyboard-help-trigger');
 		this.keyboardHelpModalEl = FlowViewerApp._getElement('#keyboard-help-modal');
 		this.playPauseButtonEl = FlowViewerApp._getElement<HTMLButtonElement>('#play-pause-button');
-		this.stopButtonEl = FlowViewerApp._getElement<HTMLButtonElement>('#stop-button');
 		this.speedSelectEl = FlowViewerApp._getElement<HTMLSelectElement>('#speed-select');
 		this.packetDurationSelectEl = FlowViewerApp._getElement<HTMLSelectElement>('#packet-duration-select');
 		this.loopPlaybackEl = FlowViewerApp._getElement<HTMLInputElement>('#loop-playback');
@@ -121,6 +121,7 @@ export class FlowViewerApp {
 	/** Wires up every DOM event listener and attempts to load a CLI-prepared session. Call once after construction. */
 	start(): void {
 		ThemeToggle.setup();
+		this._initializeConfigurationTooltips();
 		this.fileInputEl.addEventListener('change', (): void => {
 			const file: File | undefined = this.fileInputEl.files?.[0];
 			if (file !== undefined) void this._handleDroppedFile(file);
@@ -151,17 +152,21 @@ export class FlowViewerApp {
 		});
 
 		this.playPauseButtonEl.addEventListener('click', (): void => this.controller.togglePlay());
-		this.stopButtonEl.addEventListener('click', (): void => this.controller.stop());
 		this.speedSelectEl.addEventListener('change', (): void => {
 			const speed: number = Number(this.speedSelectEl.value);
 			this.controller.setSpeed(speed);
 			this._saveSpeed(speed);
 		});
 		this.packetDurationSelectEl.addEventListener('change', (): void => {
-			this.controller.setPacketDuration(Number(this.packetDurationSelectEl.value));
+			const durationMs: number = Number(this.packetDurationSelectEl.value);
+			this.controller.setPacketDuration(durationMs);
+			this._savePacketDuration(durationMs);
 			this._updateScrubberRange();
 		});
-		this.loopPlaybackEl.addEventListener('change', (): void => this.controller.setLoop(this.loopPlaybackEl.checked));
+		this.loopPlaybackEl.addEventListener('change', (): void => {
+			this.controller.setLoop(this.loopPlaybackEl.checked);
+			this._saveLoop(this.loopPlaybackEl.checked);
+		});
 		document.addEventListener('keydown', (event: KeyboardEvent): void => {
 			if (FlowViewerApp._isFormControl(event.target)) return;
 			if (event.key === '?') {
@@ -249,7 +254,7 @@ export class FlowViewerApp {
 		this.rangeToEl.value = FlowViewerApp._toDatetimeLocalValue(session.initialState.toMs);
 		this.showChatterEl.checked = session.initialState.showChatter;
 		this.showSignalingEl.checked = session.initialState.showSignaling;
-		this._selectSpeed(this._getInitialSpeed(session.initialState.speed));
+		this._restorePlaybackConfiguration(session.initialState.speed);
 
 		this.rangeBarEl.hidden = false;
 		this.vizMainEl.hidden = false;
@@ -267,7 +272,7 @@ export class FlowViewerApp {
 
 		this.rangeFromEl.value = FlowViewerApp._toDatetimeLocalValue(this.fullRangeMs.fromMs);
 		this.rangeToEl.value = FlowViewerApp._toDatetimeLocalValue(this.fullRangeMs.toMs);
-		this._selectSpeed(this._getInitialSpeed(1));
+		this._restorePlaybackConfiguration(1);
 		this.rangeBarEl.hidden = false;
 		this.vizMainEl.hidden = false;
 		this.playbackBarEl.hidden = false;
@@ -305,6 +310,60 @@ export class FlowViewerApp {
 	private _saveSpeed(speed: number): void {
 		try {
 			window.localStorage.setItem(SPEED_STORAGE_KEY, String(speed));
+		} catch {
+			// Storage can be unavailable in private browsing or restricted embeds.
+		}
+	}
+
+	private _restorePlaybackConfiguration(fallbackSpeed: number): void {
+		this._selectSpeed(this._getInitialSpeed(fallbackSpeed));
+		const packetDurationMs: number = this._getInitialPacketDuration(this.controller.getPacketDuration());
+		this._selectPacketDuration(packetDurationMs);
+		const loop: boolean = this._getInitialLoop();
+		this.loopPlaybackEl.checked = loop;
+		this.controller.setLoop(loop);
+	}
+
+	private _getInitialPacketDuration(fallbackDurationMs: number): number {
+		try {
+			const storedDurationMs: number = Number(window.localStorage.getItem(PACKET_DURATION_STORAGE_KEY));
+			return Number.isFinite(storedDurationMs) && storedDurationMs > 0 ? storedDurationMs : fallbackDurationMs;
+		} catch {
+			return fallbackDurationMs;
+		}
+	}
+
+	private _selectPacketDuration(durationMs: number): void {
+		const hasMatchingOption: boolean = Array.from(this.packetDurationSelectEl.options).some((option: HTMLOptionElement): boolean => Number(option.value) === durationMs);
+		if (hasMatchingOption === false) {
+			const optionEl: HTMLOptionElement = document.createElement('option');
+			optionEl.value = String(durationMs);
+			optionEl.textContent = `${durationMs / 1_000}s travel`;
+			this.packetDurationSelectEl.appendChild(optionEl);
+		}
+		this.packetDurationSelectEl.value = String(durationMs);
+		this.controller.setPacketDuration(durationMs);
+	}
+
+	private _savePacketDuration(durationMs: number): void {
+		try {
+			window.localStorage.setItem(PACKET_DURATION_STORAGE_KEY, String(durationMs));
+		} catch {
+			// Storage can be unavailable in private browsing or restricted embeds.
+		}
+	}
+
+	private _getInitialLoop(): boolean {
+		try {
+			return window.localStorage.getItem(LOOP_STORAGE_KEY) === 'true';
+		} catch {
+			return false;
+		}
+	}
+
+	private _saveLoop(loop: boolean): void {
+		try {
+			window.localStorage.setItem(LOOP_STORAGE_KEY, String(loop));
 		} catch {
 			// Storage can be unavailable in private browsing or restricted embeds.
 		}
@@ -398,7 +457,8 @@ export class FlowViewerApp {
 	private _onTimeUpdate(visualTimeMs: number, logTimeMs: number): void {
 		if (this.isScrubbing === false) this.scrubberEl.value = String(visualTimeMs);
 		this._updateScrubberProgress();
-		this.timeReadoutEl.textContent = new Date(logTimeMs).toLocaleTimeString(undefined, { hour12: false });
+		const logStartMs: number = this.fullRangeMs?.fromMs ?? logTimeMs;
+		this.timeReadoutEl.textContent = FlowViewerApp._formatElapsedTime(logTimeMs - logStartMs);
 	}
 
 	private _updateScrubberRange(): void {
@@ -437,6 +497,17 @@ export class FlowViewerApp {
 		this._saveSpeed(speed);
 	}
 
+	/** Activates the explanatory tooltips beside each playback configuration option. */
+	private _initializeConfigurationTooltips(): void {
+		const bootstrap = (window as Window & {
+			bootstrap?: { Tooltip: new (element: Element) => unknown };
+		}).bootstrap;
+		if (bootstrap === undefined) return;
+		document.querySelectorAll<HTMLElement>('#configuration-modal [data-bs-toggle="tooltip"]').forEach((element: HTMLElement): void => {
+			new bootstrap.Tooltip(element);
+		});
+	}
+
 	private static _getElement<T extends Element = HTMLElement>(selector: string): T {
 		const element: Element | null = document.querySelector(selector);
 		if (element === null) throw new Error(`Element ${selector} was not found`);
@@ -454,6 +525,11 @@ export class FlowViewerApp {
 			`${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` +
 			`T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.${pad(date.getMilliseconds(), 3)}`
 		);
+	}
+
+	/** Formats an elapsed log duration as seconds with millisecond precision. */
+	private static _formatElapsedTime(elapsedMs: number): string {
+		return `${(Math.max(0, elapsedMs) / 1_000).toFixed(3)} s`;
 	}
 
 	private static _fromDatetimeLocalValue(value: string): number | undefined {
