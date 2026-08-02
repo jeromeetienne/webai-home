@@ -3,8 +3,8 @@ import Fs from 'node:fs';
 import Url from 'node:url';
 
 // local imports
-import { ServerCli } from './server_cli.js';
-import { Benchmark } from './benchmark.js';
+import { ServerCommand } from './commands/server_command.js';
+import { BenchmarkCommand } from './commands/benchmark_command.js';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -33,11 +33,11 @@ export class Cli {
 	static async run(args: string[] = process.argv.slice(2)): Promise<void> {
 		const [subcommand, ...rest] = args;
 		if (subcommand === 'server') {
-			ServerCli.run(rest);
+			ServerCommand.run(rest);
 			return;
 		}
 		if (subcommand === 'benchmark') {
-			await Benchmark.runCli(rest);
+			await BenchmarkCommand.runCli(rest);
 			return;
 		}
 		if (subcommand === undefined || subcommand === '-h' || subcommand === '--help') {

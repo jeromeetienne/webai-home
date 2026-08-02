@@ -277,8 +277,8 @@ The tests cover reading a request, the models on offer, the failure mapping, the
 ## The source files
 
 - [`src/cli.ts`](./src/cli.ts) — the `consumer_openai` command line program: dispatches to the `server` and `benchmark` subcommands.
-- [`src/server_cli.ts`](./src/server_cli.ts) — the `server` subcommand: builds every part and starts serving.
-- [`src/benchmark.ts`](./src/benchmark.ts) — the `benchmark` subcommand: compares direct LM Studio latency with the same model behind webai-at-home.
+- [`src/commands/server_command.ts`](./src/commands/server_command.ts) — the `server` subcommand: builds every part and starts serving.
+- [`src/commands/benchmark_command.ts`](./src/commands/benchmark_command.ts) — the `benchmark` subcommand: compares direct LM Studio latency with the same model behind webai-at-home.
 - [`src/libs/server_settings.ts`](./src/libs/server_settings.ts) — the `server` subcommand's own command line options, read once and typed.
 - [`src/libs/openai_routes.ts`](./src/libs/openai_routes.ts) — the endpoints, including reading and checking a request.
 - [`src/libs/cluster_task_runner.ts`](./src/libs/cluster_task_runner.ts) — the one gateway connection, and one promise per submitted task.

@@ -7,16 +7,16 @@ import Express from 'express';
 import { MessageLogger } from '@webai/protocol/message_logger';
 
 // local imports
-import { ClusterTaskRunner } from './libs/cluster_task_runner.js';
-import { ServerSettings } from './libs/server_settings.js';
-import { CurlStyleTransactionLogger } from './http/curl_style_transaction_logger.js';
-import { OpenaiRoutes } from './http/openai_routes.js';
+import { ClusterTaskRunner } from '../libs/cluster_task_runner.js';
+import { ServerSettings } from '../libs/server_settings.js';
+import { CurlStyleTransactionLogger } from '../http/curl_style_transaction_logger.js';
+import { OpenaiRoutes } from '../http/openai_routes.js';
 
 const __dirname = import.meta.dirname;
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
-//	ServerCli — the `consumer_openai server` command: serves the OpenAI completion interface
+//	ServerCommand — the `consumer_openai server` command: serves the OpenAI completion interface
 //	in front of the Web AI at Home cluster
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -27,7 +27,7 @@ const __dirname = import.meta.dirname;
  * Each part is constructed here and handed only the parts it actually needs, so what depends
  * on what is visible in one place, as it is in the central gateway's own command line program.
  */
-export class ServerCli {
+export class ServerCommand {
 	/**
 	 * The running HTTP server, closed on shutdown.
 	 *
@@ -50,7 +50,7 @@ export class ServerCli {
 
 		// This server's own message traffic with the central gateway, one file per run, the way
 		// the consumer command line program records it.
-		const logsDirectory = Path.join(__dirname, '../logs');
+		const logsDirectory = Path.join(__dirname, '../../logs');
 		const runTimestamp = new Date().toISOString().replace(/[:.]/g, '-');
 		const messageLogger = new MessageLogger(
 			Path.join(logsDirectory, `consumer-openai-${runTimestamp}.log_entry.jsonl`),
@@ -92,18 +92,18 @@ export class ServerCli {
 			}
 		});
 
-		ServerCli.httpServer = httpServer;
-		ServerCli.runner = runner;
+		ServerCommand.httpServer = httpServer;
+		ServerCommand.runner = runner;
 
-		process.on('SIGINT', () => ServerCli._shutdown());
-		process.on('SIGTERM', () => ServerCli._shutdown());
+		process.on('SIGINT', () => ServerCommand._shutdown());
+		process.on('SIGTERM', () => ServerCommand._shutdown());
 	}
 
 	/** Gives up on every request still waiting, closes the connection, and stops listening. */
 	private static _shutdown(): void {
-		ServerCli.runner?.close();
-		ServerCli.runner = undefined;
-		ServerCli.httpServer?.close();
-		ServerCli.httpServer = undefined;
+		ServerCommand.runner?.close();
+		ServerCommand.runner = undefined;
+		ServerCommand.httpServer?.close();
+		ServerCommand.httpServer = undefined;
 	}
 }

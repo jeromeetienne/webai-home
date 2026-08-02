@@ -3,7 +3,7 @@ import { Command } from 'commander';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
-//	Benchmark — compares LM Studio latency directly with the same model behind webai-at-home
+//	BenchmarkCommand — compares LM Studio latency directly with the same model behind webai-at-home
 //
 //	Every request asks for its answer in pieces (`stream: true`), so the benchmark can measure
 //	Time to First Character and Time to Last Character separately, the way a person waiting on
@@ -243,12 +243,12 @@ type ParsedCommandLine = {
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
-//	Benchmark
+//	BenchmarkCommand
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
 /** Measures and compares the latency of two OpenAI-compatible endpoints serving the same model. */
-export class Benchmark {
+export class BenchmarkCommand {
 	/**
 	 * Sends one streamed Chat Completions request to an OpenAI-compatible endpoint, so Time to
 	 * First Character and Time to Last Character can be measured separately.
@@ -265,7 +265,7 @@ export class Benchmark {
 		if (target.apiKey !== undefined) {
 			headers['Authorization'] = `Bearer ${target.apiKey}`;
 		}
-		const requestUrl = `${Benchmark._withoutTrailingSlash(target.baseUrl)}/chat/completions`;
+		const requestUrl = `${BenchmarkCommand._withoutTrailingSlash(target.baseUrl)}/chat/completions`;
 		const startedAt = performance.now();
 		const response = await fetch(requestUrl, {
 			method: 'POST',
@@ -286,19 +286,19 @@ export class Benchmark {
 			throw new Error(`${target.name} could not be reached: ${reason}`);
 		});
 		if (response.ok === false) {
-			throw await Benchmark._responseFailure(response, target);
+			throw await BenchmarkCommand._responseFailure(response, target);
 		}
 		const contentType = response.headers.get('content-type') ?? '';
 		// An endpoint that ignores `stream: true` and answers as one JSON object still has to be
 		// measurable: its whole answer arrives at once, so its first and last character are the
 		// same moment.
 		if (contentType.includes('text/event-stream') === false) {
-			return Benchmark._readWholeCompletion(response, startedAt, target);
+			return BenchmarkCommand._readWholeCompletion(response, startedAt, target);
 		}
 		if (response.body === null) {
 			throw new Error(`${target.name} sent no response body to stream`);
 		}
-		return Benchmark._readEventStream(response.body, startedAt, target);
+		return BenchmarkCommand._readEventStream(response.body, startedAt, target);
 	}
 
 	/**
@@ -316,11 +316,11 @@ export class Benchmark {
 			name: target.name,
 			model: target.model,
 			samples,
-			timeToFirstCharacterMs: Benchmark._statistics(samples.map((sample) => sample.timeToFirstCharacterMs)),
-			timeToLastCharacterMs: Benchmark._statistics(samples.map((sample) => sample.timeToLastCharacterMs)),
-			outputCharactersPerSecond: Benchmark._statistics(samples.map((sample) => sample.outputCharactersPerSecond)),
+			timeToFirstCharacterMs: BenchmarkCommand._statistics(samples.map((sample) => sample.timeToFirstCharacterMs)),
+			timeToLastCharacterMs: BenchmarkCommand._statistics(samples.map((sample) => sample.timeToLastCharacterMs)),
+			outputCharactersPerSecond: BenchmarkCommand._statistics(samples.map((sample) => sample.outputCharactersPerSecond)),
 			inputCharacters: samples[0].inputCharacters,
-			outputCharacters: Benchmark._statistics(samples.map((sample) => sample.outputCharacters)),
+			outputCharacters: BenchmarkCommand._statistics(samples.map((sample) => sample.outputCharacters)),
 		};
 	}
 
@@ -335,7 +335,7 @@ export class Benchmark {
 	 */
 	static async runBenchmark(
 		options: BenchmarkOptions,
-		requester: CompletionRequester = Benchmark.requestOpenaiCompletion,
+		requester: CompletionRequester = BenchmarkCommand.requestOpenaiCompletion,
 	): Promise<BenchmarkReport> {
 		if (options.runs < 1 || Number.isInteger(options.runs) === false) {
 			throw new Error('--runs must be a positive integer');
@@ -348,8 +348,8 @@ export class Benchmark {
 		}
 		// These awaits are deliberately sequential. Parallel requests would measure queueing and
 		// shared-model contention, which is outside this first direct-versus-WebAI comparison.
-		const directSummary = options.target === 'webai' ? undefined : await Benchmark._benchmarkTarget(options.directTarget, options, requester);
-		const webaiSummary = options.target === 'direct' ? undefined : await Benchmark._benchmarkTarget(options.webaiTarget, options, requester);
+		const directSummary = options.target === 'webai' ? undefined : await BenchmarkCommand._benchmarkTarget(options.directTarget, options, requester);
+		const webaiSummary = options.target === 'direct' ? undefined : await BenchmarkCommand._benchmarkTarget(options.webaiTarget, options, requester);
 		const summaries: BenchmarkSummary[] = [directSummary, webaiSummary].filter((summary): summary is BenchmarkSummary => summary !== undefined);
 		const settings: BenchmarkReport['settings'] = {
 			prompt: options.prompt,
@@ -367,23 +367,23 @@ export class Benchmark {
 			settings,
 			summaries,
 			webaiOverhead: {
-				timeToFirstCharacterMs: Benchmark._overheadComparison(directSummary.timeToFirstCharacterMs.average, webaiSummary.timeToFirstCharacterMs.average),
-				timeToLastCharacterMs: Benchmark._overheadComparison(directSummary.timeToLastCharacterMs.average, webaiSummary.timeToLastCharacterMs.average),
+				timeToFirstCharacterMs: BenchmarkCommand._overheadComparison(directSummary.timeToFirstCharacterMs.average, webaiSummary.timeToFirstCharacterMs.average),
+				timeToLastCharacterMs: BenchmarkCommand._overheadComparison(directSummary.timeToLastCharacterMs.average, webaiSummary.timeToLastCharacterMs.average),
 			},
 		};
 	}
 
 	/**
-	 * Runs the command-line benchmark and prints its report. This is what `Cli` in `./cli.ts`
+	 * Runs the command-line benchmark and prints its report. This is what `Cli` in `../cli.ts`
 	 * calls for the `consumer_openai benchmark` subcommand.
 	 *
 	 * @param args The command-line arguments, without the runtime, script, and subcommand names.
 	 * @returns Nothing, once the report has been printed.
 	 */
 	static async runCli(args: string[] = process.argv.slice(2)): Promise<void> {
-		const { options, format } = Benchmark._parseOptions(args);
-		const report = await Benchmark.runBenchmark(options);
-		console.log(Benchmark.formatReport(report, format));
+		const { options, format } = BenchmarkCommand._parseOptions(args);
+		const report = await BenchmarkCommand.runBenchmark(options);
+		console.log(BenchmarkCommand.formatReport(report, format));
 	}
 
 	/**
@@ -398,9 +398,9 @@ export class Benchmark {
 			return JSON.stringify(report, null, 2);
 		}
 		if (format === 'markdown') {
-			return Benchmark._renderMarkdownReport(report);
+			return BenchmarkCommand._renderMarkdownReport(report);
 		}
-		return Benchmark._renderTextReport(report);
+		return BenchmarkCommand._renderTextReport(report);
 	}
 
 	/**
@@ -503,7 +503,7 @@ export class Benchmark {
 			while (boundary !== -1) {
 				const rawEvent = buffer.slice(0, boundary);
 				buffer = buffer.slice(boundary + 2);
-				const event = Benchmark._parseStreamEvent(rawEvent, target);
+				const event = BenchmarkCommand._parseStreamEvent(rawEvent, target);
 				if (event.kind === 'done') {
 					isDone = true;
 					break;
@@ -582,9 +582,9 @@ export class Benchmark {
 		const samples: BenchmarkSample[] = [];
 		for (let run = 1; run <= options.runs; run += 1) {
 			const result = await requester(target, options.prompt, options.timeoutMs);
-			samples.push(Benchmark._buildSample(run, options.prompt, result));
+			samples.push(BenchmarkCommand._buildSample(run, options.prompt, result));
 		}
-		return Benchmark.summarizeSamples(target, samples);
+		return BenchmarkCommand.summarizeSamples(target, samples);
 	}
 
 	/**
@@ -669,21 +669,21 @@ export class Benchmark {
 			.option('-f, --format <format>', `output format: ${benchmarkReportFormats.join(', ')}`, 'text')
 			.option('-t, --target <target>', `which endpoint to measure: ${benchmarkTargetSelections.join(', ')}`, 'both');
 		const raw = program.parse(args, { from: 'user' }).opts<RawOptions>();
-		if (Benchmark.isReportFormat(raw.format) === false) {
+		if (BenchmarkCommand.isReportFormat(raw.format) === false) {
 			throw new Error(`--format must be one of ${benchmarkReportFormats.join(', ')}`);
 		}
-		if (Benchmark.isTargetSelection(raw.target) === false) {
+		if (BenchmarkCommand.isTargetSelection(raw.target) === false) {
 			throw new Error(`--target must be one of ${benchmarkTargetSelections.join(', ')}`);
 		}
 		return {
 			options: {
-				directTarget: Benchmark._buildTarget('LM Studio', raw.directBaseUrl, raw.directModel, raw.apiKey),
-				webaiTarget: Benchmark._buildTarget('webai-at-home', raw.webaiBaseUrl, raw.webaiModel, raw.apiKey),
+				directTarget: BenchmarkCommand._buildTarget('LM Studio', raw.directBaseUrl, raw.directModel, raw.apiKey),
+				webaiTarget: BenchmarkCommand._buildTarget('webai-at-home', raw.webaiBaseUrl, raw.webaiModel, raw.apiKey),
 				target: raw.target,
 				prompt: raw.prompt,
-				runs: Benchmark._positiveInteger(raw.runs, '--runs'),
-				warmupRuns: Benchmark._positiveInteger(raw.warmupRuns, '--warmup-runs', true),
-				timeoutMs: Benchmark._positiveInteger(raw.timeoutMs, '--timeout-ms'),
+				runs: BenchmarkCommand._positiveInteger(raw.runs, '--runs'),
+				warmupRuns: BenchmarkCommand._positiveInteger(raw.warmupRuns, '--warmup-runs', true),
+				timeoutMs: BenchmarkCommand._positiveInteger(raw.timeoutMs, '--timeout-ms'),
 			},
 			format: raw.format,
 		};
@@ -760,20 +760,20 @@ export class Benchmark {
 		];
 		for (const summary of report.summaries) {
 			lines.push(`${summary.name} (${summary.model})`);
-			lines.push(`  TTFC:   ${Benchmark._rounded(summary.timeToFirstCharacterMs.average)} ms average, ${Benchmark._rounded(summary.timeToFirstCharacterMs.median)} ms median, ${Benchmark._rounded(summary.timeToFirstCharacterMs.minimum)}–${Benchmark._rounded(summary.timeToFirstCharacterMs.maximum)} ms range`);
-			lines.push(`  TTLC:   ${Benchmark._rounded(summary.timeToLastCharacterMs.average)} ms average, ${Benchmark._rounded(summary.timeToLastCharacterMs.median)} ms median, ${Benchmark._rounded(summary.timeToLastCharacterMs.minimum)}–${Benchmark._rounded(summary.timeToLastCharacterMs.maximum)} ms range`);
-			lines.push(`  OCPS:   ${Benchmark._rounded(summary.outputCharactersPerSecond.average)} characters/second average`);
+			lines.push(`  TTFC:   ${BenchmarkCommand._rounded(summary.timeToFirstCharacterMs.average)} ms average, ${BenchmarkCommand._rounded(summary.timeToFirstCharacterMs.median)} ms median, ${BenchmarkCommand._rounded(summary.timeToFirstCharacterMs.minimum)}–${BenchmarkCommand._rounded(summary.timeToFirstCharacterMs.maximum)} ms range`);
+			lines.push(`  TTLC:   ${BenchmarkCommand._rounded(summary.timeToLastCharacterMs.average)} ms average, ${BenchmarkCommand._rounded(summary.timeToLastCharacterMs.median)} ms median, ${BenchmarkCommand._rounded(summary.timeToLastCharacterMs.minimum)}–${BenchmarkCommand._rounded(summary.timeToLastCharacterMs.maximum)} ms range`);
+			lines.push(`  OCPS:   ${BenchmarkCommand._rounded(summary.outputCharactersPerSecond.average)} characters/second average`);
 			lines.push(`  input:  ${summary.inputCharacters} characters`);
-			lines.push(`  output: ${Benchmark._rounded(summary.outputCharacters.average)} characters average`);
+			lines.push(`  output: ${BenchmarkCommand._rounded(summary.outputCharacters.average)} characters average`);
 		}
 		if (report.webaiOverhead !== undefined) {
 			lines.push(
-				`webai-at-home TTFC overhead: ${Benchmark._rounded(report.webaiOverhead.timeToFirstCharacterMs.averageMs)} ms per request ` +
-					`(${Benchmark._rounded(report.webaiOverhead.timeToFirstCharacterMs.percentOfDirectAverage)}% of the direct average)`,
+				`webai-at-home TTFC overhead: ${BenchmarkCommand._rounded(report.webaiOverhead.timeToFirstCharacterMs.averageMs)} ms per request ` +
+					`(${BenchmarkCommand._rounded(report.webaiOverhead.timeToFirstCharacterMs.percentOfDirectAverage)}% of the direct average)`,
 			);
 			lines.push(
-				`webai-at-home TTLC overhead: ${Benchmark._rounded(report.webaiOverhead.timeToLastCharacterMs.averageMs)} ms per request ` +
-					`(${Benchmark._rounded(report.webaiOverhead.timeToLastCharacterMs.percentOfDirectAverage)}% of the direct average)`,
+				`webai-at-home TTLC overhead: ${BenchmarkCommand._rounded(report.webaiOverhead.timeToLastCharacterMs.averageMs)} ms per request ` +
+					`(${BenchmarkCommand._rounded(report.webaiOverhead.timeToLastCharacterMs.percentOfDirectAverage)}% of the direct average)`,
 			);
 		}
 		return lines.join('\n');
@@ -798,22 +798,22 @@ export class Benchmark {
 					summary.name,
 					'|',
 					summary.model,
-					`| ${Benchmark._rounded(summary.timeToFirstCharacterMs.average)} ms`,
-					`| ${Benchmark._rounded(summary.timeToLastCharacterMs.average)} ms`,
-					`| ${Benchmark._rounded(summary.outputCharactersPerSecond.average)} chars/s`,
+					`| ${BenchmarkCommand._rounded(summary.timeToFirstCharacterMs.average)} ms`,
+					`| ${BenchmarkCommand._rounded(summary.timeToLastCharacterMs.average)} ms`,
+					`| ${BenchmarkCommand._rounded(summary.outputCharactersPerSecond.average)} chars/s`,
 					`| ${summary.inputCharacters}`,
-					`| ${Benchmark._rounded(summary.outputCharacters.average)} |`,
+					`| ${BenchmarkCommand._rounded(summary.outputCharacters.average)} |`,
 				].join(' ')),
 			].join('\n'),
 		];
 		if (report.webaiOverhead !== undefined) {
 			blocks.push(
-				`webai-at-home TTFC overhead: **${Benchmark._rounded(report.webaiOverhead.timeToFirstCharacterMs.averageMs)} ms** per request `
-					+ `(${Benchmark._rounded(report.webaiOverhead.timeToFirstCharacterMs.percentOfDirectAverage)}% of the direct average)`,
+				`webai-at-home TTFC overhead: **${BenchmarkCommand._rounded(report.webaiOverhead.timeToFirstCharacterMs.averageMs)} ms** per request `
+					+ `(${BenchmarkCommand._rounded(report.webaiOverhead.timeToFirstCharacterMs.percentOfDirectAverage)}% of the direct average)`,
 			);
 			blocks.push(
-				`webai-at-home TTLC overhead: **${Benchmark._rounded(report.webaiOverhead.timeToLastCharacterMs.averageMs)} ms** per request `
-					+ `(${Benchmark._rounded(report.webaiOverhead.timeToLastCharacterMs.percentOfDirectAverage)}% of the direct average)`,
+				`webai-at-home TTLC overhead: **${BenchmarkCommand._rounded(report.webaiOverhead.timeToLastCharacterMs.averageMs)} ms** per request `
+					+ `(${BenchmarkCommand._rounded(report.webaiOverhead.timeToLastCharacterMs.percentOfDirectAverage)}% of the direct average)`,
 			);
 		}
 		return `${blocks.join('\n\n')}\n`;

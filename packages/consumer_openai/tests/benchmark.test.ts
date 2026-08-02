@@ -1,7 +1,7 @@
 import Assert from 'node:assert/strict';
 import Http from 'node:http';
 import Test from 'node:test';
-import { Benchmark, type BenchmarkOptions, type BenchmarkTarget, type CompletionResult } from '../src/benchmark.js';
+import { BenchmarkCommand, type BenchmarkOptions, type BenchmarkTarget, type CompletionResult } from '../src/commands/benchmark_command.js';
 
 const directTarget: BenchmarkTarget = {
 	name: 'LM Studio',
@@ -38,7 +38,7 @@ function completionResult(answer: string, timeToFirstCharacterMs: number, timeTo
 }
 
 Test('summarizes every metric from measured samples', () => {
-	const summary = Benchmark.summarizeSamples(directTarget, [
+	const summary = BenchmarkCommand.summarizeSamples(directTarget, [
 		{
 			run: 1,
 			timeToFirstCharacterMs: 10,
@@ -67,7 +67,7 @@ Test('summarizes every metric from measured samples', () => {
 });
 
 Test('computes Output Characters per Second from the Time to First and Time to Last Character of the completion', async () => {
-	const report = await Benchmark.runBenchmark({ ...options, target: 'direct', runs: 1, warmupRuns: 0 }, async () => completionResult('0123456789', 100, 600));
+	const report = await BenchmarkCommand.runBenchmark({ ...options, target: 'direct', runs: 1, warmupRuns: 0 }, async () => completionResult('0123456789', 100, 600));
 	const sample = report.summaries[0].samples[0];
 	Assert.equal(sample.timeToFirstCharacterMs, 100);
 	Assert.equal(sample.timeToLastCharacterMs, 600);
@@ -78,14 +78,14 @@ Test('computes Output Characters per Second from the Time to First and Time to L
 });
 
 Test('floors the streaming duration at 1 ms rather than dividing by zero when TTFC equals TTLC', async () => {
-	const report = await Benchmark.runBenchmark({ ...options, target: 'direct', runs: 1, warmupRuns: 0 }, async () => completionResult('whole answer', 50, 50));
+	const report = await BenchmarkCommand.runBenchmark({ ...options, target: 'direct', runs: 1, warmupRuns: 0 }, async () => completionResult('whole answer', 50, 50));
 	const sample = report.summaries[0].samples[0];
 	Assert.equal(sample.outputCharactersPerSecond, 'whole answer'.length * 1_000);
 });
 
 Test('runs warm-ups and measurements sequentially, direct endpoint before webai-at-home', async () => {
 	const calls: string[] = [];
-	const report = await Benchmark.runBenchmark(options, async (target, prompt, timeoutMs) => {
+	const report = await BenchmarkCommand.runBenchmark(options, async (target, prompt, timeoutMs) => {
 		calls.push(`${target.name}:${prompt}:${timeoutMs}`);
 		return target.name === 'LM Studio' ? completionResult('direct answer', 5, 50) : completionResult('WebAI answer', 8, 60);
 	});
@@ -104,9 +104,9 @@ Test('runs warm-ups and measurements sequentially, direct endpoint before webai-
 });
 
 Test('writes the same report out as text, markdown, and JSON', async () => {
-	const report = await Benchmark.runBenchmark(options, async (target) => (target.name === 'LM Studio' ? completionResult('direct answer', 5, 50) : completionResult('WebAI answer', 8, 60)));
+	const report = await BenchmarkCommand.runBenchmark(options, async (target) => (target.name === 'LM Studio' ? completionResult('direct answer', 5, 50) : completionResult('WebAI answer', 8, 60)));
 
-	const text = Benchmark.formatReport(report, 'text');
+	const text = BenchmarkCommand.formatReport(report, 'text');
 	Assert.match(text, /OpenAI API benchmark \(parallelism: 1\)/);
 	Assert.match(text, /TTFC:/);
 	Assert.match(text, /TTLC:/);
@@ -114,13 +114,13 @@ Test('writes the same report out as text, markdown, and JSON', async () => {
 	Assert.match(text, /webai-at-home TTFC overhead:/);
 	Assert.match(text, /webai-at-home TTLC overhead:/);
 
-	const markdown = Benchmark.formatReport(report, 'markdown');
+	const markdown = BenchmarkCommand.formatReport(report, 'markdown');
 	Assert.match(markdown, /^# OpenAI API benchmark/);
 	Assert.match(markdown, /\| Endpoint \| Model \| TTFC \| TTLC \| OCPS \| Input chars \| Output chars \|/);
 	Assert.match(markdown, /\| LM Studio \|/);
 	Assert.match(markdown, /\| webai-at-home \|/);
 
-	const json = Benchmark.formatReport(report, 'json');
+	const json = BenchmarkCommand.formatReport(report, 'json');
 	const parsed = JSON.parse(json);
 	Assert.equal(parsed.settings.runs, options.runs);
 	Assert.equal(parsed.summaries[0].name, 'LM Studio');
@@ -128,15 +128,15 @@ Test('writes the same report out as text, markdown, and JSON', async () => {
 });
 
 Test('accepts only the formats it knows about', () => {
-	Assert.equal(Benchmark.isReportFormat('text'), true);
-	Assert.equal(Benchmark.isReportFormat('markdown'), true);
-	Assert.equal(Benchmark.isReportFormat('json'), true);
-	Assert.equal(Benchmark.isReportFormat('yaml'), false);
+	Assert.equal(BenchmarkCommand.isReportFormat('text'), true);
+	Assert.equal(BenchmarkCommand.isReportFormat('markdown'), true);
+	Assert.equal(BenchmarkCommand.isReportFormat('json'), true);
+	Assert.equal(BenchmarkCommand.isReportFormat('yaml'), false);
 });
 
 Test('measures only the direct endpoint, and reports no webai-at-home overhead to compare against', async () => {
 	const calls: string[] = [];
-	const report = await Benchmark.runBenchmark({ ...options, target: 'direct' }, async (target) => {
+	const report = await BenchmarkCommand.runBenchmark({ ...options, target: 'direct' }, async (target) => {
 		calls.push(target.name);
 		return completionResult('direct answer', 5, 50);
 	});
@@ -149,7 +149,7 @@ Test('measures only the direct endpoint, and reports no webai-at-home overhead t
 
 Test('measures only the webai-at-home endpoint, and reports no webai-at-home overhead to compare against', async () => {
 	const calls: string[] = [];
-	const report = await Benchmark.runBenchmark({ ...options, target: 'webai' }, async (target) => {
+	const report = await BenchmarkCommand.runBenchmark({ ...options, target: 'webai' }, async (target) => {
 		calls.push(target.name);
 		return completionResult('webai answer', 8, 60);
 	});
@@ -160,18 +160,18 @@ Test('measures only the webai-at-home endpoint, and reports no webai-at-home ove
 });
 
 Test('leaves the overhead lines out of every format when only one endpoint was measured', async () => {
-	const report = await Benchmark.runBenchmark({ ...options, target: 'direct' }, async () => completionResult('direct answer', 5, 50));
+	const report = await BenchmarkCommand.runBenchmark({ ...options, target: 'direct' }, async () => completionResult('direct answer', 5, 50));
 
-	Assert.doesNotMatch(Benchmark.formatReport(report, 'text'), /webai-at-home .* overhead/);
-	Assert.doesNotMatch(Benchmark.formatReport(report, 'markdown'), /webai-at-home .* overhead/);
-	Assert.equal(JSON.parse(Benchmark.formatReport(report, 'json')).webaiOverhead, undefined);
+	Assert.doesNotMatch(BenchmarkCommand.formatReport(report, 'text'), /webai-at-home .* overhead/);
+	Assert.doesNotMatch(BenchmarkCommand.formatReport(report, 'markdown'), /webai-at-home .* overhead/);
+	Assert.equal(JSON.parse(BenchmarkCommand.formatReport(report, 'json')).webaiOverhead, undefined);
 });
 
 Test('accepts only the target selections it knows about', () => {
-	Assert.equal(Benchmark.isTargetSelection('direct'), true);
-	Assert.equal(Benchmark.isTargetSelection('webai'), true);
-	Assert.equal(Benchmark.isTargetSelection('both'), true);
-	Assert.equal(Benchmark.isTargetSelection('neither'), false);
+	Assert.equal(BenchmarkCommand.isTargetSelection('direct'), true);
+	Assert.equal(BenchmarkCommand.isTargetSelection('webai'), true);
+	Assert.equal(BenchmarkCommand.isTargetSelection('both'), true);
+	Assert.equal(BenchmarkCommand.isTargetSelection('neither'), false);
 });
 
 Test('reads Time to First and Time to Last Character from a real server-sent event stream, spaced out over real wall-clock time', async () => {
@@ -201,7 +201,7 @@ Test('reads Time to First and Time to Last Character from a real server-sent eve
 			baseUrl: `http://127.0.0.1:${address.port}`,
 			model: 'irrelevant-to-this-test',
 		};
-		const result = await Benchmark.requestOpenaiCompletion(target, 'say hello', 5_000);
+		const result = await BenchmarkCommand.requestOpenaiCompletion(target, 'say hello', 5_000);
 		Assert.equal(result.answer, 'Hello, world');
 		// The two content chunks are spaced 40 ms and then 60 ms apart, so TTFC must land after
 		// roughly the first wait and TTLC after roughly both — proof this measures real elapsed
@@ -231,7 +231,7 @@ Test('falls back to reading one JSON body when the server answers stream: true w
 			baseUrl: `http://127.0.0.1:${address.port}`,
 			model: 'irrelevant-to-this-test',
 		};
-		const result = await Benchmark.requestOpenaiCompletion(target, 'say hello', 5_000);
+		const result = await BenchmarkCommand.requestOpenaiCompletion(target, 'say hello', 5_000);
 		Assert.equal(result.answer, 'whole answer, no streaming');
 		Assert.equal(result.timeToFirstCharacterMs, result.timeToLastCharacterMs);
 	} finally {
