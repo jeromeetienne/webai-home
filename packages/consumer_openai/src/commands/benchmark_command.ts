@@ -655,7 +655,7 @@ export class BenchmarkCommand {
 	 * @returns The benchmark options and whether the report should be printed as JSON.
 	 */
 	private static _parseOptions(args: string[]): ParsedCommandLine {
-		const defaultPrompt = 'What is the capital of France? Answer in one short sentence.';
+		const defaultPrompt = 'Count up to 30';
 		const program = new Command('benchmark')
 			.description('Compare direct LM Studio latency with the same model behind webai-at-home')
 			.option('--direct-base-url <url>', 'LM Studio OpenAI-compatible API base URL', 'http://localhost:1234/v1')
