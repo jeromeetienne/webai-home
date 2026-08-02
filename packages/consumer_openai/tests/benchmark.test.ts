@@ -63,3 +63,29 @@ Test('runs warm-ups and measurements sequentially, direct endpoint before webai-
 	Assert.equal(report.summaries[0].averageResponseCharacters, 'direct answer'.length);
 	Assert.equal(report.summaries[1].averageResponseCharacters, 'WebAI answer'.length);
 });
+
+Test('writes the same report out as text, markdown, and JSON', async () => {
+	const report = await Benchmark.runBenchmark(options, async (target) => (target.name === 'LM Studio' ? 'direct answer' : 'WebAI answer'));
+
+	const text = Benchmark.formatReport(report, 'text');
+	Assert.match(text, /OpenAI API benchmark \(parallelism: 1\)/);
+	Assert.match(text, /webai-at-home overhead:/);
+
+	const markdown = Benchmark.formatReport(report, 'markdown');
+	Assert.match(markdown, /^# OpenAI API benchmark/);
+	Assert.match(markdown, /\| Endpoint \| Model \| Average \| Median \| Range \| Answer length \| Output \|/);
+	Assert.match(markdown, /\| LM Studio \|/);
+	Assert.match(markdown, /\| webai-at-home \|/);
+
+	const json = Benchmark.formatReport(report, 'json');
+	const parsed = JSON.parse(json);
+	Assert.equal(parsed.settings.runs, options.runs);
+	Assert.equal(parsed.summaries[0].name, 'LM Studio');
+});
+
+Test('accepts only the formats it knows about', () => {
+	Assert.equal(Benchmark.isReportFormat('text'), true);
+	Assert.equal(Benchmark.isReportFormat('markdown'), true);
+	Assert.equal(Benchmark.isReportFormat('json'), true);
+	Assert.equal(Benchmark.isReportFormat('yaml'), false);
+});

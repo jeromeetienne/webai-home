@@ -102,6 +102,12 @@ export type BenchmarkReport = {
 	};
 };
 
+/** The ways `benchmark` can write its report out. */
+export type BenchmarkReportFormat = 'text' | 'markdown' | 'json';
+
+/** Every format `benchmark` accepts, in the order the help text lists them. */
+export const benchmarkReportFormats: BenchmarkReportFormat[] = ['text', 'markdown', 'json'];
+
 /** The completion request used by the runner, replaceable for deterministic tests. */
 export type CompletionRequester = (target: BenchmarkTarget, prompt: string, timeoutMs: number) => Promise<string>;
 
@@ -137,16 +143,16 @@ type RawOptions = {
 	timeoutMs: string;
 	/** The optional bearer token sent to both endpoints. */
 	apiKey?: string;
-	/** Whether the complete report should be printed as JSON. */
-	json?: boolean;
+	/** The output format, still unchecked against `benchmarkReportFormats`. */
+	format: string;
 };
 
 /** The parsed command line, split into the benchmark options and the output format. */
 type ParsedCommandLine = {
 	/** The options that control one benchmark run. */
 	options: BenchmarkOptions;
-	/** Whether the complete report should be printed as JSON. */
-	isJson: boolean;
+	/** Which format to print the report in. */
+	format: BenchmarkReportFormat;
 };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -284,13 +290,36 @@ export class Benchmark {
 	 * @returns Nothing, once the report has been printed.
 	 */
 	static async runCli(args: string[] = process.argv.slice(2)): Promise<void> {
-		const { options, isJson } = Benchmark._parseOptions(args);
+		const { options, format } = Benchmark._parseOptions(args);
 		const report = await Benchmark.runBenchmark(options);
-		if (isJson === true) {
-			console.log(JSON.stringify(report, null, 2));
-		} else {
-			Benchmark._printHumanReport(report);
+		console.log(Benchmark.formatReport(report, format));
+	}
+
+	/**
+	 * Writes a report out in the requested format.
+	 *
+	 * @param report The full benchmark report to write.
+	 * @param format Which format to write.
+	 * @returns The whole report as one string, ready to print.
+	 */
+	static formatReport(report: BenchmarkReport, format: BenchmarkReportFormat): string {
+		if (format === 'json') {
+			return JSON.stringify(report, null, 2);
 		}
+		if (format === 'markdown') {
+			return Benchmark._renderMarkdownReport(report);
+		}
+		return Benchmark._renderTextReport(report);
+	}
+
+	/**
+	 * Reports whether a string names a format `formatReport` can write.
+	 *
+	 * @param value The value to check, as typed on the command line.
+	 * @returns `true` when the value names a format.
+	 */
+	static isReportFormat(value: string): value is BenchmarkReportFormat {
+		return (benchmarkReportFormats as string[]).includes(value);
 	}
 
 	///////////////////////////////////////////////////////////////////////////////
@@ -371,8 +400,11 @@ export class Benchmark {
 			.option('--warmup-runs <number>', 'unreported warm-up requests per endpoint', '1')
 			.option('--timeout-ms <number>', 'maximum time for one request', '600000')
 			.option('--api-key <key>', 'optional bearer token sent to both endpoints')
-			.option('--json', 'print the complete report as JSON');
+			.option('-f, --format <format>', `output format: ${benchmarkReportFormats.join(', ')}`, 'text');
 		const raw = program.parse(args, { from: 'user' }).opts<RawOptions>();
+		if (Benchmark.isReportFormat(raw.format) === false) {
+			throw new Error(`--format must be one of ${benchmarkReportFormats.join(', ')}`);
+		}
 		return {
 			options: {
 				directTarget: Benchmark._buildTarget('LM Studio', raw.directBaseUrl, raw.directModel, raw.apiKey),
@@ -382,7 +414,7 @@ export class Benchmark {
 				warmupRuns: Benchmark._positiveInteger(raw.warmupRuns, '--warmup-runs', true),
 				timeoutMs: Benchmark._positiveInteger(raw.timeoutMs, '--timeout-ms'),
 			},
-			isJson: raw.json === true,
+			format: raw.format,
 		};
 	}
 
@@ -445,30 +477,62 @@ export class Benchmark {
 	}
 
 	/**
-	 * Prints the report in a compact human-readable form.
+	 * Renders the report as the compact human-readable text printed to a terminal.
 	 *
-	 * @param report The full benchmark report to print.
-	 * @returns Nothing.
+	 * @param report The full benchmark report to render.
+	 * @returns The whole report as one string.
 	 */
-	private static _printHumanReport(report: BenchmarkReport): void {
-		console.log(`OpenAI API benchmark (parallelism: ${report.settings.parallelism})`);
-		console.log(
-			`Measured requests per endpoint: ${report.settings.runs}; ` +
-				`warm-up requests: ${report.settings.warmupRuns}`,
-		);
+	private static _renderTextReport(report: BenchmarkReport): string {
+		const lines: string[] = [
+			`OpenAI API benchmark (parallelism: ${report.settings.parallelism})`,
+			`Measured requests per endpoint: ${report.settings.runs}; warm-up requests: ${report.settings.warmupRuns}`,
+		];
 		for (const summary of report.summaries) {
 			const range = `${Benchmark._rounded(summary.minimumElapsedMs)}–${Benchmark._rounded(summary.maximumElapsedMs)}`;
-			console.log(`${summary.name} (${summary.model})`);
-			console.log(`  average: ${Benchmark._rounded(summary.averageElapsedMs)} ms`);
-			console.log(`  median:  ${Benchmark._rounded(summary.medianElapsedMs)} ms`);
-			console.log(`  range:   ${range} ms`);
-			console.log(`  answer:  ${Benchmark._rounded(summary.averageResponseCharacters)} characters on average`);
-			console.log(`  output:  ${Benchmark._rounded(summary.responseCharactersPerSecond)} characters/second`);
+			lines.push(`${summary.name} (${summary.model})`);
+			lines.push(`  average: ${Benchmark._rounded(summary.averageElapsedMs)} ms`);
+			lines.push(`  median:  ${Benchmark._rounded(summary.medianElapsedMs)} ms`);
+			lines.push(`  range:   ${range} ms`);
+			lines.push(`  answer:  ${Benchmark._rounded(summary.averageResponseCharacters)} characters on average`);
+			lines.push(`  output:  ${Benchmark._rounded(summary.responseCharactersPerSecond)} characters/second`);
 		}
-		console.log(
+		lines.push(
 			`webai-at-home overhead: ${Benchmark._rounded(report.webaiOverhead.averageElapsedMs)} ms per request ` +
 				`(${Benchmark._rounded(report.webaiOverhead.percentOfDirectAverage)}% of the direct average)`,
 		);
+		return lines.join('\n');
+	}
+
+	/**
+	 * Renders the report as markdown, so it can be pasted straight into an issue, a pull
+	 * request, or a notes file and still read as a report.
+	 *
+	 * @param report The full benchmark report to render.
+	 * @returns The whole report as one markdown document.
+	 */
+	private static _renderMarkdownReport(report: BenchmarkReport): string {
+		const blocks: string[] = [
+			'# OpenAI API benchmark',
+			`Parallelism: ${report.settings.parallelism} · measured requests per endpoint: ${report.settings.runs} · warm-up requests: ${report.settings.warmupRuns}`,
+			[
+				'| Endpoint | Model | Average | Median | Range | Answer length | Output |',
+				'| --- | --- | ---: | ---: | ---: | ---: | ---: |',
+				...report.summaries.map((summary) => [
+					'|',
+					summary.name,
+					'|',
+					summary.model,
+					`| ${Benchmark._rounded(summary.averageElapsedMs)} ms`,
+					`| ${Benchmark._rounded(summary.medianElapsedMs)} ms`,
+					`| ${Benchmark._rounded(summary.minimumElapsedMs)}–${Benchmark._rounded(summary.maximumElapsedMs)} ms`,
+					`| ${Benchmark._rounded(summary.averageResponseCharacters)} characters`,
+					`| ${Benchmark._rounded(summary.responseCharactersPerSecond)} characters/second |`,
+				].join(' ')),
+			].join('\n'),
+			`webai-at-home overhead: **${Benchmark._rounded(report.webaiOverhead.averageElapsedMs)} ms** per request `
+				+ `(${Benchmark._rounded(report.webaiOverhead.percentOfDirectAverage)}% of the direct average)`,
+		];
+		return `${blocks.join('\n\n')}\n`;
 	}
 }
 

@@ -40,10 +40,11 @@ npm run benchmark --workspace @webai/consumer-openai
 The defaults are LM Studio at `http://localhost:1234/v1` with
 `llama-3.2-3b-instruct`, and webai-at-home at `http://localhost:8788/v1` with
 `llm_llama3_2_3b_full`. Change either endpoint or model with the command-line options. Use
-`--json` to save a machine-readable report:
+`-f/--format` to choose the output format: `text` (default), `markdown` (pipe tables, for
+pasting into an issue or a notes file), or `json` (a machine-readable report):
 
 ```sh
-npm run benchmark --workspace @webai/consumer-openai -- --runs 10 --json
+npm run benchmark --workspace @webai/consumer-openai -- --runs 10 --format json
 ```
 
 The report measures wall-clock latency and response size. It reports the webai-at-home latency
