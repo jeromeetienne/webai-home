@@ -1,4 +1,6 @@
-import { protocolVersion, supportedProtocolVersions, type ClientMessage, type GatewayEnvelope, type GatewayMessage } from './index.js';
+import type { ClientMessage } from './client_message.js';
+import { protocolVersion, supportedProtocolVersions, type GatewayEnvelope } from './envelope_types.js';
+import type { GatewayMessage } from './gateway_message.js';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////

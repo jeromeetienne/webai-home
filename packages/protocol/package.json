@@ -10,16 +10,16 @@
       "default": "./dist/index.js"
     },
     "./message_logger": {
-      "types": "./dist/message_logger.d.ts",
-      "default": "./dist/message_logger.js"
+      "types": "./dist/message/message_logger.d.ts",
+      "default": "./dist/message/message_logger.js"
     },
     "./task_projection": {
-      "types": "./dist/task_projection.d.ts",
-      "default": "./dist/task_projection.js"
+      "types": "./dist/task/task_projection.d.ts",
+      "default": "./dist/task/task_projection.js"
     },
     "./envelope": {
-      "types": "./dist/envelope.d.ts",
-      "default": "./dist/envelope.js"
+      "types": "./dist/message/envelope.d.ts",
+      "default": "./dist/message/envelope.js"
     },
     "./session_renewal": {
       "types": "./dist/session_renewal.d.ts",

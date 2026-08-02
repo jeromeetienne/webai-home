@@ -1,4 +1,4 @@
-import { maximumSnapshotEventCount, type Task, type TaskSnapshot, type TaskUpdate, type TaskUpdateAssignment } from './index.js';
+import { maximumSnapshotEventCount, type Task, type TaskSnapshot, type TaskUpdate, type TaskUpdateAssignment } from './task_types.js';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////

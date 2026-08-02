@@ -1,4 +1,5 @@
-import type { EncodedTensor, LlmStagePayload, StagePayload, TaskInput } from './index.js';
+import type { TaskInput } from '../task/task_types.js';
+import type { EncodedTensor, LlmStagePayload, StagePayload } from './stage_payload_types.js';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////

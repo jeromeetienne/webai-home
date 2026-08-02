@@ -5,10 +5,10 @@ import Path from 'node:path';
 import Test from 'node:test';
 import { ClientEnvelopeSchema, ClientMessageSchema, DiagnosticsBatchSchema, GeneratedText, PipelineSpecificationSchema, PipelineStageSchema, StageName, StagePayloadFactory, TaskInput, TaskState, maximumDiagnosticEntriesPerBatch, maximumSnapshotEventCount, protocolVersion } from '../src/index.js';
 import type { Task, TaskEvent } from '../src/index.js';
-import { MessageLogger } from '../src/message_logger.js';
-import type { LogEntry } from '../src/message_logger.js';
-import { TaskProjection } from '../src/task_projection.js';
-import { Envelope } from '../src/envelope.js';
+import { MessageLogger } from '../src/message/message_logger.js';
+import type { LogEntry } from '../src/message/message_logger.js';
+import { TaskProjection } from '../src/task/task_projection.js';
+import { Envelope } from '../src/message/envelope.js';
 import { SessionRenewal } from '../src/session_renewal.js';
 
 ///////////////////////////////////////////////////////////////////////////////

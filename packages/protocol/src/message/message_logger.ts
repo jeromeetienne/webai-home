@@ -78,7 +78,7 @@ export type LogEntry = {
  *
  * Node.js only — a browser worker page cannot write files itself and instead reports which
  * messages it saw to the gateway's diagnostics endpoint over HTTP (see `DiagnosticsBatchSchema`
- * in `index.ts`), and the gateway appends them to that worker's own log file on its behalf.
+ * in `diagnostics.ts`), and the gateway appends them to that worker's own log file on its behalf.
  * That reporting deliberately travels off the connection that carries scheduling.
  */
 export class MessageLogger {
