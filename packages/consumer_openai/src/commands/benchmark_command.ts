@@ -760,6 +760,7 @@ export class BenchmarkCommand {
 			`Measured requests per endpoint: ${report.settings.runs}; warm-up requests: ${report.settings.warmupRuns}`,
 		];
 		for (const summary of report.summaries) {
+			lines.push('');
 			lines.push(`${summary.name} (${summary.model})`);
 			lines.push(`  Time to First Character:      ${BenchmarkCommand._rounded(summary.timeToFirstCharacterMs.average)} ms average, ${BenchmarkCommand._rounded(summary.timeToFirstCharacterMs.median)} ms median, ${BenchmarkCommand._rounded(summary.timeToFirstCharacterMs.minimum)}–${BenchmarkCommand._rounded(summary.timeToFirstCharacterMs.maximum)} ms range`);
 			lines.push(`  Time to Last Character:       ${BenchmarkCommand._rounded(summary.timeToLastCharacterMs.average)} ms average, ${BenchmarkCommand._rounded(summary.timeToLastCharacterMs.median)} ms median, ${BenchmarkCommand._rounded(summary.timeToLastCharacterMs.minimum)}–${BenchmarkCommand._rounded(summary.timeToLastCharacterMs.maximum)} ms range`);
@@ -768,6 +769,7 @@ export class BenchmarkCommand {
 			lines.push(`  Output Characters:            ${BenchmarkCommand._rounded(summary.outputCharacters.average)} characters average`);
 		}
 		if (report.webaiOverhead !== undefined) {
+			lines.push('');
 			lines.push(
 				`webai-at-home Time to First Character overhead: ${BenchmarkCommand._rounded(report.webaiOverhead.timeToFirstCharacterMs.averageMs)} ms per request ` +
 					`(${BenchmarkCommand._rounded(report.webaiOverhead.timeToFirstCharacterMs.percentOfDirectAverage)}% of the direct average)`,
