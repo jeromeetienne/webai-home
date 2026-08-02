@@ -22,15 +22,17 @@
     "sample:llm_llama3_2_3b_full": "npx tsx src/cli.ts submit --task_type llm_llama3_2_3b_full --consumer_name llm-llama3-2-3b-full-consumer 'What is the capital of France?' | jq",
     "sample:status": "npx tsx src/cli.ts status --json | jq",
     "sample:capacity": "npx tsx src/cli.ts capacity --task_type dev_formula --json | jq",
+    "sample:log_stats": "npx tsx src/cli.ts log_stats ../gateway/logs/$(ls -t ../gateway/logs | grep log_entry.jsonl | head -1)",
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json",
     "dev": "tsx src/cli.ts",
-    "test": "npx tsx --test tests/index.test.ts"
+    "test": "npx tsx --test tests/index.test.ts tests/log_stats.test.ts"
   },
   "dependencies": {
     "@webai/protocol": "0.1.0",
     "commander": "^12.1.0",
-    "ws": "^8.18.0"
+    "ws": "^8.18.0",
+    "zod": "^3.24.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

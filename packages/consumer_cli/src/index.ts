@@ -13,5 +13,5 @@
  * this entry point, matching how `@webai/protocol` exposes both a `.` entry point and named
  * subpaths such as `./envelope`.
  */
-export { ConsumerClient, type ConsumerClientCallbacks, type TaskSocket } from './libs/consumer_client.js';
+export { ConsumerClient, type ConsumerClientCallbacks, type TaskSocket } from './gateway_connection/consumer_client.js';
 export { TaskInputFactory, taskTypeNames, type TaskTypeName } from './libs/task_input_factory.js';

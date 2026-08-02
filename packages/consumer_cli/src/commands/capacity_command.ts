@@ -1,6 +1,6 @@
 import type { Device, PipelineSpecification, TaskType } from '@webai/protocol';
-import { GatewaySession } from '../libs/gateway_session.js';
-import { CapacityCalculator } from '../libs/capacity_calculator.js';
+import { GatewaySession } from '../gateway_connection/gateway_session.js';
+import { CapacityCalculator } from '../cluster_capacity/capacity_calculator.js';
 import { TaskInputFactory, taskTypeNames } from '../libs/task_input_factory.js';
 
 ///////////////////////////////////////////////////////////////////////////////

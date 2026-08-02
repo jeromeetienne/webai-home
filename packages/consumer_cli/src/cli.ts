@@ -7,10 +7,12 @@ import { CliError } from './libs/cli_errors.js';
 import { SubmitCommand } from './commands/submit_command.js';
 import { StatusCommand } from './commands/status_command.js';
 import { CapacityCommand } from './commands/capacity_command.js';
+import { LogStatsCommand } from './commands/log_stats_command.js';
+import { LogStatisticsFormatter, logStatisticsFormats } from './message_log/log_statistics_formatter.js';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
-//	Cli — the consumer command line program: submit, status, and capacity
+//	Cli — the consumer command line program: submit, status, capacity, and log_stats
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -22,8 +24,9 @@ type GlobalOptions = { url: string; authToken?: string };
 
 /**
  * The command line program of the consumer: `submit` sends one task to the central gateway,
- * `status` reports the current worker cluster state, and `capacity` estimates how many
- * concurrent runs of a task type the cluster can currently support.
+ * `status` reports the current worker cluster state, `capacity` estimates how many concurrent
+ * runs of a task type the cluster can currently support, and `log_stats` measures one already
+ * recorded message log file without connecting to anything.
  */
 export class Cli {
 	/**
@@ -86,6 +89,23 @@ export class Cli {
 					timeoutMs: Number(options.timeout),
 					type: options.task_type,
 					json: options.json === true,
+				});
+			});
+
+		program
+			.command('log_stats')
+			.description('measure one .log_entry.jsonl message log file and print what it says: how much traffic it carried, who carried it, how long every answer took, what became of every task and every stage run, and anything worth a second look')
+			.argument('<file>', 'path of the .log_entry.jsonl file to measure')
+			.option('-f, --format <format>', `output format: ${logStatisticsFormats.join(', ')}`, 'text')
+			.option('--top <count>', 'how many rows of each table to print before the rest are only counted', '12')
+			.action(async (file: string, localOptions: { format: string; top: string }): Promise<void> => {
+				if (LogStatisticsFormatter.isFormat(localOptions.format) === false) throw new Error(`Format must be one of ${logStatisticsFormats.join(', ')}`);
+				const top = Number(localOptions.top);
+				if (Number.isInteger(top) === false || top < 1) throw new Error('Top must be a whole number of at least 1');
+				await LogStatsCommand.run({
+					filePath: file,
+					format: localOptions.format,
+					top,
 				});
 			});
 

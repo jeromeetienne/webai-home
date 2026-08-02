@@ -2,7 +2,7 @@
 
 Command-line client for the central gateway: submitting tasks, reading the worker cluster's current state, and estimating its capacity.
 
-The program has three subcommands: `submit` sends one task and shows its updates until it completes or fails, `status` reports the connected workers and their free capacity, and `capacity` estimates how many concurrent runs of a task type the cluster can currently support.
+The program has four subcommands: `submit` sends one task and shows its updates until it completes or fails, `status` reports the connected workers and their free capacity, `capacity` estimates how many concurrent runs of a task type the cluster can currently support, and `log_stats` measures one already recorded `.log_entry.jsonl` message log file.
 
 ## Run with `npx`
 
@@ -111,6 +111,21 @@ A pipeline whose every stage keeps state on one worker between rounds — such a
 | `--timeout <ms>` | `10000` | How long to wait for the central gateway to answer. |
 
 An unknown task type is an error with a non-zero exit code. `--task_type` is required.
+
+## `log_stats`
+
+Reads one message log file — a `.log_entry.jsonl` file written by `MessageLogger` (see `@webai/protocol/message_logger`), for example one of the gateway's own `packages/gateway/logs/gateway-*.log_entry.jsonl` files — and prints everything it measures: how much traffic it carried, who carried it, how long every reply and every task and every stage run took, and anything about the file worth a second look. It never connects to the central gateway, so it measures a capture from weeks ago exactly the same way as one from a moment ago.
+
+```sh
+npm run dev --workspace @webai/consumer-cli -- log_stats ../gateway/logs/gateway-2026-08-02T03-09-46-028Z.log_entry.jsonl
+```
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `-f, --format <format>` | `text` | `text` (a human-readable report), `markdown` (the same report as pipe tables, for pasting into an issue or a notes file), or `json` (the full report as one JSON object). |
+| `--top <count>` | `12` | How many rows of each table to print before the rest are only counted. |
+
+A gateway log sees both the consumer and the worker side of every task, so it is the only log that can measure stage runs and worker compute time; a consumer's own log cannot see those, and reports "nothing measured" for them instead of guessing.
 
 ## Exit codes
 

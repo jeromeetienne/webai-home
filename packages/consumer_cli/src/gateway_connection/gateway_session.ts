@@ -2,7 +2,7 @@ import type { Device, PipelineSpecification, ProtocolErrorCode } from '@webai/pr
 import WebSocket from 'ws';
 import type { TaskSocket } from './consumer_client.js';
 import { ObserverClient } from './observer_client.js';
-import { CliError, type CliExitCode } from './cli_errors.js';
+import { CliError, type CliExitCode } from '../libs/cli_errors.js';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////

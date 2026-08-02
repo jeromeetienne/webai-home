@@ -2,7 +2,7 @@ import Url from 'node:url';
 import Path from 'node:path';
 import WebSocket from 'ws';
 import { MessageLogger } from '@webai/protocol/message_logger';
-import { ConsumerClient, type TaskSocket } from '../libs/consumer_client.js';
+import { ConsumerClient, type TaskSocket } from '../gateway_connection/consumer_client.js';
 import { TaskInputFactory, type TaskTypeName } from '../libs/task_input_factory.js';
 
 ///////////////////////////////////////////////////////////////////////////////

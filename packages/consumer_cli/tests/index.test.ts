@@ -1,10 +1,10 @@
 import Assert from 'node:assert/strict';
 import Test from 'node:test';
-import { ConsumerClient, type TaskSocket } from '../src/libs/consumer_client.js';
+import { ConsumerClient, type TaskSocket } from '../src/gateway_connection/consumer_client.js';
 import { TaskInputFactory, taskTypeNames } from '../src/libs/task_input_factory.js';
-import { DeviceAvailability } from '../src/libs/device_availability.js';
-import { CapacityCalculator } from '../src/libs/capacity_calculator.js';
-import { ObserverClient } from '../src/libs/observer_client.js';
+import { DeviceAvailability } from '../src/cluster_capacity/device_availability.js';
+import { CapacityCalculator } from '../src/cluster_capacity/capacity_calculator.js';
+import { ObserverClient } from '../src/gateway_connection/observer_client.js';
 import { protocolVersion, type Device, type PipelineSpecification, type ProtocolError } from '@webai/protocol';
 import * as ConsumerCli from '@webai/consumer-cli';
 

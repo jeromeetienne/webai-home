@@ -1,6 +1,6 @@
 import type { Device } from '@webai/protocol';
-import { GatewaySession } from '../libs/gateway_session.js';
-import { DeviceAvailability } from '../libs/device_availability.js';
+import { GatewaySession } from '../gateway_connection/gateway_session.js';
+import { DeviceAvailability } from '../cluster_capacity/device_availability.js';
 import type { CliError } from '../libs/cli_errors.js';
 
 ///////////////////////////////////////////////////////////////////////////////
