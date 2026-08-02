@@ -7,6 +7,12 @@ const __filename = import.meta.filename;
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 //	Benchmark — compares LM Studio latency directly with the same model behind webai-at-home
+//
+//	Every request asks for its answer in pieces (`stream: true`), so the benchmark can measure
+//	Time to First Character and Time to Last Character separately, the way a person waiting on
+//	the answer would experience the difference between the two. An endpoint that ignores the
+//	streaming request and answers in one piece still works: its first and last character then
+//	arrive at the same moment.
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -52,14 +58,47 @@ export type BenchmarkOptions = {
 	readonly timeoutMs: number;
 };
 
-/** The result of one measured request. */
+/** One statistic computed over a set of measured samples. */
+export type MetricStatistics = {
+	/** The arithmetic mean of the measured values. */
+	readonly average: number;
+	/** The middle measured value, or the mean of the two middle values. */
+	readonly median: number;
+	/** The smallest measured value. */
+	readonly minimum: number;
+	/** The largest measured value. */
+	readonly maximum: number;
+};
+
+/**
+ * The result of one measured request.
+ *
+ * These five figures are all directly observable from the client side: none of them needs
+ * knowledge of the model or its tokenizer, which is what keeps them comparable across
+ * different providers and APIs.
+ */
 export type BenchmarkSample = {
 	/** The one-based measured request number. */
 	readonly run: number;
-	/** Wall-clock time from request start until the complete response arrived. */
-	readonly elapsedMs: number;
-	/** The number of characters in the returned assistant answer. */
-	readonly responseCharacters: number;
+	/**
+	 * Time to First Character (TTFC): elapsed time, in milliseconds, from the request being
+	 * sent until the first streamed character arrived. Measures perceived responsiveness.
+	 */
+	readonly timeToFirstCharacterMs: number;
+	/**
+	 * Time to Last Character (TTLC): elapsed time, in milliseconds, from the request being
+	 * sent until the final character arrived. Measures end-to-end request latency.
+	 */
+	readonly timeToLastCharacterMs: number;
+	/**
+	 * Output Characters per Second (OCPS): the speed at which the endpoint streamed the answer
+	 * after its first character, computed as `outputCharacters / ((TTLC − TTFC) in seconds)`.
+	 */
+	readonly outputCharactersPerSecond: number;
+	/** Input Characters: the number of characters sent in the request prompt. */
+	readonly inputCharacters: number;
+	/** Output Characters: the number of characters generated in the response. */
+	readonly outputCharacters: number;
 };
 
 /** The aggregate measurements for one endpoint. */
@@ -70,20 +109,24 @@ export type BenchmarkSummary = {
 	readonly model: string;
 	/** The measured samples, in request order. */
 	readonly samples: readonly BenchmarkSample[];
-	/** The total elapsed time of the measured requests. */
-	readonly totalElapsedMs: number;
-	/** The arithmetic mean of the measured elapsed times. */
-	readonly averageElapsedMs: number;
-	/** The middle measured elapsed time, or the mean of the two middle values. */
-	readonly medianElapsedMs: number;
-	/** The shortest measured elapsed time. */
-	readonly minimumElapsedMs: number;
-	/** The longest measured elapsed time. */
-	readonly maximumElapsedMs: number;
-	/** The arithmetic mean of the returned answer lengths. */
-	readonly averageResponseCharacters: number;
-	/** The returned answer characters per second, based on total elapsed time. */
-	readonly responseCharactersPerSecond: number;
+	/** Time to First Character (TTFC), across the measured samples. */
+	readonly timeToFirstCharacterMs: MetricStatistics;
+	/** Time to Last Character (TTLC), across the measured samples. */
+	readonly timeToLastCharacterMs: MetricStatistics;
+	/** Output Characters per Second (OCPS), across the measured samples. */
+	readonly outputCharactersPerSecond: MetricStatistics;
+	/** Input Characters sent in the prompt, the same for every sample since one prompt is sent to both endpoints. */
+	readonly inputCharacters: number;
+	/** Output Characters generated in the response, across the measured samples. */
+	readonly outputCharacters: MetricStatistics;
+};
+
+/** How webai-at-home's average timing differs from the direct baseline, for one metric. */
+type OverheadComparison = {
+	/** The added average time per request, in milliseconds. */
+	readonly averageMs: number;
+	/** The added average time as a percentage of the direct average. */
+	readonly percentOfDirectAverage: number;
 };
 
 /** The full benchmark report, including the direct-versus-WebAI comparison. */
@@ -102,14 +145,15 @@ export type BenchmarkReport = {
 	/** The direct LM Studio summary, the webai-at-home summary, or both, in that order. */
 	readonly summaries: readonly BenchmarkSummary[];
 	/**
-	 * The webai-at-home elapsed-time difference from the direct baseline, present only when
-	 * both endpoints were measured and there is a baseline to compare against.
+	 * How webai-at-home's Time to First Character and Time to Last Character differ from the
+	 * direct baseline, present only when both endpoints were measured and there is a baseline
+	 * to compare against.
 	 */
 	readonly webaiOverhead?: {
-		/** The added average elapsed time per request, in milliseconds. */
-		readonly averageElapsedMs: number;
-		/** The added average elapsed time as a percentage of the direct average. */
-		readonly percentOfDirectAverage: number;
+		/** How Time to First Character (TTFC) differs. */
+		readonly timeToFirstCharacterMs: OverheadComparison;
+		/** How Time to Last Character (TTLC) differs. */
+		readonly timeToLastCharacterMs: OverheadComparison;
 	};
 };
 
@@ -119,10 +163,24 @@ export type BenchmarkReportFormat = 'text' | 'markdown' | 'json';
 /** Every format `benchmark` accepts, in the order the help text lists them. */
 export const benchmarkReportFormats: BenchmarkReportFormat[] = ['text', 'markdown', 'json'];
 
-/** The completion request used by the runner, replaceable for deterministic tests. */
-export type CompletionRequester = (target: BenchmarkTarget, prompt: string, timeoutMs: number) => Promise<string>;
+/** What one completion request produced: the answer text and when its characters arrived. */
+export type CompletionResult = {
+	/** The complete assistant answer, concatenated from every streamed piece. */
+	readonly answer: string;
+	/**
+	 * Elapsed time, in milliseconds, from the request being sent until the first character
+	 * arrived. Equal to `timeToLastCharacterMs` when the endpoint answered in one piece instead
+	 * of streaming.
+	 */
+	readonly timeToFirstCharacterMs: number;
+	/** Elapsed time, in milliseconds, from the request being sent until the final character arrived. */
+	readonly timeToLastCharacterMs: number;
+};
 
-/** The shape of the part of an OpenAI Chat Completions response this benchmark reads. */
+/** The completion request used by the runner, replaceable for deterministic tests. */
+export type CompletionRequester = (target: BenchmarkTarget, prompt: string, timeoutMs: number) => Promise<CompletionResult>;
+
+/** The shape of the part of a non-streaming OpenAI Chat Completions response this benchmark reads. */
 type ChatCompletionResponse = {
 	/** The answers returned by the endpoint, of which only the first one is read. */
 	choices?: {
@@ -133,6 +191,24 @@ type ChatCompletionResponse = {
 		};
 	}[];
 };
+
+/** The shape of the part of a streamed OpenAI Chat Completions chunk this benchmark reads. */
+type ChatCompletionChunk = {
+	/** The answer pieces carried by this chunk, of which only the first is read. */
+	choices?: {
+		/** The piece of the assistant answer this chunk carries. */
+		delta?: {
+			/** The answer text this chunk adds, of an unknown type until it has been checked. */
+			content?: unknown;
+		};
+	}[];
+};
+
+/** What one decoded server-sent event of a Chat Completions stream means for this benchmark. */
+type StreamEvent =
+	| { readonly kind: 'content'; readonly text: string }
+	| { readonly kind: 'done' }
+	| { readonly kind: 'ignore' };
 
 /** The command-line values before conversion to numbers. */
 type RawOptions = {
@@ -177,14 +253,15 @@ type ParsedCommandLine = {
 /** Measures and compares the latency of two OpenAI-compatible endpoints serving the same model. */
 export class Benchmark {
 	/**
-	 * Sends one non-streaming Chat Completions request to an OpenAI-compatible endpoint.
+	 * Sends one streamed Chat Completions request to an OpenAI-compatible endpoint, so Time to
+	 * First Character and Time to Last Character can be measured separately.
 	 *
 	 * @param target The endpoint and model to send the request to.
 	 * @param prompt The single user message sent to the endpoint.
 	 * @param timeoutMs The maximum time allowed for the request.
-	 * @returns The assistant answer text of the first returned answer.
+	 * @returns The assistant answer text, and when its first and last character arrived.
 	 */
-	static async requestOpenaiCompletion(target: BenchmarkTarget, prompt: string, timeoutMs: number): Promise<string> {
+	static async requestOpenaiCompletion(target: BenchmarkTarget, prompt: string, timeoutMs: number): Promise<CompletionResult> {
 		const headers: Record<string, string> = {
 			'Content-Type': 'application/json',
 		};
@@ -192,6 +269,7 @@ export class Benchmark {
 			headers['Authorization'] = `Bearer ${target.apiKey}`;
 		}
 		const requestUrl = `${Benchmark._withoutTrailingSlash(target.baseUrl)}/chat/completions`;
+		const startedAt = performance.now();
 		const response = await fetch(requestUrl, {
 			method: 'POST',
 			headers,
@@ -203,7 +281,7 @@ export class Benchmark {
 						content: prompt,
 					},
 				],
-				stream: false,
+				stream: true,
 			}),
 			signal: AbortSignal.timeout(timeoutMs),
 		}).catch((error: unknown) => {
@@ -213,16 +291,21 @@ export class Benchmark {
 		if (response.ok === false) {
 			throw await Benchmark._responseFailure(response, target);
 		}
-		const body = await response.json() as ChatCompletionResponse;
-		const answer = body.choices?.[0]?.message?.content;
-		if (typeof answer !== 'string') {
-			throw new Error(`${target.name} returned no assistant answer in its Chat Completions response`);
+		const contentType = response.headers.get('content-type') ?? '';
+		// An endpoint that ignores `stream: true` and answers as one JSON object still has to be
+		// measurable: its whole answer arrives at once, so its first and last character are the
+		// same moment.
+		if (contentType.includes('text/event-stream') === false) {
+			return Benchmark._readWholeCompletion(response, startedAt, target);
 		}
-		return answer;
+		if (response.body === null) {
+			throw new Error(`${target.name} sent no response body to stream`);
+		}
+		return Benchmark._readEventStream(response.body, startedAt, target);
 	}
 
 	/**
-	 * Calculates the total, average, median, shortest and longest elapsed times from measured samples.
+	 * Calculates the average, median, minimum, and maximum of each metric from measured samples.
 	 *
 	 * @param target The endpoint the samples were measured against.
 	 * @param samples The measured samples, in request order.
@@ -232,24 +315,15 @@ export class Benchmark {
 		if (samples.length === 0) {
 			throw new Error(`The benchmark produced no samples for ${target.name}`);
 		}
-		const elapsedTimes = samples.map((sample) => sample.elapsedMs).sort((left, right) => left - right);
-		const totalElapsedMs = samples.reduce((total, sample) => total + sample.elapsedMs, 0);
-		const totalResponseCharacters = samples.reduce((total, sample) => total + sample.responseCharacters, 0);
-		const middle = Math.floor(elapsedTimes.length / 2);
-		const medianElapsedMs = elapsedTimes.length % 2 === 1
-			? elapsedTimes[middle]
-			: (elapsedTimes[middle - 1] + elapsedTimes[middle]) / 2;
 		return {
 			name: target.name,
 			model: target.model,
 			samples,
-			totalElapsedMs,
-			averageElapsedMs: totalElapsedMs / samples.length,
-			medianElapsedMs,
-			minimumElapsedMs: elapsedTimes[0],
-			maximumElapsedMs: elapsedTimes[elapsedTimes.length - 1],
-			averageResponseCharacters: totalResponseCharacters / samples.length,
-			responseCharactersPerSecond: totalResponseCharacters / (totalElapsedMs / 1_000),
+			timeToFirstCharacterMs: Benchmark._statistics(samples.map((sample) => sample.timeToFirstCharacterMs)),
+			timeToLastCharacterMs: Benchmark._statistics(samples.map((sample) => sample.timeToLastCharacterMs)),
+			outputCharactersPerSecond: Benchmark._statistics(samples.map((sample) => sample.outputCharactersPerSecond)),
+			inputCharacters: samples[0].inputCharacters,
+			outputCharacters: Benchmark._statistics(samples.map((sample) => sample.outputCharacters)),
 		};
 	}
 
@@ -292,16 +366,12 @@ export class Benchmark {
 				summaries,
 			};
 		}
-		const averageElapsedMs = webaiSummary.averageElapsedMs - directSummary.averageElapsedMs;
-		const percentOfDirectAverage = directSummary.averageElapsedMs === 0
-			? 0
-			: (averageElapsedMs / directSummary.averageElapsedMs) * 100;
 		return {
 			settings,
 			summaries,
 			webaiOverhead: {
-				averageElapsedMs,
-				percentOfDirectAverage,
+				timeToFirstCharacterMs: Benchmark._overheadComparison(directSummary.timeToFirstCharacterMs.average, webaiSummary.timeToFirstCharacterMs.average),
+				timeToLastCharacterMs: Benchmark._overheadComparison(directSummary.timeToLastCharacterMs.average, webaiSummary.timeToLastCharacterMs.average),
 			},
 		};
 	}
@@ -385,6 +455,117 @@ export class Benchmark {
 	}
 
 	/**
+	 * Reads a non-streamed Chat Completions response, for an endpoint that ignored `stream: true`.
+	 *
+	 * @param response The successful response returned by the endpoint.
+	 * @param startedAt The `performance.now()` value from just before the request was sent.
+	 * @param target The endpoint the request was sent to.
+	 * @returns The assistant answer text, with its first and last character at the same moment.
+	 */
+	private static async _readWholeCompletion(response: Response, startedAt: number, target: BenchmarkTarget): Promise<CompletionResult> {
+		const body = await response.json() as ChatCompletionResponse;
+		const answer = body.choices?.[0]?.message?.content;
+		if (typeof answer !== 'string') {
+			throw new Error(`${target.name} returned no assistant answer in its Chat Completions response`);
+		}
+		const elapsedMs = performance.now() - startedAt;
+		return {
+			answer,
+			timeToFirstCharacterMs: elapsedMs,
+			timeToLastCharacterMs: elapsedMs,
+		};
+	}
+
+	/**
+	 * Reads a Chat Completions stream, timing when its first and last character arrived.
+	 *
+	 * @param body The response body to read as server-sent events.
+	 * @param startedAt The `performance.now()` value from just before the request was sent.
+	 * @param target The endpoint the request was sent to.
+	 * @returns The assistant answer text, concatenated from every streamed piece, and when its
+	 * first and last character arrived. Both are the elapsed time since the stream ended when
+	 * the endpoint sent no content at all, so an empty answer is still measurable.
+	 */
+	private static async _readEventStream(body: ReadableStream<Uint8Array>, startedAt: number, target: BenchmarkTarget): Promise<CompletionResult> {
+		const reader = body.getReader();
+		const decoder = new TextDecoder();
+		let buffer = '';
+		let answer = '';
+		let timeToFirstCharacterMs: number | undefined;
+		let timeToLastCharacterMs: number | undefined;
+		let isDone = false;
+
+		while (isDone === false) {
+			const { value, done } = await reader.read();
+			if (done === true) {
+				break;
+			}
+			buffer += decoder.decode(value, { stream: true });
+			let boundary = buffer.indexOf('\n\n');
+			while (boundary !== -1) {
+				const rawEvent = buffer.slice(0, boundary);
+				buffer = buffer.slice(boundary + 2);
+				const event = Benchmark._parseStreamEvent(rawEvent, target);
+				if (event.kind === 'done') {
+					isDone = true;
+					break;
+				}
+				if (event.kind === 'content') {
+					const nowMs = performance.now() - startedAt;
+					if (timeToFirstCharacterMs === undefined) {
+						timeToFirstCharacterMs = nowMs;
+					}
+					timeToLastCharacterMs = nowMs;
+					answer += event.text;
+				}
+				boundary = buffer.indexOf('\n\n');
+			}
+		}
+
+		const elapsedMs = performance.now() - startedAt;
+		return {
+			answer,
+			timeToFirstCharacterMs: timeToFirstCharacterMs ?? elapsedMs,
+			timeToLastCharacterMs: timeToLastCharacterMs ?? elapsedMs,
+		};
+	}
+
+	/**
+	 * Decides what one server-sent event of a Chat Completions stream means for this benchmark:
+	 * a piece of the answer, the end of the stream, or nothing worth timing.
+	 *
+	 * @param rawEvent One event's text, everything between two blank lines, not yet split into
+	 * its `data:` lines.
+	 * @param target The endpoint the event was received from, named in a parse failure.
+	 * @returns What the event means.
+	 * @throws {Error} If a `data:` line other than `[DONE]` is not valid JSON.
+	 */
+	private static _parseStreamEvent(rawEvent: string, target: BenchmarkTarget): StreamEvent {
+		const dataLines = rawEvent
+			.split('\n')
+			.map((line) => line.trim())
+			.filter((line) => line.startsWith('data:'))
+			.map((line) => line.slice('data:'.length).trim())
+			.filter((data) => data.length > 0);
+		for (const data of dataLines) {
+			if (data === '[DONE]') {
+				return { kind: 'done' };
+			}
+			let parsed: unknown;
+			try {
+				parsed = JSON.parse(data);
+			} catch {
+				throw new Error(`${target.name} sent a stream chunk that was not valid JSON`);
+			}
+			const content = (parsed as ChatCompletionChunk).choices?.[0]?.delta?.content;
+			if (typeof content === 'string' && content.length > 0) {
+				return { kind: 'content', text: content };
+			}
+		}
+		return { kind: 'ignore' };
+	}
+
+	/**
 	 * Runs one target's warm-ups and measured requests in strict sequence.
 	 *
 	 * @param target The endpoint and model to measure.
@@ -402,16 +583,70 @@ export class Benchmark {
 		}
 		const samples: BenchmarkSample[] = [];
 		for (let run = 1; run <= options.runs; run += 1) {
-			const startedAt = performance.now();
-			const answer = await requester(target, options.prompt, options.timeoutMs);
-			const elapsedMs = performance.now() - startedAt;
-			samples.push({
-				run,
-				elapsedMs,
-				responseCharacters: answer.length,
-			});
+			const result = await requester(target, options.prompt, options.timeoutMs);
+			samples.push(Benchmark._buildSample(run, options.prompt, result));
 		}
 		return Benchmark.summarizeSamples(target, samples);
+	}
+
+	/**
+	 * Turns one completion result into a measured sample, computing Output Characters per
+	 * Second from the Time to First and Time to Last Character the requester reported.
+	 *
+	 * @param run The one-based measured request number.
+	 * @param prompt The prompt this request sent, read for its character count.
+	 * @param result The completion result to build a sample from.
+	 * @returns The measured sample.
+	 */
+	private static _buildSample(run: number, prompt: string, result: CompletionResult): BenchmarkSample {
+		// Floored at 1 ms rather than left at 0, since an answer that arrived in a single piece
+		// has no streaming duration to divide by, and characters-per-second cannot be undefined.
+		const streamingMs = Math.max(result.timeToLastCharacterMs - result.timeToFirstCharacterMs, 1);
+		return {
+			run,
+			timeToFirstCharacterMs: result.timeToFirstCharacterMs,
+			timeToLastCharacterMs: result.timeToLastCharacterMs,
+			outputCharactersPerSecond: result.answer.length / (streamingMs / 1_000),
+			inputCharacters: prompt.length,
+			outputCharacters: result.answer.length,
+		};
+	}
+
+	/**
+	 * Calculates the average, median, minimum, and maximum of a set of measured values.
+	 *
+	 * @param values Every measured value, in any order. The array is not modified.
+	 * @returns The metric statistics computed from the values.
+	 */
+	private static _statistics(values: number[]): MetricStatistics {
+		const sorted = [...values].sort((left, right) => left - right);
+		const total = sorted.reduce((sum, value) => sum + value, 0);
+		const middle = Math.floor(sorted.length / 2);
+		const median = sorted.length % 2 === 1
+			? sorted[middle]
+			: (sorted[middle - 1] + sorted[middle]) / 2;
+		return {
+			average: total / sorted.length,
+			median,
+			minimum: sorted[0],
+			maximum: sorted[sorted.length - 1],
+		};
+	}
+
+	/**
+	 * Compares webai-at-home's average against the direct baseline for one metric.
+	 *
+	 * @param directAverage The direct endpoint's average for this metric.
+	 * @param webaiAverage The webai-at-home endpoint's average for this metric.
+	 * @returns The added average and its share of the direct average.
+	 */
+	private static _overheadComparison(directAverage: number, webaiAverage: number): OverheadComparison {
+		const averageMs = webaiAverage - directAverage;
+		const percentOfDirectAverage = directAverage === 0 ? 0 : (averageMs / directAverage) * 100;
+		return {
+			averageMs,
+			percentOfDirectAverage,
+		};
 	}
 
 	/**
@@ -526,18 +761,21 @@ export class Benchmark {
 			`Measured requests per endpoint: ${report.settings.runs}; warm-up requests: ${report.settings.warmupRuns}`,
 		];
 		for (const summary of report.summaries) {
-			const range = `${Benchmark._rounded(summary.minimumElapsedMs)}–${Benchmark._rounded(summary.maximumElapsedMs)}`;
 			lines.push(`${summary.name} (${summary.model})`);
-			lines.push(`  average: ${Benchmark._rounded(summary.averageElapsedMs)} ms`);
-			lines.push(`  median:  ${Benchmark._rounded(summary.medianElapsedMs)} ms`);
-			lines.push(`  range:   ${range} ms`);
-			lines.push(`  answer:  ${Benchmark._rounded(summary.averageResponseCharacters)} characters on average`);
-			lines.push(`  output:  ${Benchmark._rounded(summary.responseCharactersPerSecond)} characters/second`);
+			lines.push(`  TTFC:   ${Benchmark._rounded(summary.timeToFirstCharacterMs.average)} ms average, ${Benchmark._rounded(summary.timeToFirstCharacterMs.median)} ms median, ${Benchmark._rounded(summary.timeToFirstCharacterMs.minimum)}–${Benchmark._rounded(summary.timeToFirstCharacterMs.maximum)} ms range`);
+			lines.push(`  TTLC:   ${Benchmark._rounded(summary.timeToLastCharacterMs.average)} ms average, ${Benchmark._rounded(summary.timeToLastCharacterMs.median)} ms median, ${Benchmark._rounded(summary.timeToLastCharacterMs.minimum)}–${Benchmark._rounded(summary.timeToLastCharacterMs.maximum)} ms range`);
+			lines.push(`  OCPS:   ${Benchmark._rounded(summary.outputCharactersPerSecond.average)} characters/second average`);
+			lines.push(`  input:  ${summary.inputCharacters} characters`);
+			lines.push(`  output: ${Benchmark._rounded(summary.outputCharacters.average)} characters average`);
 		}
 		if (report.webaiOverhead !== undefined) {
 			lines.push(
-				`webai-at-home overhead: ${Benchmark._rounded(report.webaiOverhead.averageElapsedMs)} ms per request ` +
-					`(${Benchmark._rounded(report.webaiOverhead.percentOfDirectAverage)}% of the direct average)`,
+				`webai-at-home TTFC overhead: ${Benchmark._rounded(report.webaiOverhead.timeToFirstCharacterMs.averageMs)} ms per request ` +
+					`(${Benchmark._rounded(report.webaiOverhead.timeToFirstCharacterMs.percentOfDirectAverage)}% of the direct average)`,
+			);
+			lines.push(
+				`webai-at-home TTLC overhead: ${Benchmark._rounded(report.webaiOverhead.timeToLastCharacterMs.averageMs)} ms per request ` +
+					`(${Benchmark._rounded(report.webaiOverhead.timeToLastCharacterMs.percentOfDirectAverage)}% of the direct average)`,
 			);
 		}
 		return lines.join('\n');
@@ -555,25 +793,29 @@ export class Benchmark {
 			'# OpenAI API benchmark',
 			`Parallelism: ${report.settings.parallelism} · measured requests per endpoint: ${report.settings.runs} · warm-up requests: ${report.settings.warmupRuns}`,
 			[
-				'| Endpoint | Model | Average | Median | Range | Answer length | Output |',
+				'| Endpoint | Model | TTFC | TTLC | OCPS | Input chars | Output chars |',
 				'| --- | --- | ---: | ---: | ---: | ---: | ---: |',
 				...report.summaries.map((summary) => [
 					'|',
 					summary.name,
 					'|',
 					summary.model,
-					`| ${Benchmark._rounded(summary.averageElapsedMs)} ms`,
-					`| ${Benchmark._rounded(summary.medianElapsedMs)} ms`,
-					`| ${Benchmark._rounded(summary.minimumElapsedMs)}–${Benchmark._rounded(summary.maximumElapsedMs)} ms`,
-					`| ${Benchmark._rounded(summary.averageResponseCharacters)} characters`,
-					`| ${Benchmark._rounded(summary.responseCharactersPerSecond)} characters/second |`,
+					`| ${Benchmark._rounded(summary.timeToFirstCharacterMs.average)} ms`,
+					`| ${Benchmark._rounded(summary.timeToLastCharacterMs.average)} ms`,
+					`| ${Benchmark._rounded(summary.outputCharactersPerSecond.average)} chars/s`,
+					`| ${summary.inputCharacters}`,
+					`| ${Benchmark._rounded(summary.outputCharacters.average)} |`,
 				].join(' ')),
 			].join('\n'),
 		];
 		if (report.webaiOverhead !== undefined) {
 			blocks.push(
-				`webai-at-home overhead: **${Benchmark._rounded(report.webaiOverhead.averageElapsedMs)} ms** per request `
-					+ `(${Benchmark._rounded(report.webaiOverhead.percentOfDirectAverage)}% of the direct average)`,
+				`webai-at-home TTFC overhead: **${Benchmark._rounded(report.webaiOverhead.timeToFirstCharacterMs.averageMs)} ms** per request `
+					+ `(${Benchmark._rounded(report.webaiOverhead.timeToFirstCharacterMs.percentOfDirectAverage)}% of the direct average)`,
+			);
+			blocks.push(
+				`webai-at-home TTLC overhead: **${Benchmark._rounded(report.webaiOverhead.timeToLastCharacterMs.averageMs)} ms** per request `
+					+ `(${Benchmark._rounded(report.webaiOverhead.timeToLastCharacterMs.percentOfDirectAverage)}% of the direct average)`,
 			);
 		}
 		return `${blocks.join('\n\n')}\n`;

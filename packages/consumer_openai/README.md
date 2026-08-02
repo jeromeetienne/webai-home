@@ -24,11 +24,24 @@ The server listens on port 8788, and an OpenAI client is pointed at `http://loca
 
 ## Benchmarking direct LM Studio and webai-at-home
 
-This package includes a small OpenAI API benchmark. The benchmark sends the same non-streaming
-prompt to LM Studio directly first, then to this webai-at-home OpenAI-compatible server, which
-must be backed by the same LM Studio model through `worker_openai_api`. Requests run strictly one
-at a time, so the first comparison does not include parallel scheduling or shared-model
-contention.
+This package includes a small OpenAI API benchmark. The benchmark sends the same streamed prompt
+to LM Studio directly first, then to this webai-at-home OpenAI-compatible server, which must be
+backed by the same LM Studio model through `worker_openai_api`. Requests run strictly one at a
+time, so the first comparison does not include parallel scheduling or shared-model contention.
+
+Each request measures five figures, all directly observable from the client side without any
+knowledge of the model or its tokenizer, which keeps them comparable across different providers:
+
+| Metric | Brief |
+| --- | --- |
+| Time to First Character (TTFC) | Elapsed time from sending the request until the first streamed character arrives. Measures perceived responsiveness. |
+| Time to Last Character (TTLC) | Elapsed time from sending the request until the final character arrives. Measures end-to-end request latency. |
+| Output Characters per Second (OCPS) | The speed at which the endpoint streams the answer after the first character, computed as `outputCharacters / (TTLC − TTFC)`. |
+| Input Characters | The number of characters sent in the request prompt. |
+| Output Characters | The number of characters generated in the response. |
+
+An endpoint that ignores the streaming request and answers as one JSON object instead is still
+measurable: its first and last character then arrive at the same moment, so TTFC equals TTLC.
 
 Start LM Studio, the webai-at-home gateway, this `consumer_openai` server, and one
 `worker_openai_api` process first. Then run:
