@@ -10,7 +10,11 @@ Both of these are forms of permission. In the first case you ask a company. In t
 
 `webai-at-home` is my attempt to arrange it differently. It asks whether a group of ordinary people, using the devices they already own, can run a language model together without asking anyone for permission to do it.
 
-## The capacity is already here
+> The complete project is open source: [github.com/webai-at-home/webai-at-home](https://github.com/webai-at-home/webai-at-home)
+
+![Inference Without Permission](images/post_1_inference_without_permission.png)
+
+## The Capacity Is Already Here
 
 Look around the room you are in. Count the devices that are switched on and doing nothing.
 
@@ -20,7 +24,7 @@ Each one of these is far too weak to run a useful language model on its own. Tha
 
 The interesting question is not whether that capacity exists. It plainly does. The question is what it would take to use it, and specifically what it would take to use it without anyone having to install anything, create an account, or trust a stranger's executable file.
 
-## The browser is the last platform without a gatekeeper
+## The Browser Is the Last Platform Without a Gatekeeper
 
 This is where the web browser stops being an implementation detail and becomes the entire point.
 
@@ -32,7 +36,7 @@ That is the only distribution channel left where a person can contribute computi
 
 If volunteer computing for language models is going to work at all, this is where it has to happen. Not because the browser is the fastest place to run a model — it is not — but because it is the only place where the invitation costs nothing to accept.
 
-## One model, many devices
+## One Model, Many Devices
 
 Here is the technical problem that makes this hard.
 
@@ -48,7 +52,7 @@ The reason this fits volunteer computing is the shape of what has to travel betw
 
 That is the bet. Now let me show you the smallest part of it that actually runs.
 
-## Five becomes seventeen
+## Five Becomes Seventeen
 
 Before running a model across two strangers' devices, you have to be able to run *anything* across two strangers' devices. So the first thing I built was a task so simple that nothing about the result can depend on a model, a graphics processor, or how fast anyone's laptop is.
 
@@ -86,7 +90,7 @@ I am aware of how unimpressive that sounds. It is meant to be unimpressive. The 
 
 Every one of those steps is the same code path that a language model task uses. Swap the arithmetic for a group of model layers and the coordination does not change. That is the point of building the trivial version first: it separates "can these devices cooperate at all?" from "can a browser run a model?", so that when something breaks you know which of the two questions you are looking at.
 
-## What runs today
+## What Runs Today
 
 The project is early, and I would rather tell you exactly where it is than imply more.
 
@@ -98,7 +102,7 @@ These are small models. A real answer to the permission problem needs bigger one
 
 I would rather write about those open questions than pretend they are closed.
 
-## Why this is deliberately not a chat service
+## Why This Is Deliberately Not a Chat Service
 
 One design decision shapes everything else: this is built for work that can wait.
 
@@ -106,7 +110,7 @@ A request here is allowed to take hours. That single allowance is what makes vol
 
 If I insisted on chat-speed answers, none of that would be true, and every one of those ordinary events would become a failure. Batch work is not a limitation I am apologising for. It is the concession that makes the rest possible.
 
-## Where this is going
+## Where This Is Going
 
 The claim I am making is that inference should not require anyone's permission, and that the hardware to make that true is already sitting in people's homes, switched on and doing nothing.
 

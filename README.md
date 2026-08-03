@@ -1,62 +1,37 @@
 # WebAI@Home
 
-## Blog posts
-
-A three-part written introduction to the project, from the idea to the architecture
-to the interface:
-
-1. [Inference Without Permission](docs/blog_posts/post_1_inference_without_permission.md) — why running a
-   language model should not require anyone's approval, and the smallest demonstration
-   that two browser tabs can cooperate on one task.
-2. [Designing for Workers That Disappear](docs/blog_posts/post_2_designing_for_workers_that_disappear.md) —
-   the architecture that follows from assuming every worker can vanish at any moment:
-   leases, retries, stage placement, and pipelines as data.
-3. [Change One Line](docs/blog_posts/post_3_change_one_line.md) — the OpenAI-compatible server, what it
-   reconciles between an always-available interface and a cluster of volunteers, and
-   the questions that are still open.
-
 ## Goal
 
-`webai-at-home` explores whether idle web browsers can work together to run a
-large language model that is too large for any one volunteer device.
+`webai-at-home` explores whether idle web browsers can work together to run a large language model that is too large for any one volunteer device.
 
-The project treats computing time as a form of contribution. A person should
-be able to open a web page on an old laptop, phone, or other device and leave
-the page running. The browser then contributes one part of a shared inference
-pipeline, without installing an application or downloading the entire model.
+The project treats computing time as a form of contribution. A person should be able to open a web page on an old laptop, phone, or other device and leave the page running. The browser then contributes one part of a shared inference pipeline, without installing an application or downloading the entire model.
 
-The aim is to make volunteer computing for large language models as simple as
-visiting a web page. Many small contributions should combine into a useful
-service for a cause or community, reusing hardware that would otherwise sit
-idle.
+The aim is to make volunteer computing for large language models as simple as visiting a web page. Many small contributions should combine into a useful service for a cause or community, reusing hardware that would otherwise sit idle.
+
+## Blog posts
+
+A three-part written introduction to the project, from the idea to the architecture to the interface:
+
+1. [Inference Without Permission](docs/blog_posts/post_1_inference_without_permission.blog_post.md) — why running a language model should not require anyone's approval, and the smallest demonstration that two browser tabs can cooperate on one task.
+2. [Designing for Workers That Disappear](docs/blog_posts/post_2_designing_for_workers_that_disappear.blog_post.md) — the architecture that follows from assuming every worker can vanish at any moment: leases, retries, stage placement, and pipelines as data.
+3. [Change One Line](docs/blog_posts/post_3_change_one_line.blog_post.md) — the OpenAI-compatible server, what it reconciles between an always-available interface and a cluster of volunteers, and the questions that are still open.
 
 ## How the idea works
 
-- A coordinator keeps a queue of batch requests. The requests can take hours
-  rather than needing an immediate answer.
-- The coordinator divides a model into sequential groups of layers and gives
-  each group to a connected browser tab.
+- A coordinator keeps a queue of batch requests. The requests can take hours rather than needing an immediate answer.
+- The coordinator divides a model into sequential groups of layers and gives each group to a connected browser tab.
 - Each browser downloads and caches only its assigned model part.
-- Intermediate results move from one browser to the next through direct
-  browser connections when possible.
-- The coordinator measures each device and sizes assignments according to the
-  device’s available memory and speed.
-- If a volunteer device disconnects, the unfinished work can be assigned to
-  another device.
+- Intermediate results move from one browser to the next through direct browser connections when possible.
+- The coordinator measures each device and sizes assignments according to the device's available memory and speed.
+- If a volunteer device disconnects, the unfinished work can be assigned to another device.
 
-This project focuses on pipeline parallelism: each device runs a different
-section of the model. This approach passes one result between sections and is
-better suited to slow and uneven home internet connections than approaches
-that require every device to synchronise after every model operation.
+This project focuses on pipeline parallelism: each device runs a different section of the model. This approach passes one result between sections and is better suited to slow and uneven home internet connections than approaches that require every device to synchronise after every model operation.
 
-The first implementation uses ONNX Runtime Web, with Web Neural Network API
-or Web Graphics Processing Unit API acceleration where available and WebAssembly
-as a Central Processing Unit fallback.
+The first implementation uses ONNX Runtime Web, with Web Neural Network API or Web Graphics Processing Unit API acceleration where available and WebAssembly as a Central Processing Unit fallback.
 
 ## Why batch work
 
-`webai-at-home` is not intended to provide live chat response times. A generous
-deadline makes volunteer computing practical:
+`webai-at-home` is not intended to provide live chat response times. A generous deadline makes volunteer computing practical:
 
 - disconnected tabs can be replaced;
 - the coordinator can keep each stage busy with a queue of work;
@@ -67,18 +42,14 @@ deadline makes volunteer computing practical:
 
 This repository contains early experiments and a minimal distributed pipeline. The current gateway prototype runs four task types: a development formula, the Qwen3-0.6B model split into three shards across three worker browser tabs, the Gemma Nano model built into Chrome running in one worker browser tab, and the complete Qwen3.5-0.8B model downloaded from Hugging Face and run in one worker browser tab. The ONNX experiments test running model work directly in browsers, including a small Iris classifier and larger model experiments.
 
-The central research questions are still open, especially result verification,
-browser tab throttling, volunteer and coordinator trust, and reliable model
-partitioning across very different devices.
+The central research questions are still open, especially result verification, browser tab throttling, volunteer and coordinator trust, and reliable model partitioning across very different devices.
 
 ## Repository layout
 
-- [`packages/gateway`](packages/gateway/README.md) — coordinator HTTP and WebSocket gateway, scheduling, and
-  home and worker pages.
+- [`packages/gateway`](packages/gateway/README.md) — coordinator HTTP and WebSocket gateway, scheduling, and home and worker pages.
 - [`packages/protocol`](packages/protocol/README.md) — shared message and task definitions with validation.
 - [`packages/consumer_cli`](packages/consumer_cli/README.md) — command-line client for submitting test tasks.
-- [`packages/consumer_openai`](packages/consumer_openai/README.md) — OpenAI-compatible server, so a program that already talks
-  to OpenAI can use the cluster by changing its base address.
+- [`packages/consumer_openai`](packages/consumer_openai/README.md) — OpenAI-compatible server, so a program that already talks to OpenAI can use the cluster by changing its base address.
 - [`packages/flow_viewer`](packages/flow_viewer/README.md) — flow viewer for inspecting recorded message traffic.
 - [`packages/_onnx_experiments`](packages/_onnx_experiments/README.md) — browser experiments for ONNX Runtime Web.
 - [`packages/_tiny_iris_classifier`](packages/_tiny_iris_classifier/README.md) — small end-to-end browser inference example.
@@ -87,12 +58,9 @@ partitioning across very different devices.
 
 ## Documentation
 
-- [`docs/tasks_and_stages.md`](docs/tasks_and_stages.md) — every kind of task the cluster can run and every
-  stage each one needs.
-- [`docs/protocol_by_role.md`](docs/protocol_by_role.md) — the messages the gateway, the consumers, and the
-  workers exchange.
-- [`docs/naming_scheme.md`](docs/naming_scheme.md) — how every task, task type, pipeline, and stage name
-  is built.
+- [`docs/tasks_and_stages.md`](docs/tasks_and_stages.md) — every kind of task the cluster can run and every stage each one needs.
+- [`docs/protocol_by_role.md`](docs/protocol_by_role.md) — the messages the gateway, the consumers, and the workers exchange.
+- [`docs/naming_scheme.md`](docs/naming_scheme.md) — how every task, task type, pipeline, and stage name is built.
 - [`docs/readme-audit-89.md`](docs/readme-audit-89.md) — the README audit checklist and validation record for issue #89.
 
 ## Run the prototype
@@ -103,25 +71,12 @@ npm run dev --workspace @webai/gateway
 npm run dev --workspace @webai/consumer-cli -- submit 5
 ```
 
-Start the worker browser page with `npm run dev --workspace @webai/worker-webpage`.
-Open the worker page in two browser tabs, then open
-`http://localhost:8787/home` in another browser tab. The development formula
-pipeline multiplies the input by `2` and then adds `7`, so input `5` produces
-`17`. The gateway uses the development bearer token `development-token` by
-default; pass the same token in the worker page's `authToken` query parameter
-when it is not using that default.
+Start the worker browser page with `npm run dev --workspace @webai/worker-webpage`. Open the worker page in two browser tabs, then open `http://localhost:8787/home` in another browser tab. The development formula pipeline multiplies the input by `2` and then adds `7`, so input `5` produces `17`. The gateway uses the development bearer token `development-token` by default; pass the same token in the worker page's `authToken` query parameter when it is not using that default.
 
-The root build and test scripts cover the protocol, gateway, command-line
-consumer, and OpenAI-compatible consumer. Package READMEs document the
-additional browser, Docker, flow viewer, and experiment commands.
+The root build and test scripts cover the protocol, gateway, command-line consumer, and OpenAI-compatible consumer. Package READMEs document the additional browser, Docker, flow viewer, and experiment commands.
 
 ## Long-term direction
 
-The intended next step is a small proof of concept using two or three older
-devices, a small quantised model, browser inference, and browser-to-browser
-connections. Measurements from that proof of concept will show whether the
-pipeline remains useful under real device churn, memory limits, and network
-latency.
+The intended next step is a small proof of concept using two or three older devices, a small quantised model, browser inference, and browser-to-browser connections. Measurements from that proof of concept will show whether the pipeline remains useful under real device churn, memory limits, and network latency.
 
-See [issue #1](https://github.com/webai-at-home/webai-at-home/issues/1) for the
-full project concept and its open questions.
+See [issue #1](https://github.com/webai-at-home/webai-at-home/issues/1) for the full project concept and its open questions.

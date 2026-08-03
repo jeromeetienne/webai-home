@@ -2,7 +2,7 @@
 
 This is the third and last post in a series about `webai-at-home`, a project that borrows idle browser tabs to run a language model.
 
-The [first post](./post_1_inference_without_permission.md) made the argument: paying a company and buying a graphics card are both forms of permission, and the computing capacity to avoid both is already sitting in people's homes doing nothing. The [second post](./post_2_designing_for_workers_that_disappear.md) went through the architecture that falls out of assuming every worker can vanish mid-computation.
+The [first post](./post_1_inference_without_permission.blog_post.md) made the argument: paying a company and buying a graphics card are both forms of permission, and the computing capacity to avoid both is already sitting in people's homes doing nothing. The [second post](./post_2_designing_for_workers_that_disappear.blog_post.md) went through the architecture that falls out of assuming every worker can vanish mid-computation.
 
 Neither of those is worth anything on its own. A system can be philosophically sound and technically survivable and still be a curiosity, because nobody is going to rewrite their software to use it.
 
@@ -14,7 +14,11 @@ client = OpenAI(base_url="http://localhost:8788/v1", api_key="unused")
 
 That is the whole integration. Any program already written against OpenAI can run its work on a cluster of volunteer browser tabs by changing its base address and nothing else.
 
-## Why the interface is the argument
+> The complete project is open source: [github.com/webai-at-home/webai-at-home](https://github.com/webai-at-home/webai-at-home)
+
+![Change One Line](images/post_3_change_one_line.png)
+
+## Why the Interface Is the Argument
 
 It is tempting to file this under "convenience layer, added at the end". I want to argue the opposite: this is where the thesis of the entire project either survives or collapses.
 
@@ -34,7 +38,7 @@ curl http://localhost:8788/v1/chat/completions \
 
 The answer is seventeen, computed across two browser tabs, delivered in the shape of a chat completion.
 
-## What the adapter actually has to reconcile
+## What the Adapter Actually Has to Reconcile
 
 The OpenAI interface was designed for one always-available server that answers immediately. Underneath it here is a batch-oriented cluster of borrowed devices that appear and disappear. Those two models disagree in specific places, and each disagreement needs a decision.
 
@@ -57,7 +61,7 @@ So streaming is not free here the way it is when a server is already producing t
 
 There is also a case with no clean answer. If a request fails *after* the first streamed chunk has gone out, the HTTP status line has already been sent and cannot be taken back. The error is written into the stream as a `data:` line carrying the same error body, and the stream is closed. It is the least bad option rather than a good one.
 
-## What it deliberately does not do
+## What It Deliberately Does Not Do
 
 I would rather state the limits than let you discover them.
 
@@ -70,7 +74,7 @@ I would rather state the limits than let you discover them.
 
 One detail I am quietly pleased with: the models on offer are derived from the cluster's own task type names, with the `task_type_` prefix removed. The catalogue cannot drift away from what the cluster can actually run, because it is not a second list — it is the same list, spelled differently.
 
-## Measuring it honestly
+## Measuring It Honestly
 
 A claim like "volunteer devices can do useful work" deserves a number rather than a paragraph, so the package includes a benchmark.
 
@@ -91,7 +95,7 @@ npm run benchmark --workspace @webai/consumer-openai -- --runs 10
 
 > **To fill in before publishing:** paste your actual figures here, with the machine and model named, and say plainly what the coordination overhead costs. Publish them even if they are unflattering — a slow number with an explanation is far more convincing than no number at all.
 
-## The measurement that decides whether any of this works
+## The Measurement That Decides Whether Any of This Works
 
 There is one open question underneath the whole project that I have been measuring separately, because if it goes the wrong way, nothing above matters.
 
@@ -110,7 +114,7 @@ Every variation is built on the same calibration measurement, so results are com
 
 I am spelling this out because it is the part of the project I would most like people to argue with, and because it is the opposite of how the rest of the industry discusses browser inference. The interesting question is not what a browser can do in a benchmark on a focused tab. It is what a browser will still do for you when nobody is watching it.
 
-## What is still open
+## What Is Still Open
 
 In the spirit of not overselling:
 

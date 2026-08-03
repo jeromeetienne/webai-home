@@ -1,6 +1,6 @@
 # Designing for Workers That Disappear
 
-In the [previous post](./post_1_inference_without_permission.md) I argued that running a language model should not require anyone's permission, and that the way to get there is to borrow computing time from idle browser tabs on devices people already own.
+In the [previous post](./post_1_inference_without_permission.blog_post.md) I argued that running a language model should not require anyone's permission, and that the way to get there is to borrow computing time from idle browser tabs on devices people already own.
 
 This post is about the problem that creates.
 
@@ -8,7 +8,11 @@ Every worker in this system is a browser tab belonging to a stranger who owes me
 
 None of that is an error condition. It is the normal operating state, and it is the thing the whole architecture is shaped around. What follows is what that shape actually looks like.
 
-## The choice that makes disappearance survivable
+> The complete project is open source: [github.com/webai-at-home/webai-at-home](https://github.com/webai-at-home/webai-at-home)
+
+![Designing for Workers That Disappear](images/post_2_designing_for_workers_that_disappear.png)
+
+## The Choice That Makes Disappearance Survivable
 
 Start with the decision that constrains everything after it: how to split a model.
 
@@ -20,7 +24,7 @@ The thing to look at is what actually travels between devices. In the Qwen3-0.6B
 
 So the network cost is one small handoff per boundary rather than continuous synchronisation, and — this is the part that matters for volunteers — a device that vanishes takes down one link in a chain rather than stalling a group that was waiting on it in lockstep.
 
-## Leases, not health checks
+## Leases, Not Health Checks
 
 When the coordinator gives a stage to a browser tab, it does not ask that tab to promise anything. It sets an expiry.
 
@@ -30,7 +34,7 @@ While a worker is genuinely still working, it sends stage heartbeat messages, an
 
 When the deadline passes with no heartbeat, the coordinator stops waiting and gives the work to somebody else. The volunteer is never asked, never notified, and never blamed. They closed a tab. That is allowed.
 
-## What gets retried, and what does not
+## What Gets Retried, and What Does Not
 
 Retries are bounded: three attempts per stage by default.
 
@@ -43,7 +47,7 @@ The attempt limit exists to bound disappearance, not to paper over broken code.
 
 There is a third case which is neither. When *no connected worker advertises the stage that comes next*, the task is not failed at all — it goes back into the queued state and waits. Nobody is available to run the second half of a model right now, and that is a completely ordinary situation in a volunteer system. The task waits for someone to open a tab. What bounds the wait is the submission deadline, and because this is deliberately built for work that can take hours, that deadline is generous enough for waiting to be a real strategy rather than a disguised failure.
 
-## The genuinely hard part: state in someone else's memory
+## The Genuinely Hard Part: State in Someone Else's Memory
 
 Everything above is manageable. Here is the part that is not.
 
@@ -70,7 +74,7 @@ static preferredWorkerDeviceId(task, upcomingStage, policy, previousWorkerDevice
 
 Note what is absent from that file: no stage name, and no task type. Whether a stage keeps state is declared by the stage's own pipeline definition, through a flag called `prefersSameWorkerOnRetry`, and arrives here as a resolved policy. The placement logic does not know that language models exist.
 
-## A preference, not a guarantee
+## A Preference, Not a Guarantee
 
 The preferred device is only preferred. It may have disconnected, may be shutting down, may have stopped offering that stage, or may already be running as many assignments as its own declared limit allows. In any of those cases the stage goes to another device that advertises it, and if no such device exists, it fails there and says so.
 
@@ -78,7 +82,7 @@ But there is one case where the coordinator refuses to place the work elsewhere 
 
 And one honest warning about the sharded pipeline. If a shard were given a round it holds no cache for, it would not crash. It would produce *wrong text*, confidently. A fault that fails loudly is a nuisance; a fault that silently degrades output quality is the kind you ship without noticing. The normal arrangement — one tab per shard, each advertising only its own stage — makes it structurally hard to hit, but "structurally hard to hit" is not the same as "prevented", and this is on my list of things that need a real guard rather than a favourable arrangement.
 
-## Pipelines are data, not code
+## Pipelines Are Data, Not Code
 
 The last piece is the one I am most pleased with, and it is what keeps all of the above from calcifying.
 
@@ -99,7 +103,7 @@ The coordinator is also the authority on which stage names exist: a worker that 
 
 This is why the project has a naming document that reads as if it were written by somebody with too much time. Every name is built from a domain, a model, and a topology — `stage_llm_qwen3_0_6b_shard2of3` says which kind of work, which model, and how it is arranged, on sight. When your stage names are data that arrives from a file at startup rather than symbols the compiler checks, precise naming stops being tidiness and starts being a correctness tool.
 
-## Debugging something that happens on four machines at once
+## Debugging Something That Happens on Four Machines at Once
 
 One last practical note. When a distributed system misbehaves, the bug is usually not inside any one component — it is in the *ordering* of messages between them, and no single machine's log contains the whole story.
 
