@@ -1,5 +1,20 @@
 # WebAI@Home
 
+## Blog posts
+
+A three-part written introduction to the project, from the idea to the architecture
+to the interface:
+
+1. [Inference Without Permission](docs/blog_posts/post_1_inference_without_permission.md) — why running a
+   language model should not require anyone's approval, and the smallest demonstration
+   that two browser tabs can cooperate on one task.
+2. [Designing for Workers That Disappear](docs/blog_posts/post_2_designing_for_workers_that_disappear.md) —
+   the architecture that follows from assuming every worker can vanish at any moment:
+   leases, retries, stage placement, and pipelines as data.
+3. [Change One Line](docs/blog_posts/post_3_change_one_line.md) — the OpenAI-compatible server, what it
+   reconciles between an always-available interface and a cluster of volunteers, and
+   the questions that are still open.
+
 ## Goal
 
 `webai-at-home` explores whether idle web browsers can work together to run a
