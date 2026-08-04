@@ -854,8 +854,52 @@ Test('only a registered consumer may submit a task', () => {
 	Assert.deepEqual(reply, { type: 'error', code: 'CONSUMER_REQUIRED', message: 'Only consumer browser tabs may submit tasks', taskRequestId: 'request-1' });
 });
 
-Test('resubmitting the same taskRequestId with the same input replays the original acceptance, and a changed input is refused', () => {
+Test('a task is refused at once when no connected worker offers a stage it requires', () => {
 	const { drive, registerConsumer } = buildClientMessageHandlerHarness();
+	registerConsumer('consumer-1', 'consumer-one');
+
+	const [reply] = drive('consumer-1', { type: 'task.submit', taskRequestId: 'request-1', input: devFormulaInput(5) });
+	Assert.deepEqual(reply, {
+		type: 'error',
+		code: 'CAPACITY_EXHAUSTED',
+		message: 'No connected worker offers a stage this task requires',
+		taskRequestId: 'request-1',
+		retryable: true,
+		details: { missingStageNames: ['stage_dev_formula_multiply', 'stage_dev_formula_add'] },
+	});
+});
+
+Test('a task is refused at once when only some of its required stages have a connected worker', () => {
+	const { drive, registerWorker, registerConsumer } = buildClientMessageHandlerHarness();
+	registerWorker('worker-1', 'worker-one', ['stage_dev_formula_multiply']);
+	registerConsumer('consumer-1', 'consumer-one');
+
+	const [reply] = drive('consumer-1', { type: 'task.submit', taskRequestId: 'request-1', input: devFormulaInput(5) });
+	Assert.equal(reply?.type, 'error');
+	Assert.equal((reply as { code: string }).code, 'CAPACITY_EXHAUSTED');
+	Assert.deepEqual((reply as { details: { missingStageNames: string[] } }).details.missingStageNames, ['stage_dev_formula_add']);
+});
+
+Test('a task is accepted and queued, rather than refused, when the only worker offering its stage is merely busy', () => {
+	const { drive, registerWorker, registerConsumer, taskStore } = buildClientMessageHandlerHarness();
+	registerWorker('worker-1', 'worker-one');
+	registerConsumer('consumer-1', 'consumer-one');
+
+	// The one worker takes the first task's first stage, which is all its default
+	// maxConcurrentAssignments of 1 allows, so it is connected and offers the stage but has no
+	// free capacity left for a second task.
+	const [firstReply] = drive('consumer-1', { type: 'task.submit', taskRequestId: 'request-1', input: devFormulaInput(5) });
+	Assert.equal(firstReply?.type, 'task.accepted');
+
+	const [secondReply] = drive('consumer-1', { type: 'task.submit', taskRequestId: 'request-2', input: devFormulaInput(5) });
+	Assert.equal(secondReply?.type, 'task.accepted');
+	const secondTaskId = (secondReply as { task: { taskId: string } }).task.taskId;
+	Assert.equal(taskStore.get(secondTaskId)?.state, 'queued');
+});
+
+Test('resubmitting the same taskRequestId with the same input replays the original acceptance, and a changed input is refused', () => {
+	const { drive, registerWorker, registerConsumer } = buildClientMessageHandlerHarness();
+	registerWorker('worker-1', 'worker-one');
 	registerConsumer('consumer-1', 'consumer-one');
 
 	const [firstReply] = drive('consumer-1', { type: 'task.submit', taskRequestId: 'request-1', input: devFormulaInput(5) });
@@ -872,7 +916,8 @@ Test('resubmitting the same taskRequestId with the same input replays the origin
 });
 
 Test('a principal is refused once its active tasks reach the configured limit', () => {
-	const { drive, registerConsumer } = buildClientMessageHandlerHarness();
+	const { drive, registerWorker, registerConsumer } = buildClientMessageHandlerHarness();
+	registerWorker('worker-1', 'worker-one');
 	registerConsumer('consumer-1', 'consumer-one');
 
 	const [firstReply] = drive('consumer-1', { type: 'task.submit', taskRequestId: 'request-1', input: devFormulaInput(5) });
@@ -1138,7 +1183,8 @@ Test('a task submitted without generation settings puts no settings field on the
 });
 
 Test('a task may only be cancelled by the consumer that owns it', () => {
-	const { drive, registerConsumer } = buildClientMessageHandlerHarness();
+	const { drive, registerWorker, registerConsumer } = buildClientMessageHandlerHarness();
+	registerWorker('worker-1', 'worker-one');
 	registerConsumer('consumer-1', 'consumer-one');
 	registerConsumer('consumer-2', 'consumer-two');
 
@@ -1154,7 +1200,8 @@ Test('a task may only be cancelled by the consumer that owns it', () => {
 });
 
 Test('a consumer may read its own task, but not a task belonging to someone else without an observer grant', () => {
-	const { drive, registerConsumer } = buildClientMessageHandlerHarness();
+	const { drive, registerWorker, registerConsumer } = buildClientMessageHandlerHarness();
+	registerWorker('worker-1', 'worker-one');
 	registerConsumer('consumer-1', 'consumer-one');
 	registerConsumer('consumer-2', 'consumer-two');
 

@@ -117,6 +117,17 @@ export class DeviceRegistry {
 	}
 
 	/**
+	 * Reports whether any connected worker device advertises a stage, regardless of whether it
+	 * currently has free capacity to run it.
+	 *
+	 * @param stage - The stage to check for.
+	 * @returns `true` when at least one connected worker device offers the stage.
+	 */
+	hasWorkerForStage(stage: StageName): boolean {
+		return this.list().some((device) => device.deviceRole === 'worker' && device.stageNames.includes(stage));
+	}
+
+	/**
 	 * Reports whether two stage lists differ, in contents or in order.
 	 *
 	 * @param previous - The stage list the device previously advertised.

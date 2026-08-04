@@ -322,6 +322,16 @@ export class ClientMessageHandler {
 				this.hub.sendError(socket, inReplyToMessageId, this.hub.counterpartFor(deviceId), 'NO_COMPATIBLE_WORKER', 'No active compatible pipeline specification exists', { taskRequestId: message.taskRequestId, retryable: false });
 				return true;
 			}
+			// A stage nobody is connected to offer at all will never be run, however long a queued
+			// task waits for the submission deadline. That is different from a stage every connected
+			// worker is currently too busy to accept, which the wait exists for. Telling the two
+			// apart here rejects the first case at once, rather than waiting out the deadline for
+			// something no connected device could ever have done.
+			const missingStageNames = pipeline.stages.map((stage) => stage.name).filter((stageName) => this.deviceRegistry.hasWorkerForStage(stageName) === false);
+			if (missingStageNames.length > 0) {
+				this.hub.sendError(socket, inReplyToMessageId, this.hub.counterpartFor(deviceId), 'CAPACITY_EXHAUSTED', 'No connected worker offers a stage this task requires', { taskRequestId: message.taskRequestId, retryable: true, details: { missingStageNames } });
+				return true;
+			}
 			const task = this.taskStore.create(message.input, deviceId, message.taskRequestId, authIdentity, {
 				pipelineId: pipeline.pipelineId,
 				pipelineVersion: pipeline.version,
