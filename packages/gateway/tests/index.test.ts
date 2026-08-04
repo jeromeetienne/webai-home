@@ -862,7 +862,7 @@ Test('a task is refused at once when no connected worker offers a stage it requi
 	Assert.deepEqual(reply, {
 		type: 'error',
 		code: 'CAPACITY_EXHAUSTED',
-		message: 'No connected worker offers a stage this task requires',
+		message: 'One or more stages this task requires have no connected worker',
 		taskRequestId: 'request-1',
 		retryable: true,
 		details: { missingStageNames: ['stage_dev_formula_multiply', 'stage_dev_formula_add'] },

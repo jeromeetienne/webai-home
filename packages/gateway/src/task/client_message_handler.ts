@@ -329,7 +329,7 @@ export class ClientMessageHandler {
 			// something no connected device could ever have done.
 			const missingStageNames = pipeline.stages.map((stage) => stage.name).filter((stageName) => this.deviceRegistry.hasWorkerForStage(stageName) === false);
 			if (missingStageNames.length > 0) {
-				this.hub.sendError(socket, inReplyToMessageId, this.hub.counterpartFor(deviceId), 'CAPACITY_EXHAUSTED', 'No connected worker offers a stage this task requires', { taskRequestId: message.taskRequestId, retryable: true, details: { missingStageNames } });
+				this.hub.sendError(socket, inReplyToMessageId, this.hub.counterpartFor(deviceId), 'CAPACITY_EXHAUSTED', 'One or more stages this task requires have no connected worker', { taskRequestId: message.taskRequestId, retryable: true, details: { missingStageNames } });
 				return true;
 			}
 			const task = this.taskStore.create(message.input, deviceId, message.taskRequestId, authIdentity, {
