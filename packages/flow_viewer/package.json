@@ -4,10 +4,14 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "preflow_viewer": "npm run build:dependencies",
     "flow_viewer": "tsx src/cli.ts",
+    "precli": "npm run build:dependencies",
     "cli": "tsx src/cli.ts",
+    "predev": "npm run build:dependencies",
     "dev": "vite",
     "build": "vite build",
+    "build:dependencies": "npm run build --workspace @webai/protocol",
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.json",
     "test": "npx tsx --test tests/index.test.ts"

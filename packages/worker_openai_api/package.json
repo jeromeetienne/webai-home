@@ -9,9 +9,13 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "build:dependencies": "npm run build --workspace @webai/protocol",
     "typecheck": "tsc -p tsconfig.json",
+    "predev": "npm run build:dependencies",
     "dev": "tsx src/cli.ts",
+    "prestart": "npm run build:dependencies",
     "start": "node dist/cli.js",
+    "presample:lmstudio": "npm run build:dependencies",
     "sample:lmstudio": "npx tsx src/cli.ts --base-url http://localhost:1234/v1 --model llama-3.2-3b-instruct --worker_name \"worker_openai_api lmstudio-llama3-2-3b\"",
     "lmstudio:start": "lms server start",
     "lmstudio:stop": "lms server stop",

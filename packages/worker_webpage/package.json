@@ -5,7 +5,10 @@
   "type": "module",
   "scripts": {
     "build": "vite build",
+    "build:dependencies": "npm run build --workspace @webai/protocol",
+    "predev": "npm run build:dependencies",
     "dev": "vite",
+    "prestart": "npm run build:dependencies",
     "start": "vite preview",
 		"deploy": "WORKER_BASE_PATH=/worker/ npm run build && gh-pages --repo git@github.com:webai-at-home/worker.git --branch gh-pages --dist dist --nojekyll --message \"Deploy Worker site\"",
     "typecheck": "tsc -p tsconfig.json",

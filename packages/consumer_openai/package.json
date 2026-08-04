@@ -7,9 +7,13 @@
 	},
 	"scripts": {
 		"build": "tsc -p tsconfig.build.json",
+		"build:dependencies": "npm run build --workspace @webai/protocol",
 		"typecheck": "tsc -p tsconfig.json",
+		"predev": "npm run build:dependencies",
 		"dev": "tsx src/cli.ts server",
+		"prebenchmark": "npm run build:dependencies",
 		"benchmark": "tsx src/cli.ts benchmark",
+		"prestart": "npm run build:dependencies",
 		"start": "node dist/cli.js server",
 		"test": "npx tsx --test tests/index.test.ts tests/benchmark.test.ts",
 		"test:real:dev_formula": "npx tsx --test tests/real_dev_formula.test.ts",
