@@ -5,7 +5,7 @@ import Url from 'node:url';
 import { TaskInputFactory, taskTypeNames } from './libs/task_input_factory.js';
 import { CliError } from './libs/cli_errors.js';
 import { SubmitCommand } from './commands/submit_command.js';
-import { StatusCommand } from './commands/status_command.js';
+import { StatusCommand, statusFormats } from './commands/status_command.js';
 import { CapacityCommand } from './commands/capacity_command.js';
 import { LogStatsCommand } from './commands/log_stats_command.js';
 import { LogStatisticsFormatter, logStatisticsFormats } from './message_log/log_statistics_formatter.js';
@@ -63,16 +63,17 @@ export class Cli {
 			.command('status')
 			.description('print the worker cluster state: how many worker browsers are connected, how much of their capacity is free, and one row per worker')
 			.option('--watch', 'after the first snapshot, stay connected and print a new snapshot every time the worker cluster changes, until you interrupt with Ctrl-C or the connection drops (default: print one snapshot and exit)')
-			.option('--json', 'print each snapshot as a JSON object instead of the human-readable table')
+			.option('-f, --format <format>', `output format: ${statusFormats.join(', ')}`, 'text')
 			.option('--timeout <ms>', 'milliseconds to wait for the central gateway to accept the connection and send the first snapshot before giving up', '10000')
-			.action(async (localOptions: { watch?: boolean; json?: boolean; timeout: string }, command: Commander.Command) => {
+			.action(async (localOptions: { watch?: boolean; format: string; timeout: string }, command: Commander.Command) => {
 				const options = command.optsWithGlobals<GlobalOptions & typeof localOptions>();
+				if (StatusCommand.isFormat(options.format) === false) throw new Error(`Format must be one of ${statusFormats.join(', ')}`);
 				await StatusCommand.run({
 					url: options.url,
 					authToken: Cli.resolveAuthToken(options.authToken),
 					timeoutMs: Number(options.timeout),
 					watch: options.watch === true,
-					json: options.json === true,
+					format: options.format,
 				});
 			});
 

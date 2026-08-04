@@ -11,7 +11,7 @@ import type { Browser, Page } from 'puppeteer';
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
-/** The worker cluster fields this helper reads out of `consumer_cli status --json`. */
+/** The worker cluster fields this helper reads out of `consumer_cli status --format json`. */
 type WorkerStatusSnapshot = {
 	/** How many workers the cluster currently has. */
 	workerCount: number;
@@ -359,7 +359,7 @@ export class RealTestHelper {
 		const result = await this._runToCompletion('node', [
 			'--import', 'tsx', 'packages/consumer_cli/src/cli.ts',
 			'--url', 'ws://localhost:8787',
-			'status', '--json',
+			'status', '--format', 'json',
 		]);
 		if (result.code !== 0) {
 			return false;

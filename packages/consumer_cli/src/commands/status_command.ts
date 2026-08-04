@@ -15,13 +15,19 @@ import type { CliError } from '../libs/cli_errors.js';
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
+/** The ways `status` can write each snapshot out. */
+export type StatusFormat = 'text' | 'markdown' | 'json';
+
+/** Every format `status` accepts, in the order the help text lists them. */
+export const statusFormats: StatusFormat[] = ['text', 'markdown', 'json'];
+
 /** What `consumer_cli status` needs to connect and how to report what it sees. */
 export type StatusCommandOptions = {
 	url: string;
 	authToken: string;
 	timeoutMs: number;
 	watch: boolean;
-	json: boolean;
+	format: StatusFormat;
 };
 
 /** One worker device, as `status` prints it. */
@@ -67,7 +73,7 @@ export class StatusCommand {
 	static async run(options: StatusCommandOptions): Promise<void> {
 		const render = (devices: Device[]): void => {
 			const snapshot = StatusCommand._buildSnapshot(devices);
-			console.log(options.json ? JSON.stringify(snapshot, null, 2) : StatusCommand._formatHuman(snapshot));
+			console.log(StatusCommand._format(snapshot, options.format));
 		};
 
 		const session = await GatewaySession.connect({
@@ -104,6 +110,33 @@ export class StatusCommand {
 	//	Formatting
 	///////////////////////////////////////////////////////////////////////////////
 	///////////////////////////////////////////////////////////////////////////////
+
+	/**
+	 * Reports whether a string names a format this class can write.
+	 *
+	 * @param value The value to check, as typed on the command line.
+	 * @returns `true` when the value names a format.
+	 */
+	static isFormat(value: string): value is StatusFormat {
+		return (statusFormats as string[]).includes(value);
+	}
+
+	/**
+	 * Writes a snapshot out in the requested format.
+	 *
+	 * @param snapshot The worker cluster state to print.
+	 * @param format Which format to write.
+	 * @returns The snapshot as one string, ready to print.
+	 */
+	private static _format(snapshot: StatusSnapshot, format: StatusFormat): string {
+		if (format === 'json') {
+			return JSON.stringify(snapshot, null, 2);
+		}
+		if (format === 'markdown') {
+			return StatusCommand._formatMarkdown(snapshot);
+		}
+		return StatusCommand._formatHuman(snapshot);
+	}
 
 	/**
 	 * Builds the snapshot `status` prints, from the live device list.
@@ -160,6 +193,36 @@ export class StatusCommand {
 		for (const worker of snapshot.workers) {
 			const capacity = `${worker.activeAssignments}/${worker.maxConcurrentAssignments}`.padEnd(8);
 			lines.push(`${worker.name.padEnd(nameWidth)}  ${worker.workerState.padEnd(stateWidth)}  ${capacity}  ${worker.stageNames.join(', ') || '-'}`);
+		}
+		return lines.join('\n');
+	}
+
+	/**
+	 * Formats a snapshot as a Markdown document.
+	 *
+	 * @param snapshot The worker cluster state to print.
+	 * @returns The Markdown text, ready to print with a single `console.log`.
+	 */
+	private static _formatMarkdown(snapshot: StatusSnapshot): string {
+		const lines: string[] = [];
+		lines.push('# Worker cluster status');
+		lines.push('');
+		lines.push(
+			`${snapshot.workerCount} worker${snapshot.workerCount === 1 ? '' : 's'} `
+			+ `(${snapshot.readyCount} ready, ${snapshot.drainingCount} draining, ${snapshot.unavailableCount} unavailable) — `
+			+ `capacity ${snapshot.availableCapacity}/${snapshot.totalCapacity} available, ${snapshot.activeAssignments} active`,
+		);
+		if (snapshot.workers.length === 0) {
+			lines.push('');
+			lines.push('No worker browsers are connected.');
+			return lines.join('\n');
+		}
+		lines.push('');
+		lines.push('| NAME | STATE | CAPACITY | STAGES |');
+		lines.push('| --- | --- | --- | --- |');
+		for (const worker of snapshot.workers) {
+			const capacity = `${worker.activeAssignments}/${worker.maxConcurrentAssignments}`;
+			lines.push(`| ${worker.name} | ${worker.workerState} | ${capacity} | ${worker.stageNames.join(', ') || '-'} |`);
 		}
 		return lines.join('\n');
 	}
