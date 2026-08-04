@@ -235,8 +235,14 @@ export class PlaybackController {
 		return events.map((event: TimelineEvent, index: number): PlaybackSegment => {
 			const previousEvent: TimelineEvent | undefined = events[index - 1];
 			const realGapMs: number = previousEvent === undefined ? 0 : Math.max(0, event.timestampMs - previousEvent.timestampMs);
-			const segment: PlaybackSegment = { event, startMs: cursorMs, endMs: cursorMs + this.packetDurationMs };
-			cursorMs += Math.max(this.packetDurationMs, realGapMs);
+			const idleBeforeMs: number = Math.max(0, realGapMs - this.packetDurationMs);
+			const startMs: number = cursorMs + idleBeforeMs;
+			const segment: PlaybackSegment = {
+				event,
+				startMs,
+				endMs: startMs + this.packetDurationMs,
+			};
+			cursorMs = segment.endMs;
 			return segment;
 		});
 	}
