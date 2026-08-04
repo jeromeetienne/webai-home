@@ -6,7 +6,7 @@ import { TaskInputFactory, taskTypeNames } from './libs/task_input_factory.js';
 import { CliError } from './libs/cli_errors.js';
 import { SubmitCommand } from './commands/submit_command.js';
 import { StatusCommand, statusFormats } from './commands/status_command.js';
-import { CapacityCommand } from './commands/capacity_command.js';
+import { CapacityCommand, capacityFormats } from './commands/capacity_command.js';
 import { LogStatsCommand } from './commands/log_stats_command.js';
 import { LogStatisticsFormatter, logStatisticsFormats } from './message_log/log_statistics_formatter.js';
 
@@ -80,16 +80,17 @@ export class Cli {
 		program
 			.command('capacity')
 			.requiredOption('--task_type <type>', `task type: ${taskTypeNames.join(', ')}`)
-			.option('--json', 'print the estimate as JSON instead of a sentence')
+			.option('-f, --format <format>', `output format: ${capacityFormats.join(', ')}`, 'text')
 			.option('--timeout <ms>', 'how long to wait for the central gateway to answer', '10000')
-			.action(async (localOptions: { task_type: string; json?: boolean; timeout: string }, command: Commander.Command) => {
+			.action(async (localOptions: { task_type: string; format: string; timeout: string }, command: Commander.Command) => {
 				const options = command.optsWithGlobals<GlobalOptions & typeof localOptions>();
+				if (CapacityCommand.isFormat(options.format) === false) throw new Error(`Format must be one of ${capacityFormats.join(', ')}`);
 				await CapacityCommand.run({
 					url: options.url,
 					authToken: Cli.resolveAuthToken(options.authToken),
 					timeoutMs: Number(options.timeout),
 					type: options.task_type,
-					json: options.json === true,
+					format: options.format,
 				});
 			});
 
