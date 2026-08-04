@@ -23,6 +23,11 @@ COPY packages/consumer_cli/package.json packages/consumer_cli/package.json
 COPY packages/gateway/package.json packages/gateway/package.json
 COPY packages/consumer_openai/package.json packages/consumer_openai/package.json
 COPY packages/worker_webpage/package.json packages/worker_webpage/package.json
+
+# `puppeteer` is a devDependency of `@webai/consumer-openai`, used only by its real-browser
+# tests, which never run in this image. Skipping its Chrome download avoids a failure here:
+# the base image has no `unzip`, which puppeteer's installer needs to extract the download.
+ENV PUPPETEER_SKIP_DOWNLOAD=true
 RUN npm install
 
 COPY packages/protocol packages/protocol
