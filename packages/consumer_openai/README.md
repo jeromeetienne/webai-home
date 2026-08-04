@@ -281,10 +281,10 @@ The tests cover reading a request, the models on offer, the failure mapping, the
 - [`src/commands/server_command.ts`](./src/commands/server_command.ts) — the `server` subcommand: builds every part and starts serving.
 - [`src/commands/benchmark_command.ts`](./src/commands/benchmark_command.ts) — the `benchmark` subcommand: compares direct LM Studio latency with the same model behind webai-at-home.
 - [`src/libs/server_settings.ts`](./src/libs/server_settings.ts) — the `server` subcommand's own command line options, read once and typed.
-- [`src/libs/openai_routes.ts`](./src/libs/openai_routes.ts) — the endpoints, including reading and checking a request.
+- [`src/http/openai_routes.ts`](./src/http/openai_routes.ts) — the endpoints, including reading and checking a request.
 - [`src/libs/cluster_task_runner.ts`](./src/libs/cluster_task_runner.ts) — the one gateway connection, and one promise per submitted task.
-- [`src/libs/model_catalog.ts`](./src/libs/model_catalog.ts) — the models on offer, and the task type behind each one.
-- [`src/libs/prompt_flattener.ts`](./src/libs/prompt_flattener.ts) — turning a conversation into the single piece of text a task carries.
-- [`src/libs/openai_error.ts`](./src/libs/openai_error.ts) — every way a request can fail, with its status and its body.
-- [`src/libs/openai_types.ts`](./src/libs/openai_types.ts) — the request bodies accepted and the response bodies returned.
-- [`src/libs/curl_style_transaction_logger.ts`](./src/libs/curl_style_transaction_logger.ts) — records every chat completion request to the transaction log described above.
+- [`src/api/model_catalog.ts`](./src/api/model_catalog.ts) — the models on offer, and the task type behind each one.
+- [`src/api/prompt_flattener.ts`](./src/api/prompt_flattener.ts) — turning a conversation into the single piece of text a task carries.
+- [`src/api/openai_error.ts`](./src/api/openai_error.ts) — every way a request can fail, with its status and its body.
+- [`src/api/openai_types.ts`](./src/api/openai_types.ts) — the request bodies accepted and the response bodies returned.
+- [`src/http/curl_style_transaction_logger.ts`](./src/http/curl_style_transaction_logger.ts) — records every chat completion request to the transaction log described above.
