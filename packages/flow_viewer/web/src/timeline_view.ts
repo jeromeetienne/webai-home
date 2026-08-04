@@ -8,6 +8,7 @@ import type { ActorNode, ActorPosition, TimelineEvent } from './types.js';
 ///////////////////////////////////////////////////////////////////////////////
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
+const DIAGRAM_WIDTH = 800;
 const COLUMN_X: Record<string, number> = { left: 90, center: 400, right: 710 };
 const ROW_HEIGHT = 72;
 const TOP_MARGIN = 42;
@@ -16,6 +17,7 @@ const MIN_HEIGHT = 210;
 const ZOOM_PANEL_WIDTH = 460;
 const ZOOM_PANEL_HEIGHT = 300;
 const ZOOM_PANEL_GAP = 10;
+const ZOOM_PANEL_MARGIN = 12;
 const ZOOM_MULTI_VIEW_GAP = 12;
 const ZOOM_MULTI_VIEW_EXTENSION = 78;
 const MAX_ZOOM_VIEWS = 2;
@@ -290,18 +292,25 @@ export class TimelineView {
 			const fromActor: ActorNode = this.actorsById.get(zoomedLink.fromActorId)!;
 			const toActor: ActorNode = this.actorsById.get(zoomedLink.toActorId)!;
 			const isActiveOnSelectedLink: boolean = activeEvent !== undefined && this._linkKey(activeEvent.fromActorId, activeEvent.toActorId) === zoomedLink.key;
+			// A lone zoomed link has no sibling to share the canvas with, so it spans (almost)
+			// the full diagram width instead of being confined to its own half-canvas slot.
+			const isSoleZoomedLink: boolean = zoomedLinksForLayout.length === 1;
 			const centerDistance: number = Math.abs(toPosition.x - fromPosition.x);
 			const basePanelWidth: number = centerDistance > 0 ? centerDistance : ZOOM_PANEL_WIDTH;
 			// Keep each inter-lane zoom card in the same slot as the two-card layout. An
 			// absent sibling must not make the remaining card narrower or recenter it.
 			const innerGap: number = centerDistance > 0 ? ZOOM_MULTI_VIEW_GAP / 2 : 0;
 			const outerExtension: number = centerDistance > 0 ? ZOOM_MULTI_VIEW_EXTENSION : 0;
-			const panelWidth: number = basePanelWidth + outerExtension - innerGap;
-			const basePanelX: number = centerDistance > 0 ? Math.min(fromPosition.x, toPosition.x) : Math.max(12, Math.min(800 - basePanelWidth - 12, ((fromPosition.x + toPosition.x) / 2) - basePanelWidth / 2));
+			const panelWidth: number = isSoleZoomedLink ? DIAGRAM_WIDTH - ZOOM_PANEL_MARGIN * 2 : basePanelWidth + outerExtension - innerGap;
+			const basePanelX: number = centerDistance > 0
+				? Math.min(fromPosition.x, toPosition.x)
+				: Math.max(ZOOM_PANEL_MARGIN, Math.min(DIAGRAM_WIDTH - basePanelWidth - ZOOM_PANEL_MARGIN, ((fromPosition.x + toPosition.x) / 2) - basePanelWidth / 2));
 			const panelSide: 'left' | 'right' = Math.min(fromPosition.x, toPosition.x) < COLUMN_X.center ? 'left' : 'right';
-			const panelX: number = centerDistance > 0
-				? basePanelX + (panelSide === 'left' ? -outerExtension : innerGap)
-				: basePanelX;
+			const panelX: number = isSoleZoomedLink
+				? ZOOM_PANEL_MARGIN
+				: centerDistance > 0
+					? basePanelX + (panelSide === 'left' ? -outerExtension : innerGap)
+					: basePanelX;
 			const panelHeight: number = ZOOM_PANEL_HEIGHT;
 			const panelY: number = Math.max(fromPosition.y, toPosition.y) + NODE_RADIUS + ZOOM_PANEL_GAP;
 			viewBoxHeight = Math.max(viewBoxHeight, panelY + panelHeight + ZOOM_PANEL_GAP);
@@ -463,11 +472,103 @@ export class TimelineView {
 			return htmlViewEl;
 		}
 
+		if (event.messageType === 'pipelines' && Array.isArray(payload.pipelines)) {
+			htmlViewEl.appendChild(TimelineView._buildPipelinesView(payload.pipelines));
+			return htmlViewEl;
+		}
+
 		const fields: TaskDisplayField[] = event.messageType.startsWith('task.')
 			? this._taskDisplayFields(payload)
 			: TimelineView._messageDisplayFields(payload);
 		this._appendDisplayFields(htmlViewEl, fields, 'No message details were recorded for this message.');
 		return htmlViewEl;
+	}
+
+	/** Renders the `pipelines` message as one heading plus one block per pipeline, separated by rules. */
+	private static _buildPipelinesView(pipelines: unknown[]): HTMLElement {
+		const containerEl: HTMLDivElement = document.createElement('div');
+		containerEl.className = 'link-zoom-pipeline-container';
+		const headingEl: HTMLHeadingElement = document.createElement('h4');
+		headingEl.className = 'link-zoom-pipeline-heading';
+		headingEl.textContent = 'Pipelines';
+		containerEl.appendChild(headingEl);
+
+		if (pipelines.length === 0) {
+			const emptyEl: HTMLParagraphElement = document.createElement('p');
+			emptyEl.className = 'link-zoom-html-empty';
+			emptyEl.textContent = 'No pipelines were recorded for this message.';
+			containerEl.appendChild(emptyEl);
+			return containerEl;
+		}
+
+		const pipelineRecords: Array<Record<string, unknown>> = pipelines
+			.map((pipeline: unknown): Record<string, unknown> | undefined => TimelineView._record(pipeline))
+			.filter((pipelineRecord: Record<string, unknown> | undefined): pipelineRecord is Record<string, unknown> => pipelineRecord !== undefined);
+		pipelineRecords.forEach((pipelineRecord: Record<string, unknown>, index: number): void => {
+			if (index > 0) containerEl.appendChild(document.createElement('hr'));
+			containerEl.appendChild(TimelineView._buildPipelineCard(pipelineRecord));
+		});
+		return containerEl;
+	}
+
+	private static _buildPipelineCard(pipeline: Record<string, unknown>): HTMLElement {
+		const cardEl: HTMLDivElement = document.createElement('div');
+		cardEl.className = 'link-zoom-pipeline';
+
+		const headerEl: HTMLDivElement = document.createElement('div');
+		headerEl.className = 'link-zoom-pipeline-header';
+		const idEl: HTMLSpanElement = document.createElement('span');
+		idEl.className = 'link-zoom-pipeline-id';
+		idEl.textContent = `${String(pipeline.pipelineId)} · v${String(pipeline.version)}`;
+		const taskTypeEl: HTMLSpanElement = document.createElement('span');
+		taskTypeEl.className = 'link-zoom-pipeline-task-type';
+		taskTypeEl.textContent = String(pipeline.taskType);
+		headerEl.append(idEl, taskTypeEl);
+		if (pipeline.repeatsUntilDone === true || pipeline.retired === true) {
+			const badgesEl: HTMLSpanElement = document.createElement('span');
+			badgesEl.className = 'link-zoom-pipeline-badges';
+			const badgeParts: string[] = [];
+			if (pipeline.repeatsUntilDone === true) badgeParts.push('repeats until done');
+			if (pipeline.retired === true) badgeParts.push('retired');
+			badgesEl.textContent = badgeParts.join(' · ');
+			headerEl.appendChild(badgesEl);
+		}
+		cardEl.appendChild(headerEl);
+
+		const stages: unknown = pipeline.stages;
+		if (Array.isArray(stages) === false || stages.length === 0) return cardEl;
+
+		const tableEl: HTMLTableElement = document.createElement('table');
+		tableEl.className = 'link-zoom-pipeline-stages';
+		const headEl: HTMLTableSectionElement = document.createElement('thead');
+		const headRowEl: HTMLTableRowElement = document.createElement('tr');
+		for (const columnTitle of ['Stage', 'Computation', 'Input → output', 'Encoding']) {
+			const thEl: HTMLTableCellElement = document.createElement('th');
+			thEl.textContent = columnTitle;
+			headRowEl.appendChild(thEl);
+		}
+		headEl.appendChild(headRowEl);
+		tableEl.appendChild(headEl);
+
+		const bodyEl: HTMLTableSectionElement = document.createElement('tbody');
+		for (const stage of stages) {
+			const stageRecord: Record<string, unknown> | undefined = TimelineView._record(stage);
+			if (stageRecord === undefined) continue;
+			const rowEl: HTMLTableRowElement = document.createElement('tr');
+			const nameEl: HTMLTableCellElement = document.createElement('td');
+			nameEl.textContent = String(stageRecord.name);
+			const computationEl: HTMLTableCellElement = document.createElement('td');
+			computationEl.textContent = String(stageRecord.computation);
+			const schemaEl: HTMLTableCellElement = document.createElement('td');
+			schemaEl.textContent = `${String(stageRecord.inputSchemaId)} → ${String(stageRecord.outputSchemaId)}`;
+			const encodingEl: HTMLTableCellElement = document.createElement('td');
+			encodingEl.textContent = String(stageRecord.encoding);
+			rowEl.append(nameEl, computationEl, schemaEl, encodingEl);
+			bodyEl.appendChild(rowEl);
+		}
+		tableEl.appendChild(bodyEl);
+		cardEl.appendChild(tableEl);
+		return cardEl;
 	}
 
 	/** Pulls the scheduling fields into a consistent order for every task message. */
@@ -552,7 +653,7 @@ export class TimelineView {
 	}
 
 	private _setViewBoxHeight(height: number): void {
-		this.svgEl.setAttribute('viewBox', `0 0 800 ${height}`);
+		this.svgEl.setAttribute('viewBox', `0 0 ${DIAGRAM_WIDTH} ${height}`);
 	}
 
 	private _drawActorNode(actor: ActorNode, x: number, y: number): void {
