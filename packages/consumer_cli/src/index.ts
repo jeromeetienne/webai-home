@@ -14,4 +14,10 @@
  * subpaths such as `./envelope`.
  */
 export { ConsumerClient, type ConsumerClientCallbacks, type TaskSocket } from './gateway_connection/consumer_client.js';
-export { TaskInputFactory, taskTypeNames, type TaskTypeName } from './libs/task_input_factory.js';
+export {
+	TaskInputFactory,
+	taskTypeNames,
+	taskTypeNamesAcceptingConversation,
+	type TaskTypeName,
+	type TaskTypeNameAcceptingConversation,
+} from './libs/task_input_factory.js';

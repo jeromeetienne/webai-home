@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { StagePayload } from '../stage/stage_payload_types.js';
+import { ConversationInputSchema } from './conversation_types.js';
 import type { StageName } from './pipeline_types.js';
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -59,13 +60,28 @@ export const GenerationSettingsSchema = z.object({
 /** What a consumer asks for about how its answer is generated. */
 export type GenerationSettings = z.infer<typeof GenerationSettingsSchema>;
 
+/**
+ * The value a language-model task carries: either one prompt, or a whole conversation.
+ *
+ * Which of the two a consumer submits is its own choice, and both remain valid indefinitely. A
+ * consumer with one prompt and nothing else to say submits a prompt, which is what
+ * `@webai/consumer-cli` does; a consumer with several turns or a system message to pass on submits
+ * a conversation.
+ *
+ * Only the task types whose stage helper can hand a message list to its model accept this. The
+ * others take a prompt and nothing else, so a conversation is refused for them by this schema
+ * rather than by a list kept somewhere else that could drift away from what the workers can
+ * actually do. See `ConversationInputSchema` for what carrying a conversation is worth.
+ */
+const LlmTaskValueSchema = z.union([z.string(), ConversationInputSchema]);
+
 /** The work submitted with a task: its kind, the value that kind carries, and how to generate it. */
 export const TaskInput = z.discriminatedUnion('taskType', [
 	z.object({ taskType: z.literal('task_type_dev_formula'), input: z.number().finite(), generationSettings: GenerationSettingsSchema.optional() }),
 	z.object({ taskType: z.literal('task_type_llm_qwen3_0_6b_sharded'), input: z.string(), generationSettings: GenerationSettingsSchema.optional() }),
 	z.object({ taskType: z.literal('task_type_llm_gemma_nano_chrome_full'), input: z.string(), generationSettings: GenerationSettingsSchema.optional() }),
-	z.object({ taskType: z.literal('task_type_llm_qwen3_5_0_8b_full'), input: z.string(), generationSettings: GenerationSettingsSchema.optional() }),
-	z.object({ taskType: z.literal('task_type_llm_llama3_2_3b_full'), input: z.string(), generationSettings: GenerationSettingsSchema.optional() }),
+	z.object({ taskType: z.literal('task_type_llm_qwen3_5_0_8b_full'), input: LlmTaskValueSchema, generationSettings: GenerationSettingsSchema.optional() }),
+	z.object({ taskType: z.literal('task_type_llm_llama3_2_3b_full'), input: LlmTaskValueSchema, generationSettings: GenerationSettingsSchema.optional() }),
 ]);
 /** The work submitted with a task: its kind, the value that kind carries, and how to generate it. */
 export type TaskInput = z.infer<typeof TaskInput>;

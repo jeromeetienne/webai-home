@@ -1,5 +1,5 @@
 import { pipeline, TextStreamer, InterruptableStoppingCriteria, type TextGenerationPipeline } from '@huggingface/transformers';
-import { StagePayloadFactory, type GenerationSettings, type LlmStagePayload } from '@webai/protocol';
+import { StagePayloadFactory, type ConversationInput, type GenerationSettings, type LlmStagePayload } from '@webai/protocol';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -235,8 +235,8 @@ export class StageHelperLlmQwen3_5_0_8bFull {
 	 * @param taskId The task this run belongs to, which names the answer being produced for it.
 	 * @param stageAssignmentId The assignment this run is carrying out, which decides whether this run
 	 * is the one allowed to release the answer it is reading.
-	 * @param payload The prompt submitted with the task, or, on a run that carries an answer on,
-	 * a value saying so and nothing else.
+	 * @param payload The prompt or conversation submitted with the task, or, on a run that carries
+	 * an answer on, a value saying so and nothing else.
 	 * @param generationSettings What the consumer asked for. Only `isStreaming` is read: set, one
 	 * run returns one piece and leaves the answer open for the run that follows; absent, one run
 	 * returns the whole answer.
@@ -260,7 +260,7 @@ export class StageHelperLlmQwen3_5_0_8bFull {
 		// finished answer, and every failure — releases it.
 		let leavesAnswerOpen = false;
 		try {
-			const reader = state.reader ?? await StageHelperLlmQwen3_5_0_8bFull.startGeneration(state, payload.text ?? '');
+			const reader = state.reader ?? await StageHelperLlmQwen3_5_0_8bFull.startGeneration(state, payload.conversation ?? payload.text ?? '');
 			while (state.pieceCount < MAXIMUM_ANSWER_PIECES) {
 				const piece = await reader.read();
 				if (state.isReleased === true) {
@@ -457,16 +457,16 @@ export class StageHelperLlmQwen3_5_0_8bFull {
 	 * Starts one answer, and hands its stopping criteria and reader to the state the run holds.
 	 *
 	 * @param state The generation state this run registered, already released or not.
-	 * @param prompt The prompt submitted with the task.
+	 * @param promptOrConversation The prompt or conversation submitted with the task.
 	 * @returns The reader that delivers the answer.
-	 * @throws If the prompt is empty, if the model cannot be loaded, or if the assignment was
-	 * taken away while the browser was loading the model.
+	 * @throws If the prompt or conversation is empty, if the model cannot be loaded, or if the
+	 * assignment was taken away while the browser was loading the model.
 	 */
 	private static async startGeneration(
 		state: TaskGenerationState,
-		prompt: string,
+		promptOrConversation: string | ConversationInput,
 	): Promise<ReadableStreamDefaultReader<string>> {
-		if (prompt.trim() === '') {
+		if (StageHelperLlmQwen3_5_0_8bFull.isEmpty(promptOrConversation)) {
 			throw new Error('A prompt is needed to start an answer.');
 		}
 		const generator = await StageHelperLlmQwen3_5_0_8bFull.loadedGenerator();
@@ -480,8 +480,26 @@ export class StageHelperLlmQwen3_5_0_8bFull {
 		}
 		const criteria = new InterruptableStoppingCriteria();
 		state.criteria = criteria;
-		state.reader = StageHelperLlmQwen3_5_0_8bFull.createGenerationStream(generator, prompt, criteria).getReader();
+		state.reader = StageHelperLlmQwen3_5_0_8bFull.createGenerationStream(generator, promptOrConversation, criteria).getReader();
 		return state.reader;
+	}
+
+	/**
+	 * Reports whether a prompt or conversation carries nothing to answer.
+	 *
+	 * A conversation that reached this point always has at least one message, because
+	 * `ConversationInputSchema` refuses an empty one at submission; this still checks rather than
+	 * assuming it, so a payload with neither `text` nor `conversation` set is caught here as the
+	 * empty string {@link compute} falls back to, the same way an empty prompt always was.
+	 *
+	 * @param promptOrConversation The value {@link startGeneration} was given.
+	 * @returns `true` when there is nothing to answer.
+	 */
+	private static isEmpty(promptOrConversation: string | ConversationInput): boolean {
+		if (typeof promptOrConversation === 'string') {
+			return promptOrConversation.trim() === '';
+		}
+		return promptOrConversation.messages.length === 0;
 	}
 
 	/**
@@ -489,13 +507,13 @@ export class StageHelperLlmQwen3_5_0_8bFull {
 	 * `@huggingface/transformers`'s own streaming callback.
 	 *
 	 * @param generator The loaded text-generation pipeline.
-	 * @param prompt The prompt to generate an answer for.
+	 * @param promptOrConversation The prompt or conversation to generate an answer for.
 	 * @param criteria Stops generation early when the stream's reader is cancelled.
 	 * @returns A stream of the pieces of text the model produces, in order.
 	 */
 	private static createGenerationStream(
 		generator: TextGenerationPipeline,
-		prompt: string,
+		promptOrConversation: string | ConversationInput,
 		criteria: InterruptableStoppingCriteria,
 	): ReadableStream<string> {
 		let isCancelled = false;
@@ -510,7 +528,7 @@ export class StageHelperLlmQwen3_5_0_8bFull {
 						}
 					},
 				});
-				generator([{ role: 'user', content: prompt }], {
+				generator(StageHelperLlmQwen3_5_0_8bFull.messagesOf(promptOrConversation), {
 					max_new_tokens: MAX_NEW_TOKENS,
 					do_sample: false,
 					return_full_text: false,
@@ -532,5 +550,25 @@ export class StageHelperLlmQwen3_5_0_8bFull {
 				criteria.interrupt();
 			},
 		});
+	}
+
+	/**
+	 * Builds the message list handed to the text-generation pipeline, from either a prompt or a
+	 * conversation.
+	 *
+	 * A single prompt becomes the one user message this stage has always sent. A conversation
+	 * becomes its messages, each carrying the role it was given, so `@huggingface/transformers`
+	 * applies the model's own chat template to real turns — a system message reaches the slot the
+	 * template has for it — instead of receiving one user message whose content happens to be a
+	 * flattened transcript.
+	 *
+	 * @param promptOrConversation The prompt or conversation submitted with the task.
+	 * @returns The message list to pass to the text-generation pipeline.
+	 */
+	private static messagesOf(promptOrConversation: string | ConversationInput): { role: string; content: string }[] {
+		if (typeof promptOrConversation === 'string') {
+			return [{ role: 'user', content: promptOrConversation }];
+		}
+		return promptOrConversation.messages.map((message) => ({ role: message.role, content: message.content }));
 	}
 }

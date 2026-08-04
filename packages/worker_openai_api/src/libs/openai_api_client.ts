@@ -1,3 +1,5 @@
+import type { ConversationInput } from '@webai/protocol';
+
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 //	OpenaiApiClient — talks to one local server that speaks the OpenAI-compatible API
@@ -31,6 +33,12 @@ type ChatCompletionChunk = {
 			content?: string;
 		};
 	}[];
+};
+
+/** One message of the request this client sends to the local server, in the shape it expects. */
+type OutgoingMessage = {
+	role: string;
+	content: string;
 };
 
 /**
@@ -83,21 +91,26 @@ export class OpenaiApiClient {
 	 * Starts a Chat Completions request and returns the pieces of the answer as they stream in.
 	 *
 	 * @param modelId The model to ask for, exactly as the local server names it.
-	 * @param prompt The prompt to answer.
+	 * @param promptOrConversation The prompt to answer, or the whole conversation to continue when
+	 * the task carries one instead of a single prompt.
 	 * @param abortController Aborts the request when the answer is no longer wanted. The stream's
 	 * own `cancel` calls this, so cancelling the reader stops the request to the local server
 	 * rather than only stopping this side from reading it.
 	 * @returns A stream of the pieces of text the model produces, in order.
 	 * @throws If the server cannot be reached, or answers with a failure status.
 	 */
-	async chatCompletionStream(modelId: string, prompt: string, abortController: AbortController): Promise<ReadableStream<string>> {
+	async chatCompletionStream(
+		modelId: string,
+		promptOrConversation: string | ConversationInput,
+		abortController: AbortController,
+	): Promise<ReadableStream<string>> {
 		const response = await fetch(`${this.baseUrl}/chat/completions`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({
 				model: modelId,
 				stream: true,
-				messages: [{ role: 'user', content: prompt }],
+				messages: OpenaiApiClient.messagesOf(promptOrConversation),
 			}),
 			signal: abortController.signal,
 		}).catch((error: unknown) => {
@@ -110,6 +123,24 @@ export class OpenaiApiClient {
 			throw new Error(`The server at ${this.baseUrl} answered the chat completion with no body`);
 		}
 		return OpenaiApiClient.textPiecesOf(response.body, abortController);
+	}
+
+	/**
+	 * Builds the message list to send to the local server, from either a prompt or a conversation.
+	 *
+	 * A single prompt becomes the one user message this client has always sent. A conversation
+	 * becomes its messages, each carrying the role it was given, so the local server's own chat
+	 * template can place a system message and an earlier assistant turn where they belong instead
+	 * of receiving one user message whose content happens to be a transcript.
+	 *
+	 * @param promptOrConversation The prompt or conversation submitted with the task.
+	 * @returns The message list to send in the request body.
+	 */
+	private static messagesOf(promptOrConversation: string | ConversationInput): OutgoingMessage[] {
+		if (typeof promptOrConversation === 'string') {
+			return [{ role: 'user', content: promptOrConversation }];
+		}
+		return promptOrConversation.messages.map((message) => ({ role: message.role, content: message.content }));
 	}
 
 	/**

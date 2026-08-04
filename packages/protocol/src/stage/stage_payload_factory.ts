@@ -1,3 +1,4 @@
+import type { ConversationInput } from '../task/conversation_types.js';
 import type { TaskInput } from '../task/task_types.js';
 import type { EncodedTensor, LlmStagePayload, StagePayload } from './stage_payload_types.js';
 
@@ -27,7 +28,8 @@ export class StagePayloadFactory {
 	 */
 	static initial(input: TaskInput): StagePayload {
 		if (input.taskType === 'task_type_dev_formula') return StagePayloadFactory.formula(input.input);
-		return StagePayloadFactory.llmPrompt(input.input);
+		if (typeof input.input === 'string') return StagePayloadFactory.llmPrompt(input.input);
+		return StagePayloadFactory.llmConversation(input.input);
 	}
 
 	/**
@@ -49,6 +51,18 @@ export class StagePayloadFactory {
 	 */
 	static llmPrompt(prompt: string): LlmStagePayload {
 		return { text: prompt };
+	}
+
+	/**
+	 * Builds the initial LLM stage payload for a task submitted with a whole conversation rather
+	 * than with one prompt, carrying that conversation for the stage helper to hand to its model's
+	 * chat template.
+	 *
+	 * @param conversation The conversation submitted for the task.
+	 * @returns The stage payload to assign to the task's first stage.
+	 */
+	static llmConversation(conversation: ConversationInput): LlmStagePayload {
+		return { conversation };
 	}
 
 	/**

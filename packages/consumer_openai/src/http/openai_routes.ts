@@ -15,6 +15,7 @@ import type {
 	TransactionOutcome,
 	TransactionResponseType,
 } from './curl_style_transaction_logger.js';
+import { ConversationBuilder } from '../api/conversation_builder.js';
 import { ModelCatalog } from '../api/model_catalog.js';
 import { OpenaiError } from '../api/openai_error.js';
 import { PromptFlattener } from '../api/prompt_flattener.js';
@@ -204,7 +205,12 @@ export class OpenaiRoutes {
 			throw OpenaiError.unknownModel(body.model, ModelCatalog.modelIds);
 		}
 
-		const prompt = PromptFlattener.flatten(body.messages);
+		// A task type whose worker can hand a message list to its own chat template is sent the
+		// conversation as it was written, each message keeping its own role. Every other task type
+		// still takes one piece of text, so its request is flattened exactly as it always was.
+		const promptOrConversation = TaskInputFactory.acceptsConversation(taskTypeName)
+			? ConversationBuilder.build(body.messages)
+			: PromptFlattener.flatten(body.messages);
 		const isStreaming = body.stream === true;
 		let taskInput: TaskInput;
 		try {
@@ -214,7 +220,7 @@ export class OpenaiRoutes {
 			// exactly what it did before generation settings existed.
 			taskInput = TaskInputFactory.createTaskInput(
 				taskTypeName,
-				prompt,
+				promptOrConversation,
 				isStreaming
 					? {
 							isStreaming: true,
@@ -223,7 +229,7 @@ export class OpenaiRoutes {
 			);
 		} catch (error: unknown) {
 			throw OpenaiError.unusableMessages(
-				`The model ${body.model} cannot take the text of this request: ` +
+				`The model ${body.model} cannot take this request: ` +
 					`${error instanceof Error ? error.message : String(error)}.`,
 			);
 		}

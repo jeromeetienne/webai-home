@@ -24,6 +24,8 @@ export { StageAssignmentId, TaskRequestId } from './identifier.js';
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
+export { ConversationInputSchema, ConversationMessageSchema } from './task/conversation_types.js';
+export type { ConversationInput, ConversationMessage } from './task/conversation_types.js';
 export { GenerationSettingsSchema, StageAssignmentRetryReason, TaskInput, TaskState, TaskType, maximumSnapshotEventCount } from './task/task_types.js';
 export type {
 	GenerationSettings,

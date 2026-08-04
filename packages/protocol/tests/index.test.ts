@@ -3,7 +3,22 @@ import Fs from 'node:fs';
 import Os from 'node:os';
 import Path from 'node:path';
 import Test from 'node:test';
-import { ClientEnvelopeSchema, ClientMessageSchema, DiagnosticsBatchSchema, GeneratedText, PipelineSpecificationSchema, PipelineStageSchema, StageName, StagePayloadFactory, TaskInput, TaskState, maximumDiagnosticEntriesPerBatch, maximumSnapshotEventCount, protocolVersion } from '../src/index.js';
+import {
+	ClientEnvelopeSchema,
+	ClientMessageSchema,
+	ConversationInputSchema,
+	DiagnosticsBatchSchema,
+	GeneratedText,
+	PipelineSpecificationSchema,
+	PipelineStageSchema,
+	StageName,
+	StagePayloadFactory,
+	TaskInput,
+	TaskState,
+	maximumDiagnosticEntriesPerBatch,
+	maximumSnapshotEventCount,
+	protocolVersion,
+} from '../src/index.js';
 import type { Task, TaskEvent } from '../src/index.js';
 import { MessageLogger } from '../src/message/message_logger.js';
 import type { LogEntry } from '../src/message/message_logger.js';
@@ -36,6 +51,35 @@ Test('rejects task input that does not match its task type', () => {
 	Assert.equal(TaskInput.safeParse({ taskType: 'task_type_dev_formula', input: '5' }).success, false);
 });
 
+Test('accepts a whole conversation only for the two task types whose worker can hand one to its chat template', () => {
+	const conversation = { messages: [{ role: 'user', content: 'hello' }] };
+	Assert.deepEqual(TaskInput.parse({ taskType: 'task_type_llm_qwen3_5_0_8b_full', input: conversation }), { taskType: 'task_type_llm_qwen3_5_0_8b_full', input: conversation });
+	Assert.deepEqual(TaskInput.parse({ taskType: 'task_type_llm_llama3_2_3b_full', input: conversation }), { taskType: 'task_type_llm_llama3_2_3b_full', input: conversation });
+	// The same two task types still take one prompt too, exactly as before this existed.
+	Assert.deepEqual(TaskInput.parse({ taskType: 'task_type_llm_qwen3_5_0_8b_full', input: 'hello' }), { taskType: 'task_type_llm_qwen3_5_0_8b_full', input: 'hello' });
+	// Every other task type refuses a conversation, rather than reading part of it or accepting a
+	// shape its worker cannot hand to anything.
+	Assert.equal(TaskInput.safeParse({ taskType: 'task_type_llm_qwen3_0_6b_sharded', input: conversation }).success, false);
+	Assert.equal(TaskInput.safeParse({ taskType: 'task_type_llm_gemma_nano_chrome_full', input: conversation }).success, false);
+	Assert.equal(TaskInput.safeParse({ taskType: 'task_type_dev_formula', input: conversation }).success, false);
+});
+
+Test('accepts a conversation with several roles, and refuses one that is empty, malformed, or carries an unknown field', () => {
+	Assert.equal(ConversationInputSchema.safeParse({ messages: [{ role: 'system', content: 'Be brief.' }, { role: 'user', content: 'Hi' }, { role: 'assistant', content: 'Hello.' }] }).success, true);
+	Assert.equal(ConversationInputSchema.safeParse({ messages: [] }).success, false);
+	Assert.equal(ConversationInputSchema.safeParse({ messages: [{ role: 'narrator', content: 'Hi' }] }).success, false);
+	Assert.equal(ConversationInputSchema.safeParse({ messages: [{ role: 'user', content: 'Hi' }], somethingUnexpected: true }).success, false);
+	// Every message says something. A message with no content at all is refused rather than
+	// travelling to a chat template that would render an empty turn.
+	Assert.equal(ConversationInputSchema.safeParse({ messages: [{ role: 'assistant' }] }).success, false);
+	// A conversation carries messages and nothing else. Tool declarations were dropped along with
+	// tool calling, so a consumer that sends them is refused rather than having them quietly ignored.
+	Assert.equal(ConversationInputSchema.safeParse({
+		messages: [{ role: 'user', content: 'What is the weather in Paris?' }],
+		tools: [{ name: 'get_current_weather' }],
+	}).success, false);
+});
+
 Test('restricts task states, and checks the shape of a stage name without listing them', () => {
 	Assert.equal(TaskState.safeParse('completed').success, true);
 	Assert.equal(TaskState.safeParse('unknown').success, false);
@@ -54,6 +98,7 @@ Test('restricts task states, and checks the shape of a stage name without listin
 Test('StagePayloadFactory builds each stage payload shape', () => {
 	Assert.equal(StagePayloadFactory.formula(42), 42);
 	Assert.deepEqual(StagePayloadFactory.llmPrompt('hello'), { text: 'hello' });
+	Assert.deepEqual(StagePayloadFactory.llmConversation({ messages: [{ role: 'user', content: 'hello' }] }), { conversation: { messages: [{ role: 'user', content: 'hello' }] } });
 
 	const tensors = { '/model/layers.9/input_layernorm/output_0': { dims: [1, 1, 4], type: 'float16', dataBase64: 'AA==' } };
 	Assert.deepEqual(StagePayloadFactory.llmHandoff(tensors, [1, 2, 3], 0), { tensors, inputIds: [1, 2, 3], position: 0 });
@@ -104,6 +149,14 @@ Test('StagePayloadFactory answers every task type with a first stage value', () 
 	Assert.equal(StagePayloadFactory.initial({ taskType: 'task_type_dev_formula', input: 5 }), 5);
 	Assert.deepEqual(StagePayloadFactory.initial({ taskType: 'task_type_llm_qwen3_0_6b_sharded', input: 'hello' }), { text: 'hello' });
 	Assert.deepEqual(StagePayloadFactory.initial({ taskType: 'task_type_llm_gemma_nano_chrome_full', input: 'hello' }), { text: 'hello' });
+	// A task submitted with a prompt still carries it as `text`, whichever of the two task types
+	// it names, exactly as before a conversation could be submitted at all.
+	Assert.deepEqual(StagePayloadFactory.initial({ taskType: 'task_type_llm_qwen3_5_0_8b_full', input: 'hello' }), { text: 'hello' });
+	// A task submitted with a whole conversation carries that conversation to its first stage
+	// instead, rather than having it flattened into `text`.
+	const conversation = { messages: [{ role: 'user' as const, content: 'hello' }] };
+	Assert.deepEqual(StagePayloadFactory.initial({ taskType: 'task_type_llm_qwen3_5_0_8b_full', input: conversation }), { conversation });
+	Assert.deepEqual(StagePayloadFactory.initial({ taskType: 'task_type_llm_llama3_2_3b_full', input: conversation }), { conversation });
 });
 
 Test('validates every inbound client message shape', () => {
