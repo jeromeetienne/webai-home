@@ -562,9 +562,6 @@ export class StageHelperLlmQwen3_5_0_8bFull {
 	 * template has for it — instead of receiving one user message whose content happens to be a
 	 * flattened transcript.
 	 *
-	 * Tool calls and tool results are not read yet: nothing submits a conversation carrying them
-	 * ahead of the tool calling support tracked in issue #115, which is what will read them here.
-	 *
 	 * @param promptOrConversation The prompt or conversation submitted with the task.
 	 * @returns The message list to pass to the text-generation pipeline.
 	 */
@@ -572,6 +569,6 @@ export class StageHelperLlmQwen3_5_0_8bFull {
 		if (typeof promptOrConversation === 'string') {
 			return [{ role: 'user', content: promptOrConversation }];
 		}
-		return promptOrConversation.messages.map((message) => ({ role: message.role, content: message.content ?? '' }));
+		return promptOrConversation.messages.map((message) => ({ role: message.role, content: message.content }));
 	}
 }

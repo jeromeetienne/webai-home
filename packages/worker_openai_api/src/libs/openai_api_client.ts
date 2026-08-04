@@ -133,9 +133,6 @@ export class OpenaiApiClient {
 	 * template can place a system message and an earlier assistant turn where they belong instead
 	 * of receiving one user message whose content happens to be a transcript.
 	 *
-	 * Tool calls and tool results are not read yet: nothing submits a conversation carrying them
-	 * ahead of the tool calling support tracked in issue #114, which is what will read them here.
-	 *
 	 * @param promptOrConversation The prompt or conversation submitted with the task.
 	 * @returns The message list to send in the request body.
 	 */
@@ -143,7 +140,7 @@ export class OpenaiApiClient {
 		if (typeof promptOrConversation === 'string') {
 			return [{ role: 'user', content: promptOrConversation }];
 		}
-		return promptOrConversation.messages.map((message) => ({ role: message.role, content: message.content ?? '' }));
+		return promptOrConversation.messages.map((message) => ({ role: message.role, content: message.content }));
 	}
 
 	/**

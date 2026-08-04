@@ -65,8 +65,8 @@ export type GenerationSettings = z.infer<typeof GenerationSettingsSchema>;
  *
  * Which of the two a consumer submits is its own choice, and both remain valid indefinitely. A
  * consumer with one prompt and nothing else to say submits a prompt, which is what
- * `@webai/consumer-cli` does; a consumer with several turns, a system message, or a tool result to
- * pass on submits a conversation.
+ * `@webai/consumer-cli` does; a consumer with several turns or a system message to pass on submits
+ * a conversation.
  *
  * Only the task types whose stage helper can hand a message list to its model accept this. The
  * others take a prompt and nothing else, so a conversation is refused for them by this schema

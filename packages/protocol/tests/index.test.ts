@@ -15,9 +15,6 @@ import {
 	StagePayloadFactory,
 	TaskInput,
 	TaskState,
-	ToolCallSchema,
-	ToolChoiceSchema,
-	ToolDeclarationSchema,
 	maximumDiagnosticEntriesPerBatch,
 	maximumSnapshotEventCount,
 	protocolVersion,
@@ -72,29 +69,15 @@ Test('accepts a conversation with several roles, and refuses one that is empty, 
 	Assert.equal(ConversationInputSchema.safeParse({ messages: [] }).success, false);
 	Assert.equal(ConversationInputSchema.safeParse({ messages: [{ role: 'narrator', content: 'Hi' }] }).success, false);
 	Assert.equal(ConversationInputSchema.safeParse({ messages: [{ role: 'user', content: 'Hi' }], somethingUnexpected: true }).success, false);
-	// An assistant message asking for a tool may say nothing else.
-	Assert.equal(ConversationInputSchema.safeParse({ messages: [{ role: 'assistant', toolCalls: [{ id: 'call-1', name: 'get_current_weather', argumentsJson: '{"location":"Paris"}' }] }] }).success, true);
-});
-
-Test('accepts a tool declaration, a tool call, and a tool choice, even though no worker reads them yet', () => {
-	Assert.equal(ToolDeclarationSchema.safeParse({
-		name: 'get_current_weather',
-		description: 'Get the current weather in a given location',
-		parametersJsonSchema: { type: 'object', properties: { location: { type: 'string' } }, required: ['location'] },
-	}).success, true);
-	Assert.equal(ToolDeclarationSchema.safeParse({ name: 'get_current_weather' }).success, true);
-	Assert.equal(ToolCallSchema.safeParse({ id: 'call-1', name: 'get_current_weather', argumentsJson: '{"location":"Paris"}' }).success, true);
-	Assert.equal(ToolChoiceSchema.safeParse('auto').success, true);
-	Assert.equal(ToolChoiceSchema.safeParse({ name: 'get_current_weather' }).success, true);
-	Assert.equal(ToolChoiceSchema.safeParse('sometimes').success, false);
-
-	// A conversation may declare tools and a tool choice today, ahead of anything reading them,
-	// so the widening this issue makes does not have to be repeated once tool calling is built.
+	// Every message says something. A message with no content at all is refused rather than
+	// travelling to a chat template that would render an empty turn.
+	Assert.equal(ConversationInputSchema.safeParse({ messages: [{ role: 'assistant' }] }).success, false);
+	// A conversation carries messages and nothing else. Tool declarations were dropped along with
+	// tool calling, so a consumer that sends them is refused rather than having them quietly ignored.
 	Assert.equal(ConversationInputSchema.safeParse({
 		messages: [{ role: 'user', content: 'What is the weather in Paris?' }],
 		tools: [{ name: 'get_current_weather' }],
-		toolChoice: 'auto',
-	}).success, true);
+	}).success, false);
 });
 
 Test('restricts task states, and checks the shape of a stage name without listing them', () => {
