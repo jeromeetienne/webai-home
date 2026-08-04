@@ -36,6 +36,8 @@ Qwen3 experiment also needs the generated shard files; see
 - [`public/onnxruntime_qwen3-0.6b-plain`](public/onnxruntime_qwen3-0.6b-plain) — one ONNX model.
 - [`public/smoll2-360m`](public/smoll2-360m) — SmolLM2-360M through Transformers.js.
 - [`public/gemma4-e2b-it`](public/gemma4-e2b-it) — Gemma 4 E2B-it through Transformers.js.
+- [`public/qwen3_5-0.8b-gate`](public/qwen3_5-0.8b-gate) — Qwen3.5-0.8B through Transformers.js, issue #96 de-risk gate.
+- [`public/qwen3_5-2b`](public/qwen3_5-2b) — Qwen3.5-2B through Transformers.js.
 
 The experiment pages are measurements and demonstrations, not production
 model-serving endpoints.

@@ -56,6 +56,7 @@ export default defineConfig({
         smollm: resolve(import.meta.dirname, 'public/smoll2-360m/index.html'),
         gemma: resolve(import.meta.dirname, 'public/gemma4-e2b-it/index.html'),
         qwen3_5Gate: resolve(import.meta.dirname, 'public/qwen3_5-0.8b-gate/index.html'),
+        qwen3_5_2b: resolve(import.meta.dirname, 'public/qwen3_5-2b/index.html'),
       },
     },
   },
