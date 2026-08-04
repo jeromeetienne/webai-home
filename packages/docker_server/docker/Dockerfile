@@ -48,8 +48,12 @@ RUN npm run build --workspace @webai/protocol \
 
 # Drops every devDependency (Vite, TypeScript, esbuild, and the rest) the finished build no
 # longer needs, so the runtime stage below copies over a `node_modules` this same install
-# already has, instead of installing twice.
-RUN npm prune --omit=dev
+# already has, instead of installing twice. This reinstalls from the lockfile the first `npm
+# install` above wrote, rather than using `npm prune --omit=dev`: with this workspace layout,
+# `npm prune` incorrectly deletes some packages nested under a workspace's own `node_modules`
+# (e.g. `packages/gateway/node_modules/commander`) even though they are production
+# dependencies, leaving the built gateway unable to find `commander` at runtime.
+RUN rm -rf node_modules packages/*/node_modules && npm ci --omit=dev
 
 ###############################################################################
 # Runtime stage — only what the two running servers and the worker page need
@@ -64,14 +68,21 @@ COPY --from=build /repo/package.json ./
 COPY --from=build /repo/packages/protocol/package.json packages/protocol/package.json
 COPY --from=build /repo/packages/protocol/dist packages/protocol/dist
 
+# Each package below also gets its own `node_modules`, not just the root one: `commander`'s two
+# conflicting version requirements in this workspace (`^12.1.0` here, `^13.0.0` pulled in
+# elsewhere as a devDependency) mean npm nests a `commander` copy under these packages instead
+# of hoisting a single copy to the root `node_modules`.
 COPY --from=build /repo/packages/consumer_cli/package.json packages/consumer_cli/package.json
+COPY --from=build /repo/packages/consumer_cli/node_modules packages/consumer_cli/node_modules
 COPY --from=build /repo/packages/consumer_cli/dist packages/consumer_cli/dist
 
 COPY --from=build /repo/packages/gateway/package.json packages/gateway/package.json
+COPY --from=build /repo/packages/gateway/node_modules packages/gateway/node_modules
 COPY --from=build /repo/packages/gateway/dist packages/gateway/dist
 COPY --from=build /repo/packages/gateway/web/dist packages/gateway/web/dist
 
 COPY --from=build /repo/packages/consumer_openai/package.json packages/consumer_openai/package.json
+COPY --from=build /repo/packages/consumer_openai/node_modules packages/consumer_openai/node_modules
 COPY --from=build /repo/packages/consumer_openai/dist packages/consumer_openai/dist
 
 COPY --from=build /repo/packages/worker_webpage/dist packages/worker_webpage/dist

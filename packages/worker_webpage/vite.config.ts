@@ -1,7 +1,10 @@
 import { createHash } from 'node:crypto';
 import Fs from 'node:fs';
 import Path from 'node:path';
+import { createRequire } from 'node:module';
 import { defineConfig } from 'vite';
+
+const require = createRequire(import.meta.url);
 
 /**
  * `stage_helper_llm_qwen3_0_6b_sharded.ts` sets `env.wasm.wasmPaths = "/assets/"`, a literal string prefix.
@@ -18,8 +21,15 @@ import { defineConfig } from 'vite';
  * URL(..., import.meta.url)` reference to it inside onnxruntime-web's bundled code (unlike the
  * `.mjs`, which is loaded via a plain, non-analyzable dynamic `import()`); emitting it again
  * here would collide with that automatically-emitted file of the same name.
+ *
+ * `onnxruntime-web`'s own directory is resolved through `require.resolve` rather than a
+ * hardcoded `node_modules/onnxruntime-web` path relative to this package, because npm
+ * workspaces hoist it to the repository root's `node_modules` unless something forces it to
+ * nest here instead — a plain `npm install` (as the Docker build runs) hoists it. The package's
+ * `exports` map has no `./package.json` subpath, so its main entry is resolved instead — that
+ * entry always lives directly under the package's `dist` directory.
  */
-const ortDistDir = Path.resolve(import.meta.dirname, 'node_modules/onnxruntime-web/dist');
+const ortDistDir = Path.dirname(require.resolve('onnxruntime-web'));
 const ortDevServedFiles = ['ort-wasm-simd-threaded.jsep.mjs', 'ort-wasm-simd-threaded.jsep.wasm'];
 const ortBuildEmittedFile = 'ort-wasm-simd-threaded.jsep.mjs';
 const gatewayFaviconPath = Path.resolve(import.meta.dirname, '../gateway/web/images/favicons/webai-at-home-logo.svg');
