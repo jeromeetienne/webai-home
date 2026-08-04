@@ -30,11 +30,21 @@ import type { GatewayMessage } from './gateway_message.js';
  * `taskRequestId`, `assignmentId` became `stageAssignmentId`, `principal` became
  * `authIdentity`, `inReplyTo` became `inReplyToMessageId`, and `revision` split into
  * `taskRevision` and `deviceListRevision`. No earlier version is accepted.
+ *
+ * Version 4 widened the value a language-model task carries. `TaskInput.input` now accepts a whole
+ * conversation as well as one piece of text, for the two task types whose stage helper can hand a
+ * message list to its model — `task_type_llm_qwen3_5_0_8b_full` and
+ * `task_type_llm_llama3_2_3b_full` — and the first stage value of such a task carries that
+ * conversation in the new `conversation` field of `LlmStagePayload`. Both `TaskInput` and
+ * `StagePayloadSchema` refuse that shape before this version, so a consumer or worker built after
+ * the change is refused by a gateway built before it at the moment it authenticates. That refusal
+ * is the point: it is what stops a worker built before the change from receiving a first stage
+ * value whose `text` is absent and answering a prompt it was never given.
  */
-export const protocolVersion = 3;
+export const protocolVersion = 4;
 
 /** The protocol versions the gateway accepts. No earlier version is accepted. */
-export const supportedProtocolVersions: number[] = [3];
+export const supportedProtocolVersions: number[] = [4];
 
 /**
  * The wrapper around every frame sent in either direction.

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ConversationInputSchema, type ConversationInput } from '../task/conversation_types.js';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -34,6 +35,20 @@ export type LlmStagePayload = {
 	 * precedes it.
 	 */
 	text?: string;
+	/**
+	 * The whole conversation to answer, on the value handed to a task's first stage, when the
+	 * consumer submitted a conversation rather than one prompt.
+	 *
+	 * Exactly one of this and `text` carries the work on that first value: a task submitted with a
+	 * prompt carries `text`, and a task submitted with a conversation carries this. A stage helper
+	 * that receives this hands the messages to its model's chat template, so each message reaches
+	 * the slot that template already has for its role, instead of a flattened transcript arriving
+	 * as a single user message.
+	 *
+	 * It never appears on a result. What a stage produces is text, whether it is the whole answer
+	 * or one piece of one.
+	 */
+	conversation?: ConversationInput;
 	/**
 	 * The text this one stage run produced, beyond everything the runs before it produced.
 	 *
@@ -72,6 +87,7 @@ export const StagePayloadSchema = z.union([
 	z.object({
 		tensors: z.record(z.string().max(500), z.object({ dims: z.array(z.number().int()).max(8), type: z.string().max(100), dataBase64: z.string().max(8_000_000) })).optional(),
 		text: z.string().max(100_000).optional(),
+		conversation: ConversationInputSchema.optional(),
 		newText: z.string().max(100_000).optional(),
 		inputIds: z.array(z.number().int()).max(100_000).optional(),
 		position: z.number().int().nonnegative().optional(),
