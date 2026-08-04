@@ -37,7 +37,12 @@ const client = new OpenAI({
 try {
 	const completion = await client.chat.completions.create({
 		model: 'llm_llama3_2_3b_full',
-		messages: [{ role: 'user', content: 'What is the capital of France? Answer in one short sentence.' }],
+		messages: [
+			{
+				role: 'user',
+				content: 'What is the capital of France? Answer in one short sentence.',
+			},
+		],
 	});
 	console.log(completion.choices[0]?.message.content);
 } catch (error: unknown) {
@@ -47,7 +52,9 @@ try {
 	// usually means no worker process is running, or the one that is could not reach its local
 	// server or found it did not hold the model.
 	if (error instanceof APIError) {
-		console.error(`The request was refused with HTTP ${error.status} (${String(error.code)}): ${error.message}`);
+		console.error(
+			`The request was refused with HTTP ${error.status} (${String(error.code)}): ${error.message}`,
+		);
 		process.exitCode = 1;
 	} else {
 		throw error;

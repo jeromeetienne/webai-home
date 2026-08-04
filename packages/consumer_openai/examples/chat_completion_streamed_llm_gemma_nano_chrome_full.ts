@@ -33,7 +33,12 @@ const client = new OpenAI({
 
 const stream = await client.chat.completions.create({
 	model: 'llm_gemma_nano_chrome_full',
-	messages: [{ role: 'user', content: 'What is the capital of France?' }],
+	messages: [
+		{
+			role: 'user',
+			content: 'What is the capital of France?',
+		},
+	],
 	stream: true,
 });
 
@@ -41,7 +46,9 @@ let answer = '';
 let pieceCount = 0;
 for await (const chunk of stream) {
 	const piece = chunk.choices[0]?.delta.content ?? '';
-	if (piece === '') continue;
+	if (piece === '') {
+		continue;
+	}
 	pieceCount += 1;
 	answer += piece;
 	process.stdout.write(piece);

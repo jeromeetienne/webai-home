@@ -189,7 +189,8 @@ Hello, today i will be your assistant. How can i help you about the weather in v
 To exit, just press ${TerminalStyle.bold('ENTER')} key.
 `;
 
-const systemMessage = 'You are a helpful assistant. You are helping a user to get the current weather in a given location.';
+const systemMessage =
+	'You are a helpful assistant. You are helping a user to get the current weather in a given location.';
 
 const chatMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
 	{
@@ -263,7 +264,9 @@ while (true) {
 		let functionArgs: Record<string, unknown> = {};
 		try {
 			const argumentsStr = responseMessage.function_call.arguments;
-			functionArgs = argumentsStr ? JSON.parse(argumentsStr) : {};
+			if (argumentsStr !== undefined && argumentsStr !== '') {
+				functionArgs = JSON.parse(argumentsStr);
+			}
 		} catch (error) {
 			ChatbotDebug.log(`could not read the arguments of ${functionName}:`, error);
 		}

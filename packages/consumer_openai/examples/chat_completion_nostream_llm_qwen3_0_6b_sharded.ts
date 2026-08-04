@@ -32,7 +32,12 @@ const client = new OpenAI({
 try {
 	const completion = await client.chat.completions.create({
 		model: 'llm_qwen3_0_6b_sharded',
-		messages: [{ role: 'user', content: 'What is the capital of France?' }],
+		messages: [
+			{
+				role: 'user',
+				content: 'What is the capital of France?',
+			},
+		],
 	});
 	console.log(completion.choices[0]?.message.content);
 } catch (error: unknown) {
@@ -40,7 +45,9 @@ try {
 	// volunteer browsers the everyday reason a request fails is that no browser tab is
 	// currently offering the work, which is an answer and not a fault in this example.
 	if (error instanceof APIError) {
-		console.error(`The request was refused with HTTP ${error.status} (${String(error.code)}): ${error.message}`);
+		console.error(
+			`The request was refused with HTTP ${error.status} (${String(error.code)}): ${error.message}`,
+		);
 		process.exitCode = 1;
 	} else {
 		throw error;

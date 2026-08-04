@@ -22,12 +22,16 @@ const client = new OpenAI({
 
 try {
 	const models = await client.models.list();
-	for (const model of models.data) console.log(`${model.id} (owned by ${model.owned_by})`);
+	for (const model of models.data) {
+		console.log(`${model.id} (owned by ${model.owned_by})`);
+	}
 } catch (error: unknown) {
 	// The likeliest failure here is that this server is not running at all, which the openai
 	// package reports as a connection error rather than as an answer from the server.
 	if (error instanceof APIError) {
-		console.error(`The request was refused with HTTP ${String(error.status)} (${String(error.code)}): ${error.message}`);
+		console.error(
+			`The request was refused with HTTP ${error.status} (${String(error.code)}): ${error.message}`,
+		);
 		process.exitCode = 1;
 	} else {
 		throw error;

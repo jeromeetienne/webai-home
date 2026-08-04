@@ -30,7 +30,12 @@ try {
 		// A request carrying one message sends that message's content unchanged, which is what
 		// lets this model receive a number. Several messages would be labelled with their roles
 		// and joined, and the resulting text would not be a number.
-		messages: [{ role: 'user', content: '5' }],
+		messages: [
+			{
+				role: 'user',
+				content: '5',
+			},
+		],
 	});
 	console.log(`answer: ${completion.choices[0]?.message.content}`);
 	console.log(JSON.stringify(completion, null, 2));
@@ -39,7 +44,9 @@ try {
 	// volunteer browsers the everyday reason a request fails is that no browser tab is
 	// currently offering the work, which is an answer and not a fault in this example.
 	if (error instanceof APIError) {
-		console.error(`The request was refused with HTTP ${error.status} (${String(error.code)}): ${error.message}`);
+		console.error(
+			`The request was refused with HTTP ${error.status} (${String(error.code)}): ${error.message}`,
+		);
 		process.exitCode = 1;
 	} else {
 		throw error;

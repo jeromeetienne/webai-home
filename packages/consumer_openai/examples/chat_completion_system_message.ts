@@ -38,10 +38,22 @@ try {
 	const completion = await client.chat.completions.create({
 		model: 'llm_gemma_nano_chrome_full',
 		messages: [
-			{ role: 'system', content: 'Answer in one short sentence, and never use more than ten words.' },
-			{ role: 'user', content: 'What is the capital of France?' },
-			{ role: 'assistant', content: 'Paris is the capital of France.' },
-			{ role: 'user', content: 'And of Italy?' },
+			{
+				role: 'system',
+				content: 'Answer in one short sentence, and never use more than ten words.',
+			},
+			{
+				role: 'user',
+				content: 'What is the capital of France?',
+			},
+			{
+				role: 'assistant',
+				content: 'Paris is the capital of France.',
+			},
+			{
+				role: 'user',
+				content: 'And of Italy?',
+			},
 		],
 		// Accepted and then ignored, because the cluster's task input carries only a prompt and
 		// the generation limits belong to the worker browser tab that runs the model.
@@ -54,7 +66,9 @@ try {
 	// volunteer browsers the everyday reason a request fails is that no browser tab is
 	// currently offering the work, which is an answer and not a fault in this example.
 	if (error instanceof APIError) {
-		console.error(`The request was refused with HTTP ${error.status} (${String(error.code)}): ${error.message}`);
+		console.error(
+			`The request was refused with HTTP ${error.status} (${String(error.code)}): ${error.message}`,
+		);
 		process.exitCode = 1;
 	} else {
 		throw error;
