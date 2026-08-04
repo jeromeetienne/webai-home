@@ -124,7 +124,7 @@ Test('validates every inbound client message shape', () => {
 	Assert.equal(ClientMessageSchema.safeParse({ type: 'task.history' }).success, false);
 });
 
-Test('redacts task inputs and stage values but keeps the task type', () => {
+Test('keeps task inputs and stage values in the log, since only credentials are redacted', () => {
 	const directoryPath = Fs.mkdtempSync(Path.join(Os.tmpdir(), 'message-logger-'));
 	const logFilePath = Path.join(directoryPath, 'log.log_entry.jsonl');
 	const logger = new MessageLogger(logFilePath);
@@ -132,60 +132,56 @@ Test('redacts task inputs and stage values but keeps the task type', () => {
 
 	logger.log('received', counterpart, 'task.submit', { type: 'task.submit', taskRequestId: 'request-1', input: { taskType: 'task_type_llm_qwen3_0_6b_sharded', input: 'What is the capital of France?' } });
 	logger.log('sent', counterpart, 'stage.assign', { type: 'stage.assign', taskId: 'task-1', stage: 'stage_dev_formula_multiply', value: 5 });
-	// The generation settings survive redaction: they say how the cluster was asked to behave
-	// rather than what the consumer said to the model, and a log is read to find that out.
 	logger.log('received', counterpart, 'task.submit', { type: 'task.submit', taskRequestId: 'request-2', input: { taskType: 'task_type_llm_gemma_nano_chrome_full', input: 'What is the capital of France?', generationSettings: { isStreaming: true } } });
 
 	const entries = Fs.readFileSync(logFilePath, 'utf8').trim().split('\n').map((line) => JSON.parse(line) as LogEntry);
 	Fs.rmSync(directoryPath, { recursive: true, force: true });
 
-	Assert.deepEqual(entries[0].messagePayload, { type: 'task.submit', taskRequestId: 'request-1', input: { taskType: 'task_type_llm_qwen3_0_6b_sharded', input: '[redacted]' } });
-	Assert.deepEqual(entries[1].messagePayload, { type: 'stage.assign', taskId: 'task-1', stage: 'stage_dev_formula_multiply', value: '[redacted]' });
-	Assert.deepEqual(entries[2].messagePayload, { type: 'task.submit', taskRequestId: 'request-2', input: { taskType: 'task_type_llm_gemma_nano_chrome_full', input: '[redacted]', generationSettings: { isStreaming: true } } });
+	Assert.deepEqual(entries[0].messagePayload, { type: 'task.submit', taskRequestId: 'request-1', input: { taskType: 'task_type_llm_qwen3_0_6b_sharded', input: 'What is the capital of France?' } });
+	Assert.deepEqual(entries[1].messagePayload, { type: 'stage.assign', taskId: 'task-1', stage: 'stage_dev_formula_multiply', value: 5 });
+	Assert.deepEqual(entries[2].messagePayload, { type: 'task.submit', taskRequestId: 'request-2', input: { taskType: 'task_type_llm_gemma_nano_chrome_full', input: 'What is the capital of France?', generationSettings: { isStreaming: true } } });
 
-	// An answer sent one piece at a time is exactly as much the consumer's own data as the same
-	// answer sent whole, so a piece is redacted like any other part of an answer, wherever it
-	// appears: on the update that reports it, and on the task snapshot that carries the answer
-	// so far for a consumer that reconnected and missed some.
+	// An answer streamed one piece at a time is kept just like an answer sent whole, on both the
+	// update that reports it and the task snapshot that carries the answer so far for a consumer
+	// that reconnected and missed some.
 	const streamed = MessageLogger.redactMessagePayload({ type: 'task.updated', update: { taskId: 'task-1', taskRevision: 7, newText: ' capital', generatedText: 'The capital' } });
-	Assert.deepEqual(streamed, { type: 'task.updated', update: { taskId: 'task-1', taskRevision: 7, newText: '[redacted]', generatedText: '[redacted]' } });
+	Assert.deepEqual(streamed, { type: 'task.updated', update: { taskId: 'task-1', taskRevision: 7, newText: ' capital', generatedText: 'The capital' } });
 
-	// Not every value this walk is given has been checked against the protocol first: a relayed
-	// `signal` message carries a body the schema declares as unknown, and a consumer logs a frame
-	// before checking it. So the settings that are kept are walked like any other value rather
-	// than copied across, and anything hidden under them is redacted just the same.
+	// A credential is redacted no matter how deeply it is nested, including inside a relayed
+	// `signal` message whose body the schema declares as unknown.
 	const relayed = MessageLogger.redactMessagePayload({
 		type: 'signal',
 		to: 'device-2',
-		data: { input: { taskType: 'task_type_llm_gemma_nano_chrome_full', input: 'a prompt', generationSettings: { isStreaming: true, text: 'A PRIVATE PROMPT', nested: { token: 'A CREDENTIAL' } } } },
+		data: { input: { taskType: 'task_type_llm_gemma_nano_chrome_full', input: 'a prompt', generationSettings: { isStreaming: true, text: 'A PROMPT', nested: { token: 'A CREDENTIAL' } } } },
 	});
 	Assert.deepEqual(relayed, {
 		type: 'signal',
 		to: 'device-2',
-		data: { input: { taskType: 'task_type_llm_gemma_nano_chrome_full', input: '[redacted]', generationSettings: { isStreaming: true, text: '[redacted]', nested: { token: '[redacted]' } } } },
+		data: { input: { taskType: 'task_type_llm_gemma_nano_chrome_full', input: 'a prompt', generationSettings: { isStreaming: true, text: 'A PROMPT', nested: { token: '[redacted]' } } } },
 	});
 });
 
-Test('redacts the task result, the values inside completed stages, and a relayed message', () => {
+Test('keeps the task result and the values inside completed stages, redacting only a nested credential', () => {
 	const redacted = MessageLogger.redactMessagePayload({
 		type: 'task.updated',
-		update: { taskId: 'task-1', state: 'completed', result: { text: 'SECRET ANSWER' } },
+		update: { taskId: 'task-1', state: 'completed', result: { text: 'THE ANSWER' } },
 	}) as { update: { result: unknown } };
-	Assert.equal(redacted.update.result, '[redacted]');
+	Assert.deepEqual(redacted.update.result, { text: 'THE ANSWER' });
 
 	const snapshot = MessageLogger.redactMessagePayload({
 		type: 'task.snapshot',
-		task: { taskId: 'task-1', completedStages: [{ name: 'stage_llm_qwen3_0_6b_shard1of3', value: { text: 'SECRET STAGE' } }] },
+		task: { taskId: 'task-1', completedStages: [{ name: 'stage_llm_qwen3_0_6b_shard1of3', value: { text: 'STAGE OUTPUT' } }] },
 	}) as { task: { completedStages: { name: string; value: unknown }[] } };
-	Assert.deepEqual(snapshot.task.completedStages, [{ name: 'stage_llm_qwen3_0_6b_shard1of3', value: '[redacted]' }]);
+	Assert.deepEqual(snapshot.task.completedStages, [{ name: 'stage_llm_qwen3_0_6b_shard1of3', value: { text: 'STAGE OUTPUT' } }]);
 
-	// Redaction still reaches a value nested inside another message, which is the shape a
+	// A credential still gets redacted when nested inside another message, which is the shape a
 	// gateway message carrying a task takes.
 	const nested = MessageLogger.redactMessagePayload({
 		type: 'stage.assign',
-		assignment: { taskId: 'task-1', value: { text: 'SECRET PROMPT' } },
-	}) as { assignment: { value: unknown } };
-	Assert.equal(nested.assignment.value, '[redacted]');
+		assignment: { taskId: 'task-1', value: { text: 'A PROMPT' }, token: 'A CREDENTIAL' },
+	}) as { assignment: { value: unknown; token: unknown } };
+	Assert.deepEqual(nested.assignment.value, { text: 'A PROMPT' });
+	Assert.equal(nested.assignment.token, '[redacted]');
 });
 
 Test('redacts the authentication token', () => {
@@ -194,9 +190,9 @@ Test('redacts the authentication token', () => {
 });
 
 Test('leaves the message it redacts unmodified', () => {
-	const original = { type: 'task.updated', update: { result: 17 } };
+	const original = { type: 'deviceAuthenticate', token: 'development-token' };
 	MessageLogger.redactMessagePayload(original);
-	Assert.equal(original.update.result, 17);
+	Assert.equal(original.token, 'development-token');
 });
 
 Test('accepts a lease heartbeat and the stage settings that control leasing', () => {
