@@ -38,10 +38,15 @@
                             <button class="btn btn-warning btn-sm d-none" id="built-in-model-download" type="button">Download the browser's built-in language model</button>
                         </div>
                         <hr>
+                        <p class="text-secondary small mb-2">A hidden browser tab runs the language model several times slower unless it is playing audio. Start the quiet tone below to keep this browser's full generation speed while its tab is in the background.</p>
+                        <div class="d-grid mb-3">
+                            <button class="btn btn-outline-secondary" id="quiet-tone" type="button">Start quiet tone</button>
+                        </div>
                         <dl class="row small mb-0">
                             <dt class="col-sm-4 text-secondary">Worker</dt><dd class="col-sm-8" id="worker-name">Not connected</dd>
                             <dt class="col-sm-4 text-secondary">Device ID</dt><dd class="col-sm-8 text-break" id="device-id">Not assigned</dd>
                             <dt class="col-sm-4 text-secondary">Stages</dt><dd class="col-sm-8"><div class="d-flex flex-wrap gap-1" id="stages"></div></dd>
+                            <dt class="col-sm-4 text-secondary">Quiet tone <i class="bi bi-question-circle help-icon" tabindex="0" title="A hidden browser tab runs the language model several times slower unless it is playing audio. This quiet tone keeps the tab classified as playing audio, so it keeps its full generation speed while hidden." aria-label="Why the quiet tone is needed"></i></dt><dd class="col-sm-8" id="quiet-tone-state">Stopped</dd>
                         </dl>
                     </div>
                 </section>

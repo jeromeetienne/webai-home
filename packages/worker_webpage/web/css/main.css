@@ -40,3 +40,12 @@ html[data-theme="dark"] .event-item {
 .event-item:last-child {
     border-bottom: 0;
 }
+
+.help-icon {
+    cursor: help;
+    color: #6c757d;
+}
+
+html[data-theme="dark"] .help-icon {
+    color: #9aa7b8;
+}

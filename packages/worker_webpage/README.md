@@ -53,3 +53,9 @@ Chrome asks for this permission to protect local services from unexpected reques
 The page connects to the central gateway as soon as it loads, and keeps that connection for as long as it is the page the browser tab displays. Moving the browser tab to another page closes the connection, so the gateway stops counting this browser as a connected worker and stops giving it work. A browser tab keeps the page it left in its back/forward cache rather than destroying it, so this has to be done as the page is put away; otherwise the page keeps its connection open while nobody is looking at it. Going back to the page opens a new connection, and the gateway registers the worker again under a new device identifier.
 
 Switching to another browser tab is not the same thing as leaving the page: a worker page in a background tab keeps its connection and keeps running the work it has been given.
+
+## Quiet tone
+
+A hidden browser tab runs the language model several times slower than one left on screen. The `qwen3_generation_log` experiment in [`@webai/idle-experiments`](../_idle_experiments/README.md), built for [issue #83](https://github.com/webai-at-home/webai-at-home/issues/83), measured about 8.4 tokens per second in a hidden tab against 22.7 on screen — and found that playing a very quiet, continuous tone removes the slowdown entirely, holding 25.7 tokens per second across several minutes hidden.
+
+The worker webpage carries the same tone, in `web/src/page/audio_keepalive.ts`, for [issue #120](https://github.com/webai-at-home/webai-at-home/issues/120). Click **Start quiet tone** to start it; browsers only allow audio to start from a click, so it cannot start on its own as the page loads. Once started, it keeps playing for as long as the page is open, including across reconnections, so a worker browser tab can be moved to the background and left to do volunteer work at full speed.

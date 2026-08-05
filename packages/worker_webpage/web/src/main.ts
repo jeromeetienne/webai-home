@@ -13,6 +13,7 @@ import { PageMarkup } from './page/page_markup';
 import { WorkerEventLog } from './page/worker_event_log';
 import { WorkerStageOffer } from './connection/worker_stage_offer';
 import { ThemeToggle } from './page/theme_toggle.js';
+import { AudioKeepalive, type AudioKeepaliveState } from './page/audio_keepalive.js';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -58,6 +59,9 @@ type GatewayMessage = {
 /** The stages this browser could offer, as the loaded pipelines describe them. */
 type OfferedStages = { stageNames: string[]; llmShardIndexes: number[]; builtInModelStageNames: string[]; fullModelStageNames: string[] };
 
+/** How often the quiet tone's own state is checked for a change worth reflecting in the page. */
+const AUDIO_STATE_POLL_INTERVAL_MS = 2000;
+
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 //	Worker Page
@@ -86,6 +90,10 @@ export class WorkerPage {
 	private readonly builtInModelMessageEl: HTMLElement;
 	/** The button that asks the browser to download its own language model. */
 	private readonly builtInModelDownloadButtonEl: HTMLButtonElement;
+	/** The button that starts the quiet tone, keeping this browser's full generation speed while its tab is hidden. */
+	private readonly quietToneButtonEl: HTMLButtonElement;
+	/** Shows the quiet tone's current state. */
+	private readonly quietToneStateEl: HTMLElement;
 
 	private readonly eventLog = new WorkerEventLog();
 	/** The stages the page URL restricts this worker browser to, if it names any. */
@@ -126,6 +134,8 @@ export class WorkerPage {
 		this.builtInModelNoticeEl = PageElements.getElement('#built-in-model-notice');
 		this.builtInModelMessageEl = PageElements.getElement('#built-in-model-message');
 		this.builtInModelDownloadButtonEl = PageElements.getButton('#built-in-model-download');
+		this.quietToneButtonEl = PageElements.getButton('#quiet-tone');
+		this.quietToneStateEl = PageElements.getElement('#quiet-tone-state');
 		this.requestedStageNames = WorkerStageOffer.requestedStageNamesFromUrl(location.search);
 	}
 
@@ -155,6 +165,16 @@ export class WorkerPage {
 		// as it registers.
 		this.builtInModelDownloadButtonEl.addEventListener('click', (): void => {
 			this.downloadBuiltInModel();
+		});
+
+		// Starting the tone must be the first statement of the click handler, not something that
+		// runs after an await, or the browser may create the AudioContext already suspended and
+		// silently defeat the whole trick (see AudioKeepalive.start).
+		this.quietToneButtonEl.addEventListener('click', (): void => {
+			AudioKeepalive.start();
+			this.quietToneButtonEl.disabled = true;
+			this.quietToneButtonEl.textContent = 'Quiet tone running';
+			this.pollQuietToneState();
 		});
 
 		/** Closes the WebSocket connection when the disconnect button is clicked. */
@@ -714,6 +734,21 @@ export class WorkerPage {
 		this.stagesEl.innerHTML = this.enabledStageNames.length === 0
 			? '<span class="text-body-secondary">Waiting for the gateway\'s pipelines</span>'
 			: this.enabledStageNames.map((stageName) => `<span class="badge text-bg-light border">${PageMarkup.escapeHtml(stageName)}</span>`).join('');
+	}
+
+	/**
+	 * Reflects the quiet tone's current state in the page, and checks again after a delay.
+	 *
+	 * Runs for as long as the page is open once started by the quiet tone button, so a state
+	 * the browser changes on its own — such as suspending the tone after the tab has been
+	 * hidden for a long time — still reaches the page.
+	 */
+	private pollQuietToneState(): void {
+		const state: AudioKeepaliveState = AudioKeepalive.state();
+		this.quietToneStateEl.textContent = state.charAt(0).toUpperCase() + state.slice(1);
+		window.setTimeout((): void => {
+			this.pollQuietToneState();
+		}, AUDIO_STATE_POLL_INTERVAL_MS);
 	}
 
 	/**
