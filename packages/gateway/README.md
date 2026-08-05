@@ -26,9 +26,28 @@ npm run dev --workspace @webai/gateway -- --port 9000
 
 Other command-line options control assignment leases, queued-task deadlines,
 retry attempts, durable state, authentication, per-principal task limits,
-session lifetime, additional pipeline definitions, and device activity
-coalescing. See `npm run dev --workspace @webai/gateway -- --help` for the
-current option list.
+session lifetime, additional pipeline definitions, device activity
+coalescing, and the accounting system. See
+`npm run dev --workspace @webai/gateway -- --help` for the current option list.
+
+## Accounting
+
+The gateway owns the accounting database, which records contributed and consumed computation: one credit for every stage a worker completes, less one for every stage a consumer has run. [`docs/accounting_system.md`](../../docs/accounting_system.md) describes the whole system, and three options configure it.
+
+| Option | Default | What it sets |
+| --- | --- | --- |
+| `--account-file <path>` | `gateway-accounts.json` | Where account profiles are kept. Profiles only: no balance and no history. |
+| `--ledger-file <path>` | `gateway-ledger.jsonl` | The append-only ledger, one JSON object per line, appended to and never rewritten. |
+| `--account-challenge-ms <number>` | `60000` | How long a challenge handed out for an account to sign stays usable. |
+
+Both files are written at run time and are excluded from version control. The gateway opens the ledger before it accepts a single connection, reads it once to rebuild every balance, and reports how many accounts it holds:
+
+```
+Accounting ledger at gateway-ledger.jsonl, holding 2 account(s)
+Gateway listening on http://localhost:8787
+```
+
+A ledger line the gateway cannot read stops it, naming the line, rather than being skipped: a ledger that drops what it cannot parse reports a balance wrong by however much it dropped. A ledger with no file to write to is refused outright, because balances that vanish when the gateway restarts are worse than a gateway that will not start.
 
 ## Pages and endpoints
 
@@ -47,7 +66,9 @@ Each HTML page and its assets are stored in its own directory under `web/`. Brow
 
 The WebSocket server uses the same port as the HTTP server. Every connection
 must authenticate with the configured bearer token before it can register or
-submit work. A worker browser page is served by
+submit work. A connection may then prove which account it is, by signing a
+value the gateway hands it, so the stages it completes or has run are recorded
+against that account rather than against the shared development account. A worker browser page is served by
 [`@webai/worker-webpage`](../worker_webpage); the gateway does not provide the
 worker page itself.
 

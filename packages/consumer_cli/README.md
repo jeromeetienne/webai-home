@@ -4,7 +4,7 @@ Command-line client for the central gateway: submitting tasks, reading the worke
 
 The program has four subcommands about tasks and the cluster: `submit` sends one task and shows its updates until it completes or fails, `status` reports the connected workers and their free capacity, `capacity` estimates how many concurrent runs of a task type the cluster can currently support, and `log_stats` measures one already recorded `.log_entry.jsonl` message log file.
 
-It has five further subcommands about this participant's own account in the accounting system of [issue #122](https://github.com/webai-at-home/webai-at-home/issues/122): `account_key` generates the key pair that is the account, `account_register` tells the central gateway about it, and `account_information`, `account_balance`, and `account_history` read back what the gateway holds for it. Each of them is documented in [issue #131](https://github.com/webai-at-home/webai-at-home/issues/131), along with the rest of the accounting documentation; `npx consumer_cli help <subcommand>` describes each one in the meantime.
+It has five further subcommands about this participant's own account in the accounting system: `account_key` generates the key pair that is the account, `account_register` tells the central gateway about it, and `account_information`, `account_balance`, and `account_history` read back what the gateway holds for it. [`docs/accounting_system.md`](../../docs/accounting_system.md) describes what an account and a credit are; the sections below describe the commands.
 
 ## Run with `npx`
 
@@ -129,13 +129,114 @@ npm run dev --workspace @webai/consumer-cli -- log_stats ../gateway/logs/gateway
 
 A gateway log sees both the consumer and the worker side of every task, so it is the only log that can measure stage runs and worker compute time; a consumer's own log cannot see those, and reports "nothing measured" for them instead of guessing.
 
+## The account commands
+
+These five read and write this participant's own account in the accounting system, which records contributed and consumed computation: one credit for every stage this account has completed as a worker, less one for every stage it has had run as a consumer. [`docs/accounting_system.md`](../../docs/accounting_system.md) describes the whole system.
+
+Every one of them accepts:
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `-k, --key_file <path>` | `~/.webai-at-home/account_key.json` | Where this participant's key pair is kept. |
+| `-f, --format <format>` | `text` | `text` (aligned lines, or a table for `account_history`) or `json`. |
+
+All but `account_key` also accept `--timeout <ms>`, defaulting to `10000`, and the shared `--url` and `--auth-token` options.
+
+### `account_key`
+
+Generates the key pair that is this participant's account, and prints the account identifier it produces. It connects to nothing: an account identifier is a digest of its own public key, so it exists as soon as the key pair does, and the gateway learns about it later through `account_register`.
+
+```sh
+npm run dev --workspace @webai/consumer-cli -- account_key
+```
+
+```
+account identifier   account-54e3b80f7c9facc7c3accd89266f238e
+signature algorithm  Ed25519
+public key           MCowBQYDK2VwAyEAj8SYEGeNC7G+Zx9WD5yW4d63oL6DCEWS3abJ7h8KQbU=
+kept in              /Users/someone/.webai-at-home/account_key.json
+generated at         2026-08-05T19:56:14.250Z
+```
+
+The file is written readable and writable by its owner only. **The private key in it is the whole account**: anyone holding the file can spend what the account has earned, and losing the file loses the account, because nothing else can produce that identifier again. `account_key` therefore refuses to overwrite an existing key pair unless `--force` is given.
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `--force` | off | Overwrite a key pair that is already there, losing the account it belongs to. |
+
+### `account_register`
+
+Tells the central gateway about this machine's public key.
+
+```sh
+npm run dev --workspace @webai/consumer-cli -- account_register --email_address volunteer@example.com --display_name "my laptop"
+```
+
+Running it twice is harmless: registering a public key the gateway already knows changes nothing and reports the profile it already holds, with `was created now` answering `no`. Registration does not prove that the sender holds the private key, so it must not be able to rewrite the email address or display name of an account somebody else owns; editing a profile is not part of Version 1 of the accounting system.
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `--email_address <address>` | empty | The email address for the account profile. |
+| `--display_name <name>` | empty | The display name for the account profile. |
+
+### `account_information`
+
+Prints the profile the central gateway holds for this account: its identifier, its public key, its display name, its email address, and when it was registered.
+
+```sh
+npm run dev --workspace @webai/consumer-cli -- account_information
+```
+
+### `account_balance`
+
+Prints what this account holds.
+
+```sh
+npm run dev --workspace @webai/consumer-cli -- account_balance
+```
+
+```
+account identifier            account-91816a36753645188aec73ca7d4987ec
+balance                       -10 credit(s)
+stages completed as a worker  0
+stages run as a consumer      10
+```
+
+A negative balance is a normal state and not an error: a consumer that has run more stages than it has completed simply owes that many, and Version 1 of the accounting system stops nobody for it.
+
+### `account_history`
+
+Prints this account's accounting entries, newest first.
+
+```sh
+npm run dev --workspace @webai/consumer-cli -- account_history --direction earned
+```
+
+```
+account-64bcafe16744539cbd4b24eb889800b6, earned, newest first
+
+recorded at               credit  stage                  task                                       stage took
+------------------------  ------  ---------------------  -----------------------------------------  ----------
+2026-08-05T19:57:07.807Z  +1      stage_dev_formula_add  task-1eab6867-3f27-41ba-99c4-62504e282a44  1ms
+
+Further entries exist. Raise --limit, or pass --all to print the whole history.
+```
+
+`--direction earned` is the list of stages this account completed, and `--direction spent` is the list of stages it had run, which is why neither has a command of its own.
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `-d, --direction <direction>` | `both` | `earned`, `spent`, or `both`. |
+| `-l, --limit <count>` | `20` | How many entries to ask for at a time. At most 500, which is the largest page the gateway will assemble. |
+| `--all` | off | Keep asking for further pages until the whole history has been printed. |
+
 ## Exit codes
 
-`status` and `capacity` use these exit codes:
+`status`, `capacity`, and the five account commands use these exit codes:
 
 - `0` — success.
 - `1` — connection failure (unreachable gateway, or dropped mid-`--watch`).
-- `2` — authentication failure.
+- `2` — authentication failure, which for an account command also covers a rejected signature and a request for an account this connection may not read.
 - `3` — timed out waiting for the central gateway to answer.
 - `4` — the central gateway sent something this client could not make sense of.
 

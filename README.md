@@ -53,6 +53,7 @@ The central research questions are still open, especially result verification, b
 - [`packages/consumer_openai`](packages/consumer_openai/README.md) — OpenAI-compatible server, so a program that already talks to OpenAI can use the cluster by changing its base address.
 - [`packages/flow_viewer`](packages/flow_viewer/README.md) — flow viewer for inspecting recorded message traffic.
 - [`packages/_onnx_experiments`](packages/_onnx_experiments/README.md) — browser experiments for ONNX Runtime Web.
+- [`packages/_account_key_experiments`](packages/_account_key_experiments/README.md) — browser experiments about the signing key pair a participant's account is, and whether a real browser tab can hold one it cannot leak.
 - [`packages/_tiny_iris_classifier`](packages/_tiny_iris_classifier/README.md) — small end-to-end browser inference example.
 - [`packages/docker_server`](packages/docker_server/README.md) — Linux Docker image that runs the gateway and `consumer_openai` together.
 - [`packages/worker_webpage`](packages/worker_webpage/README.md) — browser page that connects workers to the gateway.
@@ -62,6 +63,7 @@ The central research questions are still open, especially result verification, b
 - [`docs/tasks_and_stages.md`](docs/tasks_and_stages.md) — every kind of task the cluster can run and every stage each one needs.
 - [`docs/protocol_by_role.md`](docs/protocol_by_role.md) — the messages the gateway, the consumers, and the workers exchange.
 - [`docs/naming_scheme.md`](docs/naming_scheme.md) — how every task, task type, pipeline, and stage name is built.
+- [`docs/accounting_system.md`](docs/accounting_system.md) — how contributed and consumed computation are recorded: what an account is, what a credit is, and what the ledger holds.
 - [`docs/readme-audit-89.md`](docs/readme-audit-89.md) — the README audit checklist and validation record for issue #89.
 
 ## Run the prototype
