@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { AccountDisplayName, AccountEmailAddress, AccountId, AccountPublicKeySpkiBase64, AccountSignatureAlgorithmName, AccountSignatureBase64 } from '../accounting/account_types.js';
 import { Identifier, StageAssignmentId, TaskRequestId } from '../identifier.js';
 import { StagePayloadSchema } from '../stage/stage_payload_types.js';
 import { StageName } from '../task/pipeline_types.js';
@@ -14,6 +15,14 @@ import { TaskInput } from '../task/task_types.js';
 export const ClientMessageSchema = z.discriminatedUnion('type', [
 	z.object({ type: z.literal('observe') }).strict(),
 	z.object({ type: z.literal('deviceAuthenticate'), token: z.string().min(1).max(4_000) }).strict(),
+	// The three account messages are sent on a connection that has already authenticated with the
+	// gateway's shared token, and they are what turns that connection from one of many holders of
+	// the same token into one named account. "account.register" states a public key and the profile
+	// that goes with it, "account.challenge.request" asks for a value to sign, and
+	// "account.authenticate" proves the account's private key is held by signing that value.
+	z.object({ type: z.literal('account.register'), signatureAlgorithmName: AccountSignatureAlgorithmName, publicKeySpkiBase64: AccountPublicKeySpkiBase64, emailAddress: AccountEmailAddress.optional(), displayName: AccountDisplayName.optional() }).strict(),
+	z.object({ type: z.literal('account.challenge.request') }).strict(),
+	z.object({ type: z.literal('account.authenticate'), accountId: AccountId, signatureBase64: AccountSignatureBase64 }).strict(),
 	z.object({ type: z.literal('task.observe'), taskId: Identifier }).strict(),
 	z.object({ type: z.literal('task.unobserve'), taskId: Identifier }).strict(),
 	z.object({ type: z.literal('task.resync'), taskId: Identifier }).strict(),

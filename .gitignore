@@ -15,3 +15,8 @@ gateway-state.json
 # Raw results of the account key pair experiment, written at runtime by its development server.
 packages/_account_key_experiments/verification_documents/
 packages/_account_key_experiments/run_reports/
+
+# The gateway's account profiles, written at runtime. The file name comes from the
+# gateway's --account-file option, which defaults to gateway-accounts.json in the
+# working directory, so the file can appear at the repository root or inside a package.
+gateway-accounts.json

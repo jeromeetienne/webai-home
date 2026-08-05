@@ -18,11 +18,15 @@ import { PipelineRegistry, builtinPipelineSpecifications } from '../src/task/pip
 import { StagePolicyResolver } from '../src/task/stage_policy_resolver.js';
 import { DiagnosticsRateLimiter } from '../src/libs/diagnostics_rate_limiter.js';
 import { SessionRegistry } from '../src/task/session_registry.js';
+import { AccountMessageHandler } from '../src/accounting/account_message_handler.js';
+import { AccountRegistry } from '../src/accounting/account_registry.js';
+import { ChallengeRegistry } from '../src/accounting/challenge_registry.js';
 import { TaskScheduler } from '../src/task/task_scheduler.js';
 import { ClientMessageHandler } from '../src/task/client_message_handler.js';
 import { WorkerPlacement } from '../src/device/worker_placement.js';
 import { Dashboard } from '../src/dashboard.js';
-import type { ClientMessage, GatewayMessage, StageName, TaskInput } from '@webai/protocol';
+import { AccountIdentity } from '@webai/protocol';
+import type { AccountCryptoKeyPair, AccountProfile, ClientMessage, GatewayMessage, StageName, TaskInput } from '@webai/protocol';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -770,7 +774,10 @@ const buildClientMessageHandlerHarness = () => {
 	const stagePolicyResolver = new StagePolicyResolver(pipelineRegistry, 15_000);
 	const announcer = new DeviceAnnouncer(deviceRegistry, hub, 0);
 	const scheduler = new TaskScheduler(taskStore, deviceRegistry, stagePolicyResolver, hub, announcer, 3);
-	const handler = new ClientMessageHandler(hub, deviceRegistry, taskStore, pipelineRegistry, sessionRegistry, stagePolicyResolver, scheduler, announcer, authToken, 2);
+	const accountRegistry = new AccountRegistry();
+	const challengeRegistry = new ChallengeRegistry();
+	const accountMessageHandler = new AccountMessageHandler(hub, accountRegistry, challengeRegistry, sessionRegistry);
+	const handler = new ClientMessageHandler(hub, deviceRegistry, taskStore, pipelineRegistry, sessionRegistry, stagePolicyResolver, scheduler, announcer, authToken, 2, accountMessageHandler);
 
 	const sockets = new Map<string, FakeSocket>();
 	let frameCounter = 0;
@@ -814,7 +821,28 @@ const buildClientMessageHandlerHarness = () => {
 	 */
 	const allSentTo = (deviceId: string): GatewayMessage[] => (sockets.get(deviceId)?.sent ?? []).map((frame) => frame.body);
 
-	return { drive, authenticate, registerWorker, registerConsumer, allSentTo, authToken, taskStore, deviceRegistry, sessionRegistry, scheduler };
+	/**
+	 * Sends one account message and waits for the answer it produces.
+	 *
+	 * An account message is answered asynchronously, because deriving an account identifier and
+	 * verifying a signature both go through the Web Cryptography API, so the answer is not in what
+	 * `drive` returns. This waits for the answer to arrive rather than for a fixed number of turns of
+	 * the event loop, because the Web Cryptography API in Node.js finishes its work on a thread of
+	 * its own and how many turns that takes is not something a test should depend on.
+	 *
+	 * @returns The gateway messages sent back to this device while the message was being answered.
+	 */
+	const driveAccountMessage = async (deviceId: string, message: ClientMessage): Promise<GatewayMessage[]> => {
+		const sentBefore = sockets.get(deviceId)?.sent.length ?? 0;
+		drive(deviceId, message);
+		for (let attempt = 0; attempt < 1_000; attempt += 1) {
+			if ((sockets.get(deviceId)?.sent.length ?? 0) > sentBefore) break;
+			await new Promise((resolve) => setTimeout(resolve, 1));
+		}
+		return (sockets.get(deviceId)?.sent ?? []).slice(sentBefore).map((frame) => frame.body);
+	};
+
+	return { drive, driveAccountMessage, authenticate, registerWorker, registerConsumer, allSentTo, authToken, taskStore, deviceRegistry, sessionRegistry, accountRegistry, challengeRegistry, scheduler };
 };
 
 Test('every message needs an active session first, before any rule specific to that message type is even reached', () => {
@@ -1217,4 +1245,199 @@ Test('a consumer may read its own task, but not a task belonging to someone else
 	drive('consumer-1', { type: 'task.observer.grant', taskId, consumerDeviceId: 'consumer-2' });
 	const [afterGrantReply] = drive('consumer-2', { type: 'task.get', taskId });
 	Assert.equal(afterGrantReply?.type, 'task.snapshot');
+});
+
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+//	Accounts and key pair authentication
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+/** Generates one account key pair and writes down its public key the way a message carries it. */
+const newAccountKeyPair = async (): Promise<{ keyPair: AccountCryptoKeyPair; publicKeySpkiBase64: string; accountId: string }> => {
+	const keyPair = await AccountIdentity.generateKeyPair('Ed25519');
+	const publicKeySpkiBase64 = await AccountIdentity.exportPublicKeySpkiBase64(keyPair.publicKey);
+	return { keyPair, publicKeySpkiBase64, accountId: await AccountIdentity.accountIdFor(publicKeySpkiBase64) };
+};
+
+Test('registering a public key the gateway already knows returns the stored profile and changes nothing', async () => {
+	const { publicKeySpkiBase64, accountId } = await newAccountKeyPair();
+	const registry = new AccountRegistry();
+
+	const first = registry.register({ accountId, signatureAlgorithmName: 'Ed25519', publicKeySpkiBase64, emailAddress: 'first@example.com', displayName: 'First' });
+	Assert.equal(first.isNewAccount, true);
+	Assert.equal(first.account.accountId, accountId);
+
+	// Registration does not prove the sender holds the private key, so a second registration of the
+	// same key must not be able to rewrite the profile of the account somebody else owns.
+	const second = registry.register({ accountId, signatureAlgorithmName: 'Ed25519', publicKeySpkiBase64, emailAddress: 'stranger@example.com', displayName: 'Stranger' });
+	Assert.equal(second.isNewAccount, false);
+	Assert.equal(second.account.emailAddress, 'first@example.com');
+	Assert.equal(second.account.displayName, 'First');
+	Assert.equal(registry.list().length, 1);
+});
+
+Test('accounts survive a gateway restart, and an account file this gateway cannot read stops it', async () => {
+	const { publicKeySpkiBase64, accountId } = await newAccountKeyPair();
+	const directory = Fs.mkdtempSync(Path.join(Os.tmpdir(), 'gateway-accounts-'));
+	const accountFilePath = Path.join(directory, 'gateway-accounts.json');
+
+	const before = new AccountRegistry(accountFilePath);
+	before.register({ accountId, signatureAlgorithmName: 'Ed25519', publicKeySpkiBase64, emailAddress: 'volunteer@example.com', displayName: 'Volunteer' });
+
+	const after = new AccountRegistry(accountFilePath);
+	Assert.deepEqual(after.get(accountId), before.get(accountId));
+
+	// Starting with an empty registry instead would hand every returning participant a second
+	// account, so an unreadable account file stops the gateway rather than being ignored.
+	Fs.writeFileSync(accountFilePath, JSON.stringify({ schemaVersion: 99, accounts: [] }), 'utf8');
+	Assert.throws(() => new AccountRegistry(accountFilePath), /Unsupported account file schema/);
+});
+
+Test('a challenge may be signed once, is refused after it expires, and a new one replaces the old', () => {
+	let currentTime = 1_000_000;
+	const registry = new ChallengeRegistry(60_000, () => currentTime);
+
+	const issued = registry.issue('device-a');
+	Assert.equal(issued.challenge.length, 64);
+	Assert.equal(issued.expiresAt, currentTime + 60_000);
+
+	// Taking the challenge is what makes a captured signature useless: the value is gone whether the
+	// signature over it was accepted or refused.
+	Assert.deepEqual(registry.consume('device-a'), { verdict: 'accepted', challenge: issued.challenge });
+	Assert.deepEqual(registry.consume('device-a'), { verdict: 'unknown' });
+
+	// A challenge issued to one connection cannot be signed by another.
+	registry.issue('device-a');
+	Assert.deepEqual(registry.consume('device-b'), { verdict: 'unknown' });
+
+	const second = registry.issue('device-a');
+	Assert.notEqual(second.challenge, issued.challenge);
+	currentTime += 60_000;
+	Assert.deepEqual(registry.consume('device-a'), { verdict: 'expired' });
+});
+
+Test('a connection becomes a named account by registering a public key and signing the challenge it is handed', async () => {
+	const { driveAccountMessage, authenticate, sessionRegistry } = buildClientMessageHandlerHarness();
+	const { keyPair, publicKeySpkiBase64, accountId } = await newAccountKeyPair();
+	authenticate('device-a');
+
+	const [registered] = await driveAccountMessage('device-a', { type: 'account.register', signatureAlgorithmName: 'Ed25519', publicKeySpkiBase64, emailAddress: 'volunteer@example.com', displayName: 'Volunteer' });
+	Assert.equal(registered?.type, 'account.registered');
+	Assert.equal((registered as { isNewAccount: boolean }).isNewAccount, true);
+	Assert.equal((registered as { account: AccountProfile }).account.accountId, accountId);
+
+	// The shared token alone says nothing about which participant presented it, so a session carries
+	// no account until a signature proves which private key is on the connection.
+	Assert.equal(sessionRegistry.active('device-a')?.accountId, undefined);
+
+	const [challenge] = await driveAccountMessage('device-a', { type: 'account.challenge.request' });
+	Assert.equal(challenge?.type, 'account.challenge');
+	const challengeValue = (challenge as { challenge: string }).challenge;
+
+	const signatureBase64 = await AccountIdentity.signChallenge('Ed25519', keyPair.privateKey, challengeValue);
+	const [authenticated] = await driveAccountMessage('device-a', { type: 'account.authenticate', accountId, signatureBase64 });
+	Assert.equal(authenticated?.type, 'account.authenticated');
+	Assert.equal((authenticated as { accountId: string }).accountId, accountId);
+	Assert.equal(sessionRegistry.active('device-a')?.accountId, accountId);
+});
+
+Test('two participants presenting the same shared token become two different accounts', async () => {
+	const { driveAccountMessage, authenticate, sessionRegistry } = buildClientMessageHandlerHarness();
+	const first = await newAccountKeyPair();
+	const second = await newAccountKeyPair();
+
+	for (const [deviceId, participant] of [['device-a', first], ['device-b', second]] as const) {
+		authenticate(deviceId);
+		await driveAccountMessage(deviceId, { type: 'account.register', signatureAlgorithmName: 'Ed25519', publicKeySpkiBase64: participant.publicKeySpkiBase64 });
+		const [challenge] = await driveAccountMessage(deviceId, { type: 'account.challenge.request' });
+		const signatureBase64 = await AccountIdentity.signChallenge('Ed25519', participant.keyPair.privateKey, (challenge as { challenge: string }).challenge);
+		await driveAccountMessage(deviceId, { type: 'account.authenticate', accountId: participant.accountId, signatureBase64 });
+	}
+
+	// This is the whole point of the milestone: the two connections presented the identical shared
+	// token, so their authIdentity is the same, and their accounts are not.
+	Assert.equal(sessionRegistry.active('device-a')?.authIdentity, sessionRegistry.active('device-b')?.authIdentity);
+	Assert.notEqual(first.accountId, second.accountId);
+	Assert.equal(sessionRegistry.active('device-a')?.accountId, first.accountId);
+	Assert.equal(sessionRegistry.active('device-b')?.accountId, second.accountId);
+});
+
+Test('a signature over the wrong challenge is refused, and the attempt spends the challenge', async () => {
+	const { driveAccountMessage, authenticate, sessionRegistry } = buildClientMessageHandlerHarness();
+	const { keyPair, publicKeySpkiBase64, accountId } = await newAccountKeyPair();
+	authenticate('device-a');
+	await driveAccountMessage('device-a', { type: 'account.register', signatureAlgorithmName: 'Ed25519', publicKeySpkiBase64 });
+	await driveAccountMessage('device-a', { type: 'account.challenge.request' });
+
+	const signatureOverSomethingElse = await AccountIdentity.signChallenge('Ed25519', keyPair.privateKey, 'a value this gateway never handed out');
+	const [rejected] = await driveAccountMessage('device-a', { type: 'account.authenticate', accountId, signatureBase64: signatureOverSomethingElse });
+	Assert.equal((rejected as { code: string }).code, 'ACCOUNT_SIGNATURE_REJECTED');
+	Assert.equal(sessionRegistry.active('device-a')?.accountId, undefined);
+
+	// The refused attempt used the challenge up, so the sender has to ask for another value to sign
+	// rather than keep trying against the same one.
+	const [afterRefusal] = await driveAccountMessage('device-a', { type: 'account.authenticate', accountId, signatureBase64: signatureOverSomethingElse });
+	Assert.equal((afterRefusal as { code: string }).code, 'ACCOUNT_CHALLENGE_INVALID');
+});
+
+Test('a signature made by a different key pair than the account it claims is refused', async () => {
+	const { driveAccountMessage, authenticate, sessionRegistry } = buildClientMessageHandlerHarness();
+	const owner = await newAccountKeyPair();
+	const impostor = await newAccountKeyPair();
+	authenticate('device-a');
+	await driveAccountMessage('device-a', { type: 'account.register', signatureAlgorithmName: 'Ed25519', publicKeySpkiBase64: owner.publicKeySpkiBase64 });
+
+	const [challenge] = await driveAccountMessage('device-a', { type: 'account.challenge.request' });
+	const signatureBase64 = await AccountIdentity.signChallenge('Ed25519', impostor.keyPair.privateKey, (challenge as { challenge: string }).challenge);
+	const [rejected] = await driveAccountMessage('device-a', { type: 'account.authenticate', accountId: owner.accountId, signatureBase64 });
+	Assert.equal((rejected as { code: string }).code, 'ACCOUNT_SIGNATURE_REJECTED');
+	Assert.equal(sessionRegistry.active('device-a')?.accountId, undefined);
+});
+
+Test('authenticating as an account the gateway does not know, and authenticating with no challenge, are told apart', async () => {
+	const { driveAccountMessage, authenticate } = buildClientMessageHandlerHarness();
+	const { keyPair, publicKeySpkiBase64, accountId } = await newAccountKeyPair();
+	authenticate('device-a');
+
+	const signatureBase64 = await AccountIdentity.signChallenge('Ed25519', keyPair.privateKey, 'anything');
+	const [unknownAccount] = await driveAccountMessage('device-a', { type: 'account.authenticate', accountId, signatureBase64 });
+	Assert.equal((unknownAccount as { code: string }).code, 'ACCOUNT_NOT_FOUND');
+
+	await driveAccountMessage('device-a', { type: 'account.register', signatureAlgorithmName: 'Ed25519', publicKeySpkiBase64 });
+	const [noChallenge] = await driveAccountMessage('device-a', { type: 'account.authenticate', accountId, signatureBase64 });
+	Assert.equal((noChallenge as { code: string }).code, 'ACCOUNT_CHALLENGE_INVALID');
+});
+
+Test('an account message from a connection that has presented nothing at all is refused before it is read', async () => {
+	const { driveAccountMessage } = buildClientMessageHandlerHarness();
+	const { publicKeySpkiBase64 } = await newAccountKeyPair();
+
+	// Account registration is not open to a stranger: the connection has to authenticate with the
+	// gateway's shared token first, so the account file cannot be filled by anyone who can open a
+	// socket.
+	const [refused] = await driveAccountMessage('device-a', { type: 'account.register', signatureAlgorithmName: 'Ed25519', publicKeySpkiBase64 });
+	Assert.equal((refused as { code: string }).code, 'AUTHENTICATION_REQUIRED');
+});
+
+Test('an account survives its connection, and a new connection authenticates as it again without registering', async () => {
+	const { driveAccountMessage, authenticate, sessionRegistry } = buildClientMessageHandlerHarness();
+	const { keyPair, publicKeySpkiBase64, accountId } = await newAccountKeyPair();
+
+	authenticate('device-a');
+	const [registered] = await driveAccountMessage('device-a', { type: 'account.register', signatureAlgorithmName: 'Ed25519', publicKeySpkiBase64 });
+	Assert.equal((registered as { isNewAccount: boolean }).isNewAccount, true);
+
+	// The same participant coming back on a second connection is told the account already exists,
+	// which is what a worker browser page needs: it registers on every visit rather than remembering
+	// whether it has registered before.
+	authenticate('device-b');
+	const [again] = await driveAccountMessage('device-b', { type: 'account.register', signatureAlgorithmName: 'Ed25519', publicKeySpkiBase64 });
+	Assert.equal((again as { isNewAccount: boolean }).isNewAccount, false);
+
+	const [challenge] = await driveAccountMessage('device-b', { type: 'account.challenge.request' });
+	const signatureBase64 = await AccountIdentity.signChallenge('Ed25519', keyPair.privateKey, (challenge as { challenge: string }).challenge);
+	const [authenticated] = await driveAccountMessage('device-b', { type: 'account.authenticate', accountId, signatureBase64 });
+	Assert.equal(authenticated?.type, 'account.authenticated');
+	Assert.equal(sessionRegistry.active('device-b')?.accountId, accountId);
 });

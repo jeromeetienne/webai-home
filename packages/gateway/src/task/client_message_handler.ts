@@ -1,6 +1,7 @@
 import { StagePayloadFactory, type ClientMessage, type Device } from '@webai/protocol';
 import { TaskProjection } from '@webai/protocol/task_projection';
 import type { WebSocket } from 'ws';
+import { AccountMessageHandler } from '../accounting/account_message_handler.js';
 import type { ConnectionHub } from '../connection/connection_hub.js';
 import type { DeviceAnnouncer } from '../device/device_announcer.js';
 import type { DeviceRegistry } from '../device/device_registry.js';
@@ -38,6 +39,8 @@ export class ClientMessageHandler {
 	 * @param announcer The announcer of device changes.
 	 * @param authToken The bearer token a connection must present.
 	 * @param maximumTasksPerPrincipal How many tasks one principal may have in flight.
+	 * @param accountMessageHandler The handler of the account messages, which are answered
+	 * asynchronously because verifying a signature is asynchronous.
 	 */
 	constructor(
 		private readonly hub: ConnectionHub,
@@ -50,6 +53,7 @@ export class ClientMessageHandler {
 		private readonly announcer: DeviceAnnouncer,
 		private readonly authToken: string,
 		private readonly maximumTasksPerPrincipal: number,
+		private readonly accountMessageHandler: AccountMessageHandler,
 	) { }
 
 	/**
@@ -108,6 +112,17 @@ export class ClientMessageHandler {
 	 * @returns `true` when the message was one of this group and has been dealt with.
 	 */
 	private handleBeforeRegistration(socket: WebSocket, deviceId: string, message: ClientMessage, inReplyToMessageId: string, currentSession: Session | undefined): boolean {
+		// An account message is answered before registration, because a worker browser page proves
+		// which account it is before it registers as a worker. Answering it takes verifying a
+		// signature, which is asynchronous, so the answer is sent when it is ready rather than within
+		// this call; nothing else a connection may send depends on that answer having arrived.
+		if (AccountMessageHandler.isAccountMessage(message)) {
+			void this.accountMessageHandler.handle(socket, deviceId, message, inReplyToMessageId).catch((error: unknown) => {
+				console.error(error);
+				this.hub.sendError(socket, inReplyToMessageId, this.hub.counterpartFor(deviceId), 'UNSUPPORTED', 'The account message could not be answered', { retryable: false });
+			});
+			return true;
+		}
 		if (message.type === 'observe') {
 			this.hub.observerDeviceIds.add(deviceId);
 			// An observer connection exists to watch the cluster, so observing implies a

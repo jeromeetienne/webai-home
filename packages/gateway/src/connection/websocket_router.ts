@@ -2,6 +2,7 @@ import { ClientEnvelopeSchema, protocolVersion, supportedProtocolVersions } from
 import { Envelope } from '@webai/protocol/envelope';
 import type { MessageLogger } from '@webai/protocol/message_logger';
 import type { WebSocket } from 'ws';
+import type { ChallengeRegistry } from '../accounting/challenge_registry.js';
 import type { ClientMessageHandler } from '../task/client_message_handler.js';
 import type { ConnectionHub } from './connection_hub.js';
 import type { DeviceAnnouncer } from '../device/device_announcer.js';
@@ -42,6 +43,8 @@ export class WebsocketRouter {
 	 * @param sessionRegistry The sessions the closed connection's session is removed from.
 	 * @param diagnosticsRateLimiter The limiter that forgets the departed device.
 	 * @param gatewayMessageLogger The log of this gateway's own message traffic.
+	 * @param challengeRegistry The account challenges the closed connection's outstanding one is
+	 * removed from.
 	 */
 	constructor(
 		private readonly hub: ConnectionHub,
@@ -52,6 +55,7 @@ export class WebsocketRouter {
 		private readonly sessionRegistry: SessionRegistry,
 		private readonly diagnosticsRateLimiter: DiagnosticsRateLimiter,
 		private readonly gatewayMessageLogger: MessageLogger,
+		private readonly challengeRegistry: ChallengeRegistry,
 	) { }
 
 	/**
@@ -68,6 +72,7 @@ export class WebsocketRouter {
 		socket.on('close', () => {
 			this.hub.forget(deviceId);
 			this.sessionRegistry.close(deviceId);
+			this.challengeRegistry.close(deviceId);
 			this.diagnosticsRateLimiter.forget(deviceId);
 			// "device.left" already tells subscribers exactly what changed, so the full device
 			// list is not sent as well.

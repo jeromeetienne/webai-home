@@ -4,6 +4,8 @@ import Os from 'node:os';
 import Path from 'node:path';
 import Test from 'node:test';
 import {
+	AccountIdentity,
+	AccountProfileSchema,
 	ClientEnvelopeSchema,
 	ClientMessageSchema,
 	ConversationInputSchema,
@@ -456,4 +458,81 @@ Test('a long-lived client renews halfway through its session', () => {
 	Assert.equal(SessionRenewal.renewAfterMs('2026-07-29T11:00:00.000Z', now), 1_000);
 	Assert.equal(SessionRenewal.renewAfterMs('2026-07-29T12:00:00.000Z', now), 1_000);
 	Assert.equal(SessionRenewal.renewAfterMs('not a date', now), 1_000);
+});
+
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+//	Accounts
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+Test('an account identifier is derived from the public key, so the same key is always the same account', async () => {
+	const first = await AccountIdentity.generateKeyPair('Ed25519');
+	const second = await AccountIdentity.generateKeyPair('Ed25519');
+	const firstPublicKey = await AccountIdentity.exportPublicKeySpkiBase64(first.publicKey);
+	const secondPublicKey = await AccountIdentity.exportPublicKeySpkiBase64(second.publicKey);
+
+	// The identifier is a digest of the key rather than a value the gateway hands out, so a
+	// participant returning on a new connection, or to a different gateway, is the same account.
+	Assert.equal(await AccountIdentity.accountIdFor(firstPublicKey), await AccountIdentity.accountIdFor(firstPublicKey));
+	Assert.notEqual(await AccountIdentity.accountIdFor(firstPublicKey), await AccountIdentity.accountIdFor(secondPublicKey));
+	Assert.match(await AccountIdentity.accountIdFor(firstPublicKey), /^account-[0-9a-f]{32}$/);
+});
+
+Test('what an account signs names this project and this purpose, and not the challenge alone', () => {
+	const signed = new TextDecoder().decode(AccountIdentity.signedMessageBytesFor('abc123'));
+
+	// A signature produced to authenticate an account must not be presentable as a signature over
+	// something else the same key pair might one day be asked to sign.
+	Assert.equal(signed, 'webai-at-home:account-authentication:v1:abc123');
+	Assert.equal(signed.startsWith(AccountIdentity.signedMessagePrefix), true);
+});
+
+Test('a signature is accepted only for the challenge it was made over, and only for its own account', async () => {
+	for (const algorithmName of ['Ed25519', 'ECDSA-P-256'] as const) {
+		const keyPair = await AccountIdentity.generateKeyPair(algorithmName);
+		const otherKeyPair = await AccountIdentity.generateKeyPair(algorithmName);
+		const publicKeySpkiBase64 = await AccountIdentity.exportPublicKeySpkiBase64(keyPair.publicKey);
+		const otherPublicKeySpkiBase64 = await AccountIdentity.exportPublicKeySpkiBase64(otherKeyPair.publicKey);
+		const challenge = 'e6f0c0a4bd1c4f2e9f0a1b2c3d4e5f60';
+		const signatureBase64 = await AccountIdentity.signChallenge(algorithmName, keyPair.privateKey, challenge);
+
+		Assert.equal(await AccountIdentity.verifyChallengeSignature({ signatureAlgorithmName: algorithmName, publicKeySpkiBase64, challenge, signatureBase64 }), true, algorithmName);
+		Assert.equal(await AccountIdentity.verifyChallengeSignature({ signatureAlgorithmName: algorithmName, publicKeySpkiBase64, challenge: `${challenge}0`, signatureBase64 }), false, algorithmName);
+		Assert.equal(await AccountIdentity.verifyChallengeSignature({ signatureAlgorithmName: algorithmName, publicKeySpkiBase64: otherPublicKeySpkiBase64, challenge, signatureBase64 }), false, algorithmName);
+
+		// Text that is not a signature at all is refused rather than throwing out of the gateway's
+		// message handling.
+		Assert.equal(await AccountIdentity.verifyChallengeSignature({ signatureAlgorithmName: algorithmName, publicKeySpkiBase64, challenge, signatureBase64: 'not a signature' }), false, algorithmName);
+	}
+});
+
+Test('the three account messages are accepted, and nothing beyond what they declare is', async () => {
+	const keyPair = await AccountIdentity.generateKeyPair('Ed25519');
+	const publicKeySpkiBase64 = await AccountIdentity.exportPublicKeySpkiBase64(keyPair.publicKey);
+
+	Assert.equal(ClientMessageSchema.safeParse({ type: 'account.register', signatureAlgorithmName: 'Ed25519', publicKeySpkiBase64 }).success, true);
+	Assert.equal(ClientMessageSchema.safeParse({ type: 'account.register', signatureAlgorithmName: 'Ed25519', publicKeySpkiBase64, emailAddress: 'volunteer@example.com', displayName: 'Volunteer' }).success, true);
+	Assert.equal(ClientMessageSchema.safeParse({ type: 'account.challenge.request' }).success, true);
+	Assert.equal(ClientMessageSchema.safeParse({ type: 'account.authenticate', accountId: 'account-0123456789abcdef0123456789abcdef', signatureBase64: 'c2lnbmF0dXJl' }).success, true);
+
+	// An algorithm the gateway cannot verify, a missing key, and a private key sent where a public
+	// one belongs are all refused before any handler sees them.
+	Assert.equal(ClientMessageSchema.safeParse({ type: 'account.register', signatureAlgorithmName: 'RSA', publicKeySpkiBase64 }).success, false);
+	Assert.equal(ClientMessageSchema.safeParse({ type: 'account.register', signatureAlgorithmName: 'Ed25519' }).success, false);
+	Assert.equal(ClientMessageSchema.safeParse({ type: 'account.register', signatureAlgorithmName: 'Ed25519', publicKeySpkiBase64, privateKeySpkiBase64: publicKeySpkiBase64 }).success, false);
+	Assert.equal(ClientMessageSchema.safeParse({ type: 'account.authenticate', accountId: 'account-0123456789abcdef0123456789abcdef' }).success, false);
+});
+
+Test('an account profile is what the gateway stores, with an empty email address and display name allowed', async () => {
+	const keyPair = await AccountIdentity.generateKeyPair('Ed25519');
+	const publicKeySpkiBase64 = await AccountIdentity.exportPublicKeySpkiBase64(keyPair.publicKey);
+	const accountId = await AccountIdentity.accountIdFor(publicKeySpkiBase64);
+
+	// A volunteer opening a worker browser page has not agreed to give an email address, and the page
+	// registers an account for that volunteer either way.
+	const profile = { accountId, signatureAlgorithmName: 'Ed25519', publicKeySpkiBase64, emailAddress: '', displayName: '', createdAt: '2026-08-05T12:00:00.000Z' };
+	Assert.equal(AccountProfileSchema.safeParse(profile).success, true);
+	Assert.equal(AccountProfileSchema.safeParse({ ...profile, accountId: '' }).success, false);
+	Assert.equal(AccountProfileSchema.safeParse({ ...profile, balance: 12 }).success, false);
 });

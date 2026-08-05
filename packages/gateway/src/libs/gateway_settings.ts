@@ -13,6 +13,8 @@ type RawOptions = {
 	submissionTimeoutMs: string;
 	maxAttempts: string;
 	stateFile: string;
+	accountFile: string;
+	accountChallengeMs: string;
 	authToken: string;
 	maxTasksPerPrincipal: string;
 	sessionMs: string;
@@ -38,6 +40,10 @@ export class GatewaySettings {
 	readonly maximumAttempts: number;
 	/** The file durable task state is written to. Empty means state is not kept on disk. */
 	readonly stateFile: string;
+	/** The file account profiles are written to. Empty means accounts are not kept on disk. */
+	readonly accountFile: string;
+	/** How long a challenge handed out for an account to sign stays usable. */
+	readonly accountChallengeMs: number;
 	/** The bearer token every connection and every diagnostics report must present. */
 	readonly authToken: string;
 	/** How many tasks one principal may have in flight at once. */
@@ -59,6 +65,8 @@ export class GatewaySettings {
 			.option('--submission-timeout-ms <number>', 'Queued task deadline', '30000')
 			.option('--max-attempts <number>', 'Maximum assignment attempts', '3')
 			.option('--state-file <path>', 'Durable task state file', 'gateway-state.json')
+			.option('--account-file <path>', 'Account profile file', 'gateway-accounts.json')
+			.option('--account-challenge-ms <number>', 'How long a challenge handed out for an account to sign stays usable', '60000')
 			.option('--auth-token <token>', 'Required bearer token for development connections', 'development-token')
 			.option('--max-tasks-per-principal <number>', 'Maximum non-terminal tasks per principal', '20')
 			.option('--session-ms <number>', 'How long an authenticated session lasts before the client must authenticate again', '3600000')
@@ -71,6 +79,8 @@ export class GatewaySettings {
 		this.submissionTimeoutMs = Number(options.submissionTimeoutMs);
 		this.maximumAttempts = Number(options.maxAttempts);
 		this.stateFile = options.stateFile;
+		this.accountFile = options.accountFile;
+		this.accountChallengeMs = Number(options.accountChallengeMs);
 		this.authToken = options.authToken;
 		this.maximumTasksPerPrincipal = Number(options.maxTasksPerPrincipal);
 		this.sessionMs = Number(options.sessionMs);

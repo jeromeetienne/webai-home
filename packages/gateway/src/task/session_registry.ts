@@ -10,6 +10,14 @@ import Crypto from 'node:crypto';
 export type Session = {
 	/** Who authenticated, used as the key for the per-identity active-task limit. */
 	authIdentity: string;
+	/**
+	 * The account this connection has proved it holds the private key of, once it has.
+	 *
+	 * A session opened with the gateway's shared token alone carries no account: the token says
+	 * nothing about which participant presented it. The account arrives later, when the connection
+	 * signs a challenge, and it is what the accounting ledger records work against.
+	 */
+	accountId?: string | undefined;
 	/** When this session stops being valid, in milliseconds since the epoch. */
 	expiresAt: number;
 };
@@ -76,6 +84,29 @@ export class SessionRegistry {
 		const session: Session = { authIdentity: SessionRegistry.authIdentityFor(token), expiresAt: now + this.sessionDurationMs };
 		this.sessionsByDeviceId.set(deviceId, session);
 		return session;
+	}
+
+	/**
+	 * Records on a connection's session which account it has proved it holds the private key of.
+	 *
+	 * Authenticating an account does not extend the session and does not replace it: the session's
+	 * expiry belongs to the credential the connection presented to open it, and signing a challenge
+	 * says who is on the connection, not for how much longer.
+	 *
+	 * @param deviceId The connection's device identifier.
+	 * @param accountId The account the connection authenticated as.
+	 * @param now The current time in milliseconds. Callers normally leave this unset.
+	 * @returns The session the account was recorded on, or `undefined` when the connection has no
+	 * live session to record it on.
+	 */
+	attachAccount(deviceId: string, accountId: string, now: number = Date.now()): Session | undefined {
+		const session = this.active(deviceId, now);
+		if (session === undefined) {
+			return undefined;
+		}
+		const withAccount: Session = { ...session, accountId };
+		this.sessionsByDeviceId.set(deviceId, withAccount);
+		return withAccount;
 	}
 
 	/**

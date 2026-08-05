@@ -10,6 +10,9 @@ import { WebSocketServer } from 'ws';
 import { MessageLogger } from '@webai/protocol/message_logger';
 
 // local imports
+import { AccountMessageHandler } from './accounting/account_message_handler.js';
+import { AccountRegistry } from './accounting/account_registry.js';
+import { ChallengeRegistry } from './accounting/challenge_registry.js';
 import { ClientMessageHandler } from './task/client_message_handler.js';
 import { ConnectionHub } from './connection/connection_hub.js';
 import { DeviceAnnouncer } from './device/device_announcer.js';
@@ -56,6 +59,8 @@ export class Cli {
 		const deviceRegistry = new DeviceRegistry();
 		const taskStore = new TaskStore(undefined, settings.submissionTimeoutMs, settings.leaseMs, settings.stateFile);
 		const sessionRegistry = new SessionRegistry(settings.sessionMs);
+		const accountRegistry = new AccountRegistry(settings.accountFile);
+		const challengeRegistry = new ChallengeRegistry(settings.accountChallengeMs);
 
 		const pipelineRegistry = new PipelineRegistry(builtinPipelineSpecifications);
 		if (settings.pipelineFile !== undefined) {
@@ -79,6 +84,7 @@ export class Cli {
 		const hub = new ConnectionHub(deviceRegistry, gatewayMessageLogger, logsDirectory);
 		const announcer = new DeviceAnnouncer(deviceRegistry, hub, settings.deviceActivityCoalesceMs);
 		const scheduler = new TaskScheduler(taskStore, deviceRegistry, stagePolicyResolver, hub, announcer, settings.maximumAttempts);
+		const accountMessageHandler = new AccountMessageHandler(hub, accountRegistry, challengeRegistry, sessionRegistry);
 		const messageHandler = new ClientMessageHandler(
 			hub,
 			deviceRegistry,
@@ -90,6 +96,7 @@ export class Cli {
 			announcer,
 			settings.authToken,
 			settings.maximumTasksPerPrincipal,
+			accountMessageHandler,
 		);
 		const websocketRouter = new WebsocketRouter(
 			hub,
@@ -100,6 +107,7 @@ export class Cli {
 			sessionRegistry,
 			diagnosticsRateLimiter,
 			gatewayMessageLogger,
+			challengeRegistry,
 		);
 
 		const isProduction = process.env.NODE_ENV === 'production';
