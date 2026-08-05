@@ -1,11 +1,20 @@
 import Assert from 'node:assert/strict';
+import Fs from 'node:fs';
+import Os from 'node:os';
+import Path from 'node:path';
 import Test from 'node:test';
 import { ConsumerClient, type TaskSocket } from '../src/gateway_connection/consumer_client.js';
 import { TaskInputFactory, taskTypeNames, taskTypeNamesAcceptingConversation } from '../src/libs/task_input_factory.js';
 import { DeviceAvailability } from '../src/cluster_capacity/device_availability.js';
 import { CapacityCalculator } from '../src/cluster_capacity/capacity_calculator.js';
 import { ObserverClient } from '../src/gateway_connection/observer_client.js';
-import { protocolVersion, type Device, type PipelineSpecification, type ProtocolError } from '@webai/protocol';
+import { AccountIdentity, protocolVersion, type ClientMessage, type Device, type GatewayMessage, type LedgerEntry, type PipelineSpecification, type ProtocolError } from '@webai/protocol';
+import { AccountClient } from '../src/account/account_client.js';
+import { AccountKeyFile } from '../src/account/account_key_file.js';
+import { AccountOutputFormatter, accountOutputFormats } from '../src/account/account_output_format.js';
+import { AccountBalanceCommand } from '../src/commands/account_balance_command.js';
+import { AccountHistoryCommand, accountHistoryDirections } from '../src/commands/account_history_command.js';
+import { CliError } from '../src/libs/cli_errors.js';
 import * as ConsumerCli from '@webai/consumer-cli';
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -318,4 +327,224 @@ Test('exposes the reusable consumer symbols through the package entry point afte
 	};
 	Assert.ok(new ConsumerCli.ConsumerClient(socket, {}, 'built-consumer') instanceof ConsumerCli.ConsumerClient);
 	Assert.equal('Cli' in ConsumerCli, false);
+});
+
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+//	The account commands
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+/** A temporary path for one test's key pair, so no test touches the user's own. */
+const newKeyFilePath = (): string => Path.join(Fs.mkdtempSync(Path.join(Os.tmpdir(), 'consumer-cli-account-')), 'account_key.json');
+
+/**
+ * A connection that answers this program the way the central gateway does.
+ *
+ * Every answer carries the identifier of the frame it answers, which is what the client matches on,
+ * so a test states only what the gateway would say to each message type.
+ */
+const newAnsweringSocket = (answerFor: (message: ClientMessage) => GatewayMessage | undefined): { socket: TaskSocket; sent: ClientMessage[] } => {
+	const sent: ClientMessage[] = [];
+	const socket: TaskSocket = {
+		readyState: 1,
+		OPEN: 1,
+		send: (data: string): void => {
+			const frame = JSON.parse(data) as { id: string; body: ClientMessage };
+			sent.push(frame.body);
+			const answer = answerFor(frame.body);
+			if (answer === undefined) return;
+			setImmediate(() => socket.onmessage?.({ data: JSON.stringify({ v: protocolVersion, id: 'message-answer', ts: new Date().toISOString(), inReplyToMessageId: frame.id, body: answer }) }));
+		},
+		close: (): void => undefined,
+		onopen: null,
+		onmessage: null,
+		onerror: null,
+		onclose: null,
+	};
+	// The client assigns onopen while it waits, so opening is announced after that assignment.
+	setImmediate(() => socket.onopen?.());
+	return { socket, sent };
+};
+
+/** Collects everything a command prints, so a test can read what a user would see. */
+const captureConsoleOutput = async (run: () => Promise<void>): Promise<string> => {
+	const lines: string[] = [];
+	const original = console.log;
+	console.log = (...values: unknown[]): void => { lines.push(values.map((value) => String(value)).join(' ')); };
+	try {
+		await run();
+	} finally {
+		console.log = original;
+	}
+	return lines.join('\n');
+};
+
+Test('generating a key pair writes it readable by its owner only, and never overwrites one by accident', async () => {
+	const keyFilePath = newKeyFilePath();
+	const first = await AccountKeyFile.create(keyFilePath, false);
+
+	// The account identifier is a digest of the public key, so it can be derived again from the file.
+	Assert.equal(first.accountId, await AccountIdentity.accountIdFor(first.publicKeySpkiBase64));
+	Assert.match(first.accountId, /^account-[0-9a-f]{32}$/);
+	Assert.equal(first.signatureAlgorithmName, 'Ed25519');
+
+	// The private key in this file is the whole account, so nobody but its owner may read it.
+	Assert.equal((Fs.statSync(keyFilePath).mode & 0o777).toString(8), '600');
+
+	// Overwriting it loses the account, so it has to be asked for.
+	await Assert.rejects(async () => AccountKeyFile.create(keyFilePath, false), /Overwriting it loses the account/);
+	const forced = await AccountKeyFile.create(keyFilePath, true);
+	Assert.notEqual(forced.accountId, first.accountId);
+});
+
+Test('a key pair read back from its file signs a challenge its own public key verifies', async () => {
+	const keyFilePath = newKeyFilePath();
+	const stored = await AccountKeyFile.create(keyFilePath, false);
+	const loaded = await AccountKeyFile.read(keyFilePath);
+
+	Assert.equal(loaded.stored.accountId, stored.accountId);
+	const signatureBase64 = await AccountIdentity.signChallenge('Ed25519', loaded.privateKey, 'a challenge the gateway handed out');
+	Assert.equal(await AccountIdentity.verifyChallengeSignature({ signatureAlgorithmName: 'Ed25519', publicKeySpkiBase64: stored.publicKeySpkiBase64, challenge: 'a challenge the gateway handed out', signatureBase64 }), true);
+});
+
+Test('a missing key pair, and one written by a version this program cannot read, are both explained', async () => {
+	const keyFilePath = newKeyFilePath();
+	await Assert.rejects(async () => AccountKeyFile.read(keyFilePath), /No account key pair is kept at .*account_key\.json\. Run "consumer_cli account_key"/);
+
+	await AccountKeyFile.create(keyFilePath, false);
+	const stored = JSON.parse(Fs.readFileSync(keyFilePath, 'utf8')) as { schemaVersion: number };
+	Fs.writeFileSync(keyFilePath, JSON.stringify({ ...stored, schemaVersion: 99 }), 'utf8');
+	await Assert.rejects(async () => AccountKeyFile.read(keyFilePath), /states schema version 99, which this program cannot read/);
+});
+
+Test('the account commands accept the formats and directions they advertise, and no others', () => {
+	Assert.deepEqual(accountOutputFormats, ['text', 'json']);
+	Assert.equal(AccountOutputFormatter.isFormat('text'), true);
+	Assert.equal(AccountOutputFormatter.isFormat('json'), true);
+	Assert.equal(AccountOutputFormatter.isFormat('markdown'), false);
+
+	Assert.deepEqual(accountHistoryDirections, ['earned', 'spent', 'both']);
+	Assert.equal(AccountHistoryCommand.isDirection('earned'), true);
+	Assert.equal(AccountHistoryCommand.isDirection('sideways'), false);
+});
+
+Test('the account client presents the token, then proves which account is on the connection', async () => {
+	const keyFilePath = newKeyFilePath();
+	const stored = await AccountKeyFile.create(keyFilePath, false);
+	let signatureBase64 = '';
+	const { socket, sent } = newAnsweringSocket((message) => {
+		if (message.type === 'deviceAuthenticate') return { type: 'deviceAuthenticated', authIdentity: 'authIdentity-test', expiresAt: new Date(Date.now() + 3_600_000).toISOString() };
+		if (message.type === 'account.challenge.request') return { type: 'account.challenge', challenge: 'c0ffee', expiresAt: new Date(Date.now() + 60_000).toISOString() };
+		if (message.type === 'account.authenticate') {
+			signatureBase64 = message.signatureBase64;
+			return { type: 'account.authenticated', accountId: message.accountId, expiresAt: new Date(Date.now() + 3_600_000).toISOString() };
+		}
+		return undefined;
+	});
+	const client = new AccountClient({ url: 'ws://gateway.test', authToken: 'test-token', timeoutMs: 1_000, keyFilePath, socketFactory: (): TaskSocket => socket });
+	await client.connect();
+	const accountId = await client.authenticateAccount();
+
+	Assert.equal(accountId, stored.accountId);
+	Assert.deepEqual(sent.map((message) => message.type), ['deviceAuthenticate', 'account.challenge.request', 'account.authenticate']);
+
+	// The signature it sent is a real signature over the challenge it was handed, by this key pair.
+	Assert.equal(await AccountIdentity.verifyChallengeSignature({ signatureAlgorithmName: 'Ed25519', publicKeySpkiBase64: stored.publicKeySpkiBase64, challenge: 'c0ffee', signatureBase64 }), true);
+});
+
+Test('an error the gateway sends fails the command with the exit code that error deserves', async () => {
+	const keyFilePath = newKeyFilePath();
+	await AccountKeyFile.create(keyFilePath, false);
+	const { socket } = newAnsweringSocket((message) => {
+		if (message.type === 'deviceAuthenticate') return { type: 'deviceAuthenticated', authIdentity: 'authIdentity-test', expiresAt: new Date(Date.now() + 3_600_000).toISOString() };
+		if (message.type === 'account.challenge.request') return { type: 'account.challenge', challenge: 'c0ffee', expiresAt: new Date(Date.now() + 60_000).toISOString() };
+		if (message.type === 'account.authenticate') return { type: 'error', code: 'ACCOUNT_NOT_FOUND', message: 'Register this account before authenticating as it', retryable: false };
+		return undefined;
+	});
+	const client = new AccountClient({ url: 'ws://gateway.test', authToken: 'test-token', timeoutMs: 1_000, keyFilePath, socketFactory: (): TaskSocket => socket });
+	await client.connect();
+
+	// An unregistered account is told what to do about it, rather than only what went wrong.
+	await Assert.rejects(async () => client.authenticateAccount(), (error: unknown) => {
+		Assert.equal(error instanceof CliError, true);
+		Assert.match((error as CliError).message, /Run "consumer_cli account_register" first/);
+		return true;
+	});
+});
+
+Test('account_balance prints what the account holds, as lines or as JSON', async () => {
+	const keyFilePath = newKeyFilePath();
+	const stored = await AccountKeyFile.create(keyFilePath, false);
+	const answerFor = (message: ClientMessage): GatewayMessage | undefined => {
+		if (message.type === 'deviceAuthenticate') return { type: 'deviceAuthenticated', authIdentity: 'authIdentity-test', expiresAt: new Date(Date.now() + 3_600_000).toISOString() };
+		if (message.type === 'account.challenge.request') return { type: 'account.challenge', challenge: 'c0ffee', expiresAt: new Date(Date.now() + 60_000).toISOString() };
+		if (message.type === 'account.authenticate') return { type: 'account.authenticated', accountId: stored.accountId, expiresAt: new Date(Date.now() + 3_600_000).toISOString() };
+		if (message.type === 'account.balance.get') return { type: 'account.balance', summary: { accountId: stored.accountId, balance: 12, earnedStageCount: 14, spentStageCount: 2 } };
+		return undefined;
+	};
+
+	const text = await captureConsoleOutput(async () => AccountBalanceCommand.run({ url: 'ws://gateway.test', authToken: 'test-token', timeoutMs: 1_000, keyFilePath, format: 'text', socketFactory: (): TaskSocket => newAnsweringSocket(answerFor).socket }));
+	Assert.match(text, /balance {2,}\+12 credit\(s\)/);
+	Assert.match(text, /stages completed as a worker {2,}14/);
+	Assert.match(text, /stages run as a consumer {2,}2/);
+
+	const json = await captureConsoleOutput(async () => AccountBalanceCommand.run({ url: 'ws://gateway.test', authToken: 'test-token', timeoutMs: 1_000, keyFilePath, format: 'json', socketFactory: (): TaskSocket => newAnsweringSocket(answerFor).socket }));
+	Assert.deepEqual(JSON.parse(json), { accountId: stored.accountId, balance: 12, earnedStageCount: 14, spentStageCount: 2 });
+});
+
+Test('account_history prints one side of the ledger newest first, and says when more is left unread', async () => {
+	const keyFilePath = newKeyFilePath();
+	const stored = await AccountKeyFile.create(keyFilePath, false);
+	const entry = (ledgerEntryId: string, creditDelta: 1 | -1, stageName: string, recordedAt: string): LedgerEntry => ({
+		ledgerEntryId,
+		recordedAt,
+		accountId: stored.accountId,
+		creditDelta,
+		taskId: 'task-1',
+		stageName: stageName as LedgerEntry['stageName'],
+		stageAssignmentId: 'stageAssignment-1',
+		workerDeviceId: 'device-worker',
+		consumerDeviceId: 'device-consumer',
+		stageDurationMs: 7,
+	});
+	const pages: Record<string, Extract<GatewayMessage, { type: 'account.ledger' }>> = {
+		first: { type: 'account.ledger', accountId: stored.accountId, direction: 'earned', entries: [entry('ledgerEntry-2', 1, 'stage_dev_formula_add', '2026-08-05T12:00:02.000Z')], nextCursor: 'ledgerEntry-2' },
+		second: { type: 'account.ledger', accountId: stored.accountId, direction: 'earned', entries: [entry('ledgerEntry-1', 1, 'stage_dev_formula_multiply', '2026-08-05T12:00:01.000Z')] },
+	};
+	const answerFor = (message: ClientMessage): GatewayMessage | undefined => {
+		if (message.type === 'deviceAuthenticate') return { type: 'deviceAuthenticated', authIdentity: 'authIdentity-test', expiresAt: new Date(Date.now() + 3_600_000).toISOString() };
+		if (message.type === 'account.challenge.request') return { type: 'account.challenge', challenge: 'c0ffee', expiresAt: new Date(Date.now() + 60_000).toISOString() };
+		if (message.type === 'account.authenticate') return { type: 'account.authenticated', accountId: stored.accountId, expiresAt: new Date(Date.now() + 3_600_000).toISOString() };
+		if (message.type === 'account.ledger.get') return message.before === undefined ? pages.first : pages.second;
+		return undefined;
+	};
+
+	// One page asked for, and the gateway holds more: the command says so rather than looking complete.
+	const onePage = await captureConsoleOutput(async () => AccountHistoryCommand.run({ url: 'ws://gateway.test', authToken: 'test-token', timeoutMs: 1_000, keyFilePath, direction: 'earned', limit: 1, isEverythingRequested: false, format: 'text', socketFactory: (): TaskSocket => newAnsweringSocket(answerFor).socket }));
+	Assert.match(onePage, /earned, newest first/);
+	Assert.match(onePage, /\+1 {2,}stage_dev_formula_add/);
+	Assert.equal(onePage.includes('stage_dev_formula_multiply'), false);
+	Assert.match(onePage, /Further entries exist/);
+
+	// Asked for everything, it follows the cursor until the gateway offers none.
+	const everything = await captureConsoleOutput(async () => AccountHistoryCommand.run({ url: 'ws://gateway.test', authToken: 'test-token', timeoutMs: 1_000, keyFilePath, direction: 'earned', limit: 1, isEverythingRequested: true, format: 'json', socketFactory: (): TaskSocket => newAnsweringSocket(answerFor).socket }));
+	const printed = JSON.parse(everything) as { entries: LedgerEntry[]; isMoreLeftUnread: boolean };
+	Assert.deepEqual(printed.entries.map((item) => item.stageName), ['stage_dev_formula_add', 'stage_dev_formula_multiply']);
+	Assert.equal(printed.isMoreLeftUnread, false);
+});
+
+Test('an account with no entries is told so plainly, rather than shown an empty table', async () => {
+	const keyFilePath = newKeyFilePath();
+	const stored = await AccountKeyFile.create(keyFilePath, false);
+	const answerFor = (message: ClientMessage): GatewayMessage | undefined => {
+		if (message.type === 'deviceAuthenticate') return { type: 'deviceAuthenticated', authIdentity: 'authIdentity-test', expiresAt: new Date(Date.now() + 3_600_000).toISOString() };
+		if (message.type === 'account.challenge.request') return { type: 'account.challenge', challenge: 'c0ffee', expiresAt: new Date(Date.now() + 60_000).toISOString() };
+		if (message.type === 'account.authenticate') return { type: 'account.authenticated', accountId: stored.accountId, expiresAt: new Date(Date.now() + 3_600_000).toISOString() };
+		if (message.type === 'account.ledger.get') return { type: 'account.ledger', accountId: stored.accountId, direction: 'spent', entries: [] };
+		return undefined;
+	};
+
+	const text = await captureConsoleOutput(async () => AccountHistoryCommand.run({ url: 'ws://gateway.test', authToken: 'test-token', timeoutMs: 1_000, keyFilePath, direction: 'spent', limit: 20, isEverythingRequested: false, format: 'text', socketFactory: (): TaskSocket => newAnsweringSocket(answerFor).socket }));
+	Assert.equal(text, `${stored.accountId} has no spent accounting entries yet.`);
 });

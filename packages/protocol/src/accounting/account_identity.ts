@@ -24,6 +24,31 @@ export type AccountCryptoKeyPair = {
 	publicKey: AccountCryptoKey;
 };
 
+/**
+ * A key written as a JSON Web Key, which is how a key pair is kept in a file.
+ *
+ * The type is read off the environment's own Web Cryptography API for the same reason
+ * `AccountCryptoKey` is: `JsonWebKey` is a name a browser declares globally and Node.js does not.
+ */
+export type AccountKeyJsonWebKey = {
+	/** The key type, `OKP` for an `Ed25519` key and `EC` for a `P-256` one. */
+	kty?: string;
+	/** The curve the key is on. */
+	crv?: string;
+	/** The public part, or its first coordinate. */
+	x?: string;
+	/** The second coordinate of a public point, on the curves that have one. */
+	y?: string;
+	/** The private part. It is only present in the copy a file keeps. */
+	d?: string;
+	/** The algorithm the key is for. */
+	alg?: string;
+	/** Whether the key may be exported again. */
+	ext?: boolean;
+	/** What the key may be used for. The field name is the one the standard gives it. */
+	key_ops?: string[];
+};
+
 /** Everything needed to verify one signature over one gateway challenge. */
 export type AccountSignatureCheck = {
 	/** Which signature algorithm the account's key pair uses. */
@@ -126,6 +151,36 @@ export class AccountIdentity {
 	 */
 	static async exportPublicKeySpkiBase64(publicKey: AccountCryptoKey): Promise<string> {
 		return AccountIdentity.bytesToBase64(await crypto.subtle.exportKey('spki', publicKey));
+	}
+
+	/**
+	 * Writes a private key the way a file keeps it.
+	 *
+	 * A command line program has to keep its key pair between runs, so unlike a browser page it
+	 * generates an exportable private key and writes it out. That is the difference between the two:
+	 * a browser holds a key it cannot export, and a file holds one it must be able to.
+	 *
+	 * @param privateKey The private key to write. It must have been generated as exportable.
+	 * @returns The key as a JSON Web Key.
+	 */
+	static async exportPrivateKeyJsonWebKey(privateKey: AccountCryptoKey): Promise<AccountKeyJsonWebKey> {
+		return await crypto.subtle.exportKey('jwk', privateKey);
+	}
+
+	/**
+	 * Reads a private key back from the form a file keeps it in.
+	 *
+	 * The key comes back able to sign and nothing else, and not exportable again: what is on disk is
+	 * already the copy that can be exported, and a second exportable copy in memory would serve no
+	 * purpose.
+	 *
+	 * @param signatureAlgorithmName Which algorithm the key pair uses.
+	 * @param privateKeyJsonWebKey The key as it was written to the file.
+	 * @returns The private key, ready to sign a challenge.
+	 */
+	static async importPrivateKeyJsonWebKey(signatureAlgorithmName: AccountSignatureAlgorithmName, privateKeyJsonWebKey: AccountKeyJsonWebKey): Promise<AccountCryptoKey> {
+		const parameters = AccountIdentity.algorithmParametersFor(signatureAlgorithmName);
+		return await crypto.subtle.importKey('jwk', privateKeyJsonWebKey, parameters.keyAlgorithm, false, ['sign']);
 	}
 
 	/**

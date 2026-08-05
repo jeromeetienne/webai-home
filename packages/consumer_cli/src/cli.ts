@@ -9,10 +9,17 @@ import { StatusCommand, statusFormats } from './commands/status_command.js';
 import { CapacityCommand, capacityFormats } from './commands/capacity_command.js';
 import { LogStatsCommand } from './commands/log_stats_command.js';
 import { LogStatisticsFormatter, logStatisticsFormats } from './message_log/log_statistics_formatter.js';
+import { AccountKeyFile } from './account/account_key_file.js';
+import { AccountOutputFormatter, accountOutputFormats } from './account/account_output_format.js';
+import { AccountKeyCommand } from './commands/account_key_command.js';
+import { AccountRegisterCommand } from './commands/account_register_command.js';
+import { AccountInformationCommand } from './commands/account_information_command.js';
+import { AccountBalanceCommand } from './commands/account_balance_command.js';
+import { AccountHistoryCommand, accountHistoryDirections } from './commands/account_history_command.js';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
-//	Cli — the consumer command line program: submit, status, capacity, and log_stats
+//	Cli — the consumer command line program: submit, status, capacity, log_stats, and the account commands
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -27,6 +34,12 @@ type GlobalOptions = { url: string; authToken?: string };
  * `status` reports the current worker cluster state, `capacity` estimates how many concurrent
  * runs of a task type the cluster can currently support, and `log_stats` measures one already
  * recorded message log file without connecting to anything.
+ *
+ * Five further commands read and write this participant's own account, which is what the accounting
+ * system of issue #122 records contributed and consumed computation against: `account_key`
+ * generates the key pair that is the account, `account_register` tells the central gateway about it,
+ * and `account_information`, `account_balance`, and `account_history` read back what the gateway
+ * holds for it.
  */
 export class Cli {
 	/**
@@ -108,6 +121,106 @@ export class Cli {
 					filePath: file,
 					format: localOptions.format,
 					top,
+				});
+			});
+
+		program
+			.command('account_key')
+			.description('generate the key pair that is this participant\'s account, and print the account identifier it produces. It talks to nothing: the identifier is a digest of the public key, so it exists as soon as the key pair does')
+			.option('-k, --key_file <path>', 'where to keep the key pair', AccountKeyFile.defaultFilePath())
+			.option('--force', 'overwrite a key pair that is already there, losing the account it belongs to')
+			.option('-f, --format <format>', `output format: ${accountOutputFormats.join(', ')}`, 'text')
+			.action(async (localOptions: { key_file: string; force?: boolean; format: string }): Promise<void> => {
+				if (AccountOutputFormatter.isFormat(localOptions.format) === false) throw new Error(`Format must be one of ${accountOutputFormats.join(', ')}`);
+				await AccountKeyCommand.run({
+					keyFilePath: localOptions.key_file,
+					isForced: localOptions.force === true,
+					format: localOptions.format,
+				});
+			});
+
+		program
+			.command('account_register')
+			.description('tell the central gateway about this machine\'s public key, so completed and consumed stages can be recorded against the account it identifies')
+			.option('-k, --key_file <path>', 'where the key pair is kept', AccountKeyFile.defaultFilePath())
+			.option('--email_address <address>', 'the email address for the account profile', '')
+			.option('--display_name <name>', 'the display name for the account profile', '')
+			.option('-f, --format <format>', `output format: ${accountOutputFormats.join(', ')}`, 'text')
+			.option('--timeout <ms>', 'how long to wait for the central gateway to answer', '10000')
+			.action(async (localOptions: { key_file: string; email_address: string; display_name: string; format: string; timeout: string }, command: Commander.Command): Promise<void> => {
+				const options = command.optsWithGlobals<GlobalOptions & typeof localOptions>();
+				if (AccountOutputFormatter.isFormat(options.format) === false) throw new Error(`Format must be one of ${accountOutputFormats.join(', ')}`);
+				await AccountRegisterCommand.run({
+					url: options.url,
+					authToken: Cli.resolveAuthToken(options.authToken),
+					timeoutMs: Number(options.timeout),
+					keyFilePath: options.key_file,
+					emailAddress: options.email_address,
+					displayName: options.display_name,
+					format: options.format,
+				});
+			});
+
+		program
+			.command('account_information')
+			.description('print the profile the central gateway holds for this account: its identifier, its public key, its display name, its email address, and when it was registered')
+			.option('-k, --key_file <path>', 'where the key pair is kept', AccountKeyFile.defaultFilePath())
+			.option('-f, --format <format>', `output format: ${accountOutputFormats.join(', ')}`, 'text')
+			.option('--timeout <ms>', 'how long to wait for the central gateway to answer', '10000')
+			.action(async (localOptions: { key_file: string; format: string; timeout: string }, command: Commander.Command): Promise<void> => {
+				const options = command.optsWithGlobals<GlobalOptions & typeof localOptions>();
+				if (AccountOutputFormatter.isFormat(options.format) === false) throw new Error(`Format must be one of ${accountOutputFormats.join(', ')}`);
+				await AccountInformationCommand.run({
+					url: options.url,
+					authToken: Cli.resolveAuthToken(options.authToken),
+					timeoutMs: Number(options.timeout),
+					keyFilePath: options.key_file,
+					format: options.format,
+				});
+			});
+
+		program
+			.command('account_balance')
+			.description('print what this account holds: one credit for every stage it completed as a worker, less one for every stage it had run as a consumer')
+			.option('-k, --key_file <path>', 'where the key pair is kept', AccountKeyFile.defaultFilePath())
+			.option('-f, --format <format>', `output format: ${accountOutputFormats.join(', ')}`, 'text')
+			.option('--timeout <ms>', 'how long to wait for the central gateway to answer', '10000')
+			.action(async (localOptions: { key_file: string; format: string; timeout: string }, command: Commander.Command): Promise<void> => {
+				const options = command.optsWithGlobals<GlobalOptions & typeof localOptions>();
+				if (AccountOutputFormatter.isFormat(options.format) === false) throw new Error(`Format must be one of ${accountOutputFormats.join(', ')}`);
+				await AccountBalanceCommand.run({
+					url: options.url,
+					authToken: Cli.resolveAuthToken(options.authToken),
+					timeoutMs: Number(options.timeout),
+					keyFilePath: options.key_file,
+					format: options.format,
+				});
+			});
+
+		program
+			.command('account_history')
+			.description('print this account\'s accounting entries, newest first. --direction earned lists the stages this account completed, and --direction spent lists the stages it had run')
+			.option('-k, --key_file <path>', 'where the key pair is kept', AccountKeyFile.defaultFilePath())
+			.option('-d, --direction <direction>', `which side of the ledger to print: ${accountHistoryDirections.join(', ')}`, 'both')
+			.option('-l, --limit <count>', 'how many entries to ask for at a time', '20')
+			.option('--all', 'keep asking for further pages until the whole history has been printed')
+			.option('-f, --format <format>', `output format: ${accountOutputFormats.join(', ')}`, 'text')
+			.option('--timeout <ms>', 'how long to wait for the central gateway to answer', '10000')
+			.action(async (localOptions: { key_file: string; direction: string; limit: string; all?: boolean; format: string; timeout: string }, command: Commander.Command): Promise<void> => {
+				const options = command.optsWithGlobals<GlobalOptions & typeof localOptions>();
+				if (AccountOutputFormatter.isFormat(options.format) === false) throw new Error(`Format must be one of ${accountOutputFormats.join(', ')}`);
+				if (AccountHistoryCommand.isDirection(options.direction) === false) throw new Error(`Direction must be one of ${accountHistoryDirections.join(', ')}`);
+				const limit = Number(options.limit);
+				if (Number.isInteger(limit) === false || limit < 1) throw new Error('Limit must be a whole number of at least 1');
+				await AccountHistoryCommand.run({
+					url: options.url,
+					authToken: Cli.resolveAuthToken(options.authToken),
+					timeoutMs: Number(options.timeout),
+					keyFilePath: options.key_file,
+					direction: options.direction,
+					limit,
+					isEverythingRequested: options.all === true,
+					format: options.format,
 				});
 			});
 

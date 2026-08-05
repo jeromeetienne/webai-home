@@ -2,7 +2,9 @@
 
 Command-line client for the central gateway: submitting tasks, reading the worker cluster's current state, and estimating its capacity.
 
-The program has four subcommands: `submit` sends one task and shows its updates until it completes or fails, `status` reports the connected workers and their free capacity, `capacity` estimates how many concurrent runs of a task type the cluster can currently support, and `log_stats` measures one already recorded `.log_entry.jsonl` message log file.
+The program has four subcommands about tasks and the cluster: `submit` sends one task and shows its updates until it completes or fails, `status` reports the connected workers and their free capacity, `capacity` estimates how many concurrent runs of a task type the cluster can currently support, and `log_stats` measures one already recorded `.log_entry.jsonl` message log file.
+
+It has five further subcommands about this participant's own account in the accounting system of [issue #122](https://github.com/webai-at-home/webai-at-home/issues/122): `account_key` generates the key pair that is the account, `account_register` tells the central gateway about it, and `account_information`, `account_balance`, and `account_history` read back what the gateway holds for it. Each of them is documented in [issue #131](https://github.com/webai-at-home/webai-at-home/issues/131), along with the rest of the accounting documentation; `npx consumer_cli help <subcommand>` describes each one in the meantime.
 
 ## Run with `npx`
 
