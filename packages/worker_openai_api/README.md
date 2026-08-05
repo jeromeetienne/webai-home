@@ -78,7 +78,7 @@ The two examples in `examples/` measure what a model served by LM Studio can do,
 Start LM Studio's server, load at least one chat model in the LM Studio application, then run either example:
 
 ```sh
-npm run lmstudio:start --workspace @webai/worker-openai-api
+npm run lmstudio:server:start --workspace @webai/worker-openai-api
 npm run example:lmstudio_direct_history --workspace @webai/worker-openai-api
 npm run example:lmstudio_direct_tools --workspace @webai/worker-openai-api
 ```
