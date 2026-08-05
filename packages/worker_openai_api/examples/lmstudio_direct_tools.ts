@@ -1,10 +1,10 @@
 import OpenAI, { APIError } from 'openai';
-import { LmstudioExampleOptions, type ExampleOptionValues } from './lmstudio_example_options.js';
+import { LmstudioExampleOptions, type ExampleOptionValues } from './libs/lmstudio_example_parse_cmdline.js';
 import {
 	LmstudioExampleResultsTable,
 	type ExampleModelResult,
 	type ExampleOutcome,
-} from './lmstudio_example_results_table.js';
+} from './libs/lmstudio_example_display_table.js';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
