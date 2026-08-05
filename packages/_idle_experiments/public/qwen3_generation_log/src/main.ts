@@ -1,6 +1,7 @@
 import { ModelHelper } from './model_helper';
 import { IdleProbe, type IdlePageState } from './idle_probe';
 import { UiHelper } from './ui_helper';
+import { AudioKeepalive, type AudioKeepaliveState } from './audio_keepalive';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -10,6 +11,9 @@ import { UiHelper } from './ui_helper';
 
 /** The largest number of log rows kept on screen at once, oldest dropped first. */
 const MAX_LOG_ROWS = 500;
+
+/** How often the tone's own state is checked for a change worth logging. */
+const AUDIO_STATE_POLL_INTERVAL_MS = 2000;
 
 /**
  * The prompt every generation cycle uses.
@@ -36,6 +40,8 @@ class MainHelper {
 	private static generationCountEl: HTMLElement;
 	private static averageRateEl: HTMLElement;
 	private static lastDurationEl: HTMLElement;
+	private static audioBadgeEl: HTMLElement;
+	private static lastAudioState: AudioKeepaliveState = 'stopped';
 
 	/** Builds the page, wires it up, loads the model, and starts generating. */
 	static main(): void {
@@ -51,14 +57,15 @@ class MainHelper {
       <p class="eyebrow">Idle-time experiment / 02</p>
       <h1>Qwen3-0.6B<br /><em>generation log</em></h1>
       <p class="intro">This page loads Qwen3-0.6B-ONNX once, then generates a short answer to the same fixed prompt over
-        and over, forever. Each cycle is logged with how long it took and this tab's visibility and focus at the time,
-        so a long-running session shows whether generation speed changes once the tab is backgrounded, covered, or
-        moved to a corner and left unfocused.</p>
+        and over, forever. Each cycle is logged with how long it took, this tab's visibility and focus at the time, and
+        whether the quiet tone was playing, so a long-running session shows whether generation speed changes once the
+        tab is hidden — and whether the quiet tone from experiment 04 brings that speed back.</p>
     </section>
     <div class="status-bar">
       <span class="badge" id="badge-visibility"><i></i><span>Checking visibility</span></span>
       <span class="badge" id="badge-focus"><i></i><span>Checking focus</span></span>
       <span class="badge" id="badge-backend"><i></i><span>Checking backend</span></span>
+      <span class="badge" id="badge-audio"><i></i><span>Audio: stopped</span></span>
     </div>
     <section class="panel">
       <div class="stats-grid">
@@ -70,13 +77,19 @@ class MainHelper {
     <section class="panel">
       <h2>How to use this page</h2>
       <ol>
-        <li>Leave this tab focused for a few cycles and note the "average rate" once it settles.</li>
-        <li>Move this window to a corner of the screen, small and not covered by anything else, then work in a
-          different window that does not overlap it, without clicking back into this window.</li>
-        <li>Come back later and compare: did generations logged while the tab was unfocused-but-visible run at the
-          same rate as the focused baseline?</li>
-        <li>Repeat with the window fully covered or minimized to compare against a truly backgrounded tab.</li>
+        <li>Leave this tab on screen for a minute and note the tokens-per-second figure the log settles on. This is
+          the baseline every later reading is compared against.</li>
+        <li>Switch to another tab, or another window that fully covers this one, and leave it there for a minute.
+          Come back and read the rows logged while this tab was hidden, with the tone still stopped.</li>
+        <li>Click "Start quiet tone" below, then hide this tab again for another minute. Browsers require a click
+          before they allow audio to start, so this cannot happen automatically on page load.</li>
+        <li>Compare the three groups of rows. Every row records the visibility and the tone state it was measured
+          under, so the log can be read back without keeping notes: hidden rows with the tone stopped against
+          hidden rows with the tone running is the comparison this page exists to make.</li>
       </ol>
+      <div class="controls">
+        <button id="start-audio-button" type="button">Start quiet tone</button>
+      </div>
     </section>
     <section class="panel log-panel">
       <h2>Log</h2>
@@ -98,13 +111,41 @@ class MainHelper {
 		MainHelper.generationCountEl = UiHelper.getElement<HTMLElement>('#stat-count');
 		MainHelper.averageRateEl = UiHelper.getElement<HTMLElement>('#stat-rate');
 		MainHelper.lastDurationEl = UiHelper.getElement<HTMLElement>('#stat-duration');
+		MainHelper.audioBadgeEl = UiHelper.getElement<HTMLElement>('#badge-audio');
+		const startAudioButtonEl = UiHelper.getElement<HTMLButtonElement>('#start-audio-button');
 
 		IdleProbe.start(
 			(row) => UiHelper.appendLogRow(MainHelper.logBodyEl, row, MAX_LOG_ROWS),
 			(state) => MainHelper.renderState(state),
 		);
 
+		startAudioButtonEl.addEventListener('click', () => {
+			AudioKeepalive.start();
+			startAudioButtonEl.disabled = true;
+			startAudioButtonEl.textContent = 'Quiet tone running';
+			MainHelper.pollAudioState();
+		});
+
 		void MainHelper.loadAndRun();
+	}
+
+	/** Checks the tone's state, logs it if it changed, and reflects it in the audio badge. */
+	private static pollAudioState(): void {
+		const state = AudioKeepalive.state();
+		if (state !== MainHelper.lastAudioState) {
+			MainHelper.lastAudioState = state;
+			UiHelper.appendLogRow(
+				MainHelper.logBodyEl,
+				{
+					timestamp: IdleProbe.now(),
+					kind: 'audio',
+					message: `tone is now "${state}"`,
+				},
+				MAX_LOG_ROWS,
+			);
+		}
+		UiHelper.setBadge(MainHelper.audioBadgeEl, `Audio: ${state}`, state === 'running' ? 'good' : 'warn');
+		setTimeout(() => MainHelper.pollAudioState(), AUDIO_STATE_POLL_INTERVAL_MS);
 	}
 
 	/** Loads the model, then runs generation cycles one after another for as long as the page is open. */
@@ -121,14 +162,24 @@ class MainHelper {
 		const stats: RunningStats = { generationCount: 0, totalDurationMs: 0, totalTokens: 0 };
 		for (;;) {
 			const stateAtStart = IdleProbe.currentState();
+			const audioStateAtStart = AudioKeepalive.state();
 			const result = await ModelHelper.generate(FIXED_PROMPT);
 			const stateAtEnd = IdleProbe.currentState();
-			MainHelper.recordGeneration(stats, stateAtStart, stateAtEnd, result.durationMs, result.tokenCount);
+			MainHelper.recordGeneration(stats, stateAtStart, stateAtEnd, audioStateAtStart, result.durationMs, result.tokenCount);
 		}
 	}
 
-	/** Logs one finished generation and updates the running stats panel. */
-	private static recordGeneration(stats: RunningStats, stateAtStart: IdlePageState, stateAtEnd: IdlePageState, durationMs: number, tokenCount: number): void {
+	/**
+	 * Logs one finished generation and updates the running stats panel.
+	 *
+	 * @param stats The running totals shown in the stats panel, updated in place.
+	 * @param stateAtStart The tab's visibility and focus when this generation started.
+	 * @param stateAtEnd The tab's visibility and focus when this generation finished.
+	 * @param audioStateAtStart Whether the quiet tone was playing when this generation started.
+	 * @param durationMs How long this generation took, in milliseconds.
+	 * @param tokenCount How many tokens this generation produced.
+	 */
+	private static recordGeneration(stats: RunningStats, stateAtStart: IdlePageState, stateAtEnd: IdlePageState, audioStateAtStart: AudioKeepaliveState, durationMs: number, tokenCount: number): void {
 		stats.generationCount += 1;
 		stats.totalDurationMs += durationMs;
 		stats.totalTokens += tokenCount;
@@ -143,7 +194,7 @@ class MainHelper {
 			{
 				timestamp: IdleProbe.now(),
 				kind: 'generation',
-				message: `#${stats.generationCount}: ${tokenCount} tokens in ${(durationMs / 1000).toFixed(2)} s (${tokensPerSecond.toFixed(1)} tok/s), ${stateText}`,
+				message: `#${stats.generationCount}: ${tokenCount} tokens in ${(durationMs / 1000).toFixed(2)} s (${tokensPerSecond.toFixed(1)} tok/s), ${stateText}, tone "${audioStateAtStart}"`,
 			},
 			MAX_LOG_ROWS,
 		);

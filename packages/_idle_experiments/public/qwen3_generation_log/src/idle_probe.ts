@@ -11,7 +11,7 @@
  */
 
 /** What kind of measurement one log row reports. */
-export type LogRowKind = 'visibility' | 'focus' | 'generation' | 'status';
+export type LogRowKind = 'visibility' | 'focus' | 'generation' | 'status' | 'audio';
 
 /** One measurement, ready to display. */
 export type LogRow = {

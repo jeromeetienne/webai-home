@@ -30,6 +30,11 @@ h1 em { font-style: normal; color: #6fae8f; }
 .stat span { display: block; font-family: 'DM Mono', monospace; text-transform: uppercase; letter-spacing: .06em; font-size: 11px; color: #7d8b84; margin-bottom: 10px; }
 .stat strong { font-size: 22px; font-weight: 500; letter-spacing: -.03em; color: #eef1f0; }
 
+.controls { display: flex; align-items: center; gap: 16px; margin-top: 18px; flex-wrap: wrap; }
+button { border: 0; cursor: pointer; font: 600 13px 'Manrope', sans-serif; background: #dff0e6; color: #10261c; padding: 11px 16px; }
+button:hover { background: #fff; }
+button:disabled { opacity: .5; cursor: default; }
+
 .log-panel { margin-top: 28px; }
 .log-table-wrap { max-height: 480px; overflow-y: auto; border: 1px solid #29332e; }
 table.log-table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -38,6 +43,7 @@ table.log-table td { padding: 7px 12px; border-bottom: 1px solid #1d2521; color:
 .log-row.kind-visibility td.kind, .log-row.kind-focus td.kind { color: #e0b559; }
 .log-row.kind-generation td.kind { color: #6fae8f; }
 .log-row.kind-status td.kind { color: #7fb0d9; }
+.log-row.kind-audio td.kind { color: #f0a860; }
 td.time { white-space: nowrap; color: #7d8b84; font-family: 'DM Mono', monospace; font-size: 12px; }
 td.kind { white-space: nowrap; text-transform: uppercase; font-family: 'DM Mono', monospace; font-size: 11px; letter-spacing: .04em; }
 
