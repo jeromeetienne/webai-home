@@ -69,8 +69,8 @@ the webai-at-home gateway, the `consumer_openai` server, and one `worker_openai_
 first:
 
 ```sh
-npm run benchmark:lm_studio --workspace @webai/consumer-openai
-npm run benchmark:webai_at_home --workspace @webai/consumer-openai
+npm run benchmark:lm_studio:llama-3.2-3b-instruct --workspace @webai/consumer-openai
+npm run benchmark:webai_at_home:llm_llama3_2_3b_full --workspace @webai/consumer-openai
 ```
 
 Use `-f/--format` to choose the output format: `text` (default), `markdown` (pipe tables, for
