@@ -11,8 +11,11 @@ import type { ChallengeRegistry } from './challenge_registry.js';
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
-/** The account messages this handler answers. */
-type AccountMessage = Extract<ClientMessage, { type: `account.${string}` }>;
+/** The three messages that establish which account is on a connection. */
+type AccountIdentityMessage = Extract<ClientMessage, { type: 'account.register' | 'account.challenge.request' | 'account.authenticate' }>;
+
+/** The message types this handler answers, listed once so the dispatch and the type agree. */
+const accountIdentityTypes: readonly AccountIdentityMessage['type'][] = ['account.register', 'account.challenge.request', 'account.authenticate'];
 
 /**
  * Answers the three messages that turn a connection into a named account.
@@ -44,11 +47,15 @@ export class AccountMessageHandler {
 	/**
 	 * Reports whether one message is for this handler.
 	 *
+	 * The three types are listed rather than matched by their shared `account.` prefix, because the
+	 * accounting reads answered by `AccountingQueryHandler` share that prefix too, and a prefix would
+	 * quietly claim every account message added later as well.
+	 *
 	 * @param message The client message.
-	 * @returns `true` when it is one of the account messages.
+	 * @returns `true` when it is one of the three messages that establish an account on a connection.
 	 */
-	static isAccountMessage(message: ClientMessage): message is AccountMessage {
-		return message.type.startsWith('account.');
+	static isAccountIdentityMessage(message: ClientMessage): message is AccountIdentityMessage {
+		return (accountIdentityTypes as readonly string[]).includes(message.type);
 	}
 
 	/**
@@ -60,7 +67,7 @@ export class AccountMessageHandler {
 	 * @param inReplyToMessageId The identifier of the frame the message travelled in.
 	 * @returns Nothing.
 	 */
-	async handle(socket: WebSocket, deviceId: string, message: AccountMessage, inReplyToMessageId: string): Promise<void> {
+	async handle(socket: WebSocket, deviceId: string, message: AccountIdentityMessage, inReplyToMessageId: string): Promise<void> {
 		if (message.type === 'account.register') {
 			await this.registerAccount(socket, deviceId, message, inReplyToMessageId);
 			return;
@@ -82,7 +89,7 @@ export class AccountMessageHandler {
 	 * @param inReplyToMessageId The identifier of the frame the message travelled in.
 	 * @returns Nothing.
 	 */
-	private async registerAccount(socket: WebSocket, deviceId: string, message: Extract<AccountMessage, { type: 'account.register' }>, inReplyToMessageId: string): Promise<void> {
+	private async registerAccount(socket: WebSocket, deviceId: string, message: Extract<AccountIdentityMessage, { type: 'account.register' }>, inReplyToMessageId: string): Promise<void> {
 		const accountId = await AccountIdentity.accountIdFor(message.publicKeySpkiBase64);
 		const registered = this.accountRegistry.register({
 			accountId,
@@ -107,7 +114,7 @@ export class AccountMessageHandler {
 	 * @param inReplyToMessageId The identifier of the frame the message travelled in.
 	 * @returns Nothing.
 	 */
-	private async authenticateAccount(socket: WebSocket, deviceId: string, message: Extract<AccountMessage, { type: 'account.authenticate' }>, inReplyToMessageId: string): Promise<void> {
+	private async authenticateAccount(socket: WebSocket, deviceId: string, message: Extract<AccountIdentityMessage, { type: 'account.authenticate' }>, inReplyToMessageId: string): Promise<void> {
 		const account = this.accountRegistry.get(message.accountId);
 		if (account === undefined) {
 			this.hub.sendError(socket, inReplyToMessageId, this.hub.counterpartFor(deviceId), 'ACCOUNT_NOT_FOUND', 'Register this account before authenticating as it', { retryable: false });

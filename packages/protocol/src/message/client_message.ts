@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { AccountDisplayName, AccountEmailAddress, AccountId, AccountPublicKeySpkiBase64, AccountSignatureAlgorithmName, AccountSignatureBase64 } from '../accounting/account_types.js';
+import { LedgerDirection, maximumLedgerPageSize } from '../accounting/ledger_types.js';
 import { Identifier, StageAssignmentId, TaskRequestId } from '../identifier.js';
 import { StagePayloadSchema } from '../stage/stage_payload_types.js';
 import { StageName } from '../task/pipeline_types.js';
@@ -23,6 +24,12 @@ export const ClientMessageSchema = z.discriminatedUnion('type', [
 	z.object({ type: z.literal('account.register'), signatureAlgorithmName: AccountSignatureAlgorithmName, publicKeySpkiBase64: AccountPublicKeySpkiBase64, emailAddress: AccountEmailAddress.optional(), displayName: AccountDisplayName.optional() }).strict(),
 	z.object({ type: z.literal('account.challenge.request') }).strict(),
 	z.object({ type: z.literal('account.authenticate'), accountId: AccountId, signatureBase64: AccountSignatureBase64 }).strict(),
+	// The three accounting reads. Each names no account by default and is answered for the account the
+	// connection has authenticated as; naming one is allowed so a client can state which account it
+	// believes it is, and be told plainly when it is wrong rather than handed somebody else's balance.
+	z.object({ type: z.literal('account.get'), accountId: AccountId.optional() }).strict(),
+	z.object({ type: z.literal('account.balance.get'), accountId: AccountId.optional() }).strict(),
+	z.object({ type: z.literal('account.ledger.get'), accountId: AccountId.optional(), direction: LedgerDirection.optional(), limit: z.number().int().min(1).max(maximumLedgerPageSize).optional(), before: Identifier.optional() }).strict(),
 	z.object({ type: z.literal('task.observe'), taskId: Identifier }).strict(),
 	z.object({ type: z.literal('task.unobserve'), taskId: Identifier }).strict(),
 	z.object({ type: z.literal('task.resync'), taskId: Identifier }).strict(),

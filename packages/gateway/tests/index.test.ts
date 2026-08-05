@@ -21,6 +21,7 @@ import { SessionRegistry } from '../src/task/session_registry.js';
 import { AccountMessageHandler } from '../src/accounting/account_message_handler.js';
 import { AccountRegistry } from '../src/accounting/account_registry.js';
 import { ChallengeRegistry } from '../src/accounting/challenge_registry.js';
+import { AccountingQueryHandler } from '../src/accounting/accounting_query_handler.js';
 import { AccountingRecorder } from '../src/accounting/accounting_recorder.js';
 import { LedgerStore } from '../src/accounting/ledger_store.js';
 import type { LedgerEntryDraft } from '../src/accounting/ledger_store.js';
@@ -29,7 +30,7 @@ import { ClientMessageHandler } from '../src/task/client_message_handler.js';
 import { WorkerPlacement } from '../src/device/worker_placement.js';
 import { Dashboard } from '../src/dashboard.js';
 import { AccountIdentity } from '@webai/protocol';
-import type { AccountCryptoKeyPair, AccountProfile, ClientMessage, GatewayMessage, StageName, TaskInput } from '@webai/protocol';
+import type { AccountCryptoKeyPair, AccountProfile, ClientMessage, GatewayMessage, LedgerEntry, StageName, TaskInput } from '@webai/protocol';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -785,7 +786,8 @@ const buildClientMessageHandlerHarness = (leaseMs = 15_000) => {
 	const accountMessageHandler = new AccountMessageHandler(hub, accountRegistry, challengeRegistry, sessionRegistry);
 	const ledgerStore = new LedgerStore(Path.join(logsDirectory, 'gateway-ledger.jsonl'));
 	const accountingRecorder = new AccountingRecorder(ledgerStore, sessionRegistry);
-	const handler = new ClientMessageHandler(hub, deviceRegistry, taskStore, pipelineRegistry, sessionRegistry, stagePolicyResolver, scheduler, announcer, authToken, 2, accountMessageHandler, accountingRecorder);
+	const accountingQueryHandler = new AccountingQueryHandler(hub, accountRegistry, ledgerStore, sessionRegistry);
+	const handler = new ClientMessageHandler(hub, deviceRegistry, taskStore, pipelineRegistry, sessionRegistry, stagePolicyResolver, scheduler, announcer, authToken, 2, accountMessageHandler, accountingRecorder, accountingQueryHandler);
 
 	const sockets = new Map<string, FakeSocket>();
 	let frameCounter = 0;
@@ -1791,4 +1793,130 @@ Test('a stage whose lease expired and is retried earns one credit and costs one 
 	Assert.equal(forThatStage.length, 2);
 	Assert.deepEqual(forThatStage.map((entry) => entry.creditDelta), [1, -1]);
 	Assert.equal(forThatStage.every((entry) => entry.stageAssignmentId === secondAttempt?.stageAssignmentId), true);
+});
+
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+//	Reading accounting information back out
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+Test('an account reads its own profile, its own balance, and its own history', async () => {
+	const harness = buildClientMessageHandlerHarness();
+	harness.registerWorker('worker-1', 'worker-one');
+	const workerAccountId = await harness.authenticateAccount('worker-1');
+	harness.registerConsumer('consumer-1', 'consumer-one');
+	const consumerAccountId = await harness.authenticateAccount('consumer-1');
+	runWholeDevFormulaTask(harness);
+
+	const [profile] = harness.drive('worker-1', { type: 'account.get' });
+	Assert.equal(profile?.type, 'account.profile');
+	Assert.equal((profile as { account: AccountProfile }).account.accountId, workerAccountId);
+	Assert.equal((profile as { account: AccountProfile }).account.signatureAlgorithmName, 'Ed25519');
+
+	// The worker completed both stages, and the consumer paid for both.
+	const [workerBalance] = harness.drive('worker-1', { type: 'account.balance.get' });
+	Assert.deepEqual(workerBalance, { type: 'account.balance', summary: { accountId: workerAccountId, balance: 2, earnedStageCount: 2, spentStageCount: 0 } });
+	const [consumerBalance] = harness.drive('consumer-1', { type: 'account.balance.get' });
+	Assert.deepEqual(consumerBalance, { type: 'account.balance', summary: { accountId: consumerAccountId, balance: -2, earnedStageCount: 0, spentStageCount: 2 } });
+
+	const [history] = harness.drive('worker-1', { type: 'account.ledger.get' });
+	Assert.equal(history?.type, 'account.ledger');
+	const page = history as { accountId: string; direction: string; entries: LedgerEntry[]; nextCursor?: string };
+	Assert.equal(page.accountId, workerAccountId);
+	Assert.equal(page.direction, 'both');
+	Assert.equal(page.entries.length, 2);
+
+	// Newest first, and one account's history holds nothing belonging to another account.
+	Assert.deepEqual(page.entries.map((entry) => entry.stageName), ['stage_dev_formula_add', 'stage_dev_formula_multiply']);
+	Assert.equal(page.entries.every((entry) => entry.accountId === workerAccountId), true);
+	Assert.equal(page.nextCursor, undefined);
+});
+
+Test('a history read states the side of the ledger it read, and pages through with the cursor it gives', async () => {
+	const harness = buildClientMessageHandlerHarness();
+	harness.registerWorker('worker-1', 'worker-one');
+	const workerAccountId = await harness.authenticateAccount('worker-1');
+	harness.registerConsumer('consumer-1', 'consumer-one');
+	await harness.authenticateAccount('consumer-1');
+	runWholeDevFormulaTask(harness);
+	runWholeDevFormulaTask(harness);
+
+	const [earned] = harness.drive('worker-1', { type: 'account.ledger.get', direction: 'earned' });
+	Assert.equal((earned as { direction: string }).direction, 'earned');
+	Assert.equal((earned as { entries: LedgerEntry[] }).entries.length, 4);
+	Assert.equal((earned as { entries: LedgerEntry[] }).entries.every((entry) => entry.creditDelta === 1), true);
+
+	// A worker never spends, so the other side of its ledger is empty rather than absent.
+	const [spent] = harness.drive('worker-1', { type: 'account.ledger.get', direction: 'spent' });
+	Assert.deepEqual(spent, { type: 'account.ledger', accountId: workerAccountId, direction: 'spent', entries: [] });
+
+	const [firstPage] = harness.drive('worker-1', { type: 'account.ledger.get', limit: 3 });
+	const firstCursor = (firstPage as { nextCursor?: string }).nextCursor;
+	Assert.equal((firstPage as { entries: LedgerEntry[] }).entries.length, 3);
+	Assert.notEqual(firstCursor, undefined);
+
+	const [secondPage] = harness.drive('worker-1', { type: 'account.ledger.get', limit: 3, before: firstCursor });
+	Assert.equal((secondPage as { entries: LedgerEntry[] }).entries.length, 1);
+	Assert.equal((secondPage as { nextCursor?: string }).nextCursor, undefined);
+});
+
+Test('a connection may read its own account and no other', async () => {
+	const harness = buildClientMessageHandlerHarness();
+	harness.registerWorker('worker-1', 'worker-one');
+	const workerAccountId = await harness.authenticateAccount('worker-1');
+	harness.registerConsumer('consumer-1', 'consumer-one');
+	const consumerAccountId = await harness.authenticateAccount('consumer-1');
+	runWholeDevFormulaTask(harness);
+
+	// Naming its own account is allowed, and is how a client states which account it believes it is.
+	const [named] = harness.drive('worker-1', { type: 'account.balance.get', accountId: workerAccountId });
+	Assert.equal(named?.type, 'account.balance');
+
+	// Naming somebody else's is refused for all three reads, rather than answered with their figures.
+	for (const message of [
+		{ type: 'account.get' as const, accountId: consumerAccountId },
+		{ type: 'account.balance.get' as const, accountId: consumerAccountId },
+		{ type: 'account.ledger.get' as const, accountId: consumerAccountId },
+	]) {
+		const [refused] = harness.drive('worker-1', message);
+		Assert.equal((refused as { code: string }).code, 'AUTHORISATION');
+		Assert.equal((refused as unknown as { details: { authenticatedAccountId: string } }).details.authenticatedAccountId, workerAccountId);
+	}
+});
+
+Test('a connection that has authenticated no account is told to authenticate one, not that it may not read', () => {
+	const harness = buildClientMessageHandlerHarness();
+	harness.registerWorker('worker-1', 'worker-one');
+
+	// The shared token names no participant, so there is no account of this connection's own to read.
+	for (const message of [{ type: 'account.get' as const }, { type: 'account.balance.get' as const }, { type: 'account.ledger.get' as const }]) {
+		const [refused] = harness.drive('worker-1', message);
+		Assert.equal((refused as { code: string }).code, 'ACCOUNT_REQUIRED');
+		Assert.equal((refused as { retryable: boolean }).retryable, true);
+	}
+});
+
+Test('an account that has neither earned nor spent anything reads a balance of zero and an empty history', async () => {
+	const harness = buildClientMessageHandlerHarness();
+	harness.registerConsumer('consumer-1', 'consumer-one');
+	const accountId = await harness.authenticateAccount('consumer-1');
+
+	Assert.deepEqual(harness.drive('consumer-1', { type: 'account.balance.get' })[0], { type: 'account.balance', summary: { accountId, balance: 0, earnedStageCount: 0, spentStageCount: 0 } });
+	Assert.deepEqual(harness.drive('consumer-1', { type: 'account.ledger.get' })[0], { type: 'account.ledger', accountId, direction: 'both', entries: [] });
+});
+
+Test('an accounting read is answered before the connection registers as anything, and never without a session', async () => {
+	const harness = buildClientMessageHandlerHarness();
+
+	// Nothing at all presented yet: the session gate refuses it before any accounting rule is reached.
+	const [noSession] = harness.drive('device-a', { type: 'account.balance.get' });
+	Assert.equal((noSession as { code: string }).code, 'AUTHENTICATION_REQUIRED');
+
+	// A command line program that only wants to read its balance never registers as a worker or a
+	// consumer, so the read is answered without registration.
+	harness.authenticate('device-a');
+	const accountId = await harness.authenticateAccount('device-a');
+	Assert.equal(harness.deviceRegistry.get('device-a'), undefined);
+	Assert.deepEqual(harness.drive('device-a', { type: 'account.balance.get' })[0], { type: 'account.balance', summary: { accountId, balance: 0, earnedStageCount: 0, spentStageCount: 0 } });
 });

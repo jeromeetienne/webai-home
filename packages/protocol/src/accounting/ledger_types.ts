@@ -21,6 +21,15 @@ export const CreditDelta = z.union([z.literal(1), z.literal(-1)]);
 /** How much one accounting event changes an account's balance: `+1` or `-1`. */
 export type CreditDelta = z.infer<typeof CreditDelta>;
 
+/**
+ * How many ledger entries one page may carry at most.
+ *
+ * It is stated here rather than in the gateway alone, because both the message that asks for a page
+ * and the store that reads one have to agree on it: a client asking for more than a page can hold
+ * should be refused as it is validated, rather than silently given less than it asked for.
+ */
+export const maximumLedgerPageSize = 500;
+
 /** Which side of the ledger to read: what an account earned, what it spent, or all of it. */
 export const LedgerDirection = z.enum(['earned', 'spent', 'both']);
 /** Which side of the ledger to read: what an account earned, what it spent, or all of it. */

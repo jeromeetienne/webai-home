@@ -1,6 +1,6 @@
 import Fs from 'node:fs';
 import Path from 'node:path';
-import { LedgerEntrySchema, type AccountLedgerSummary, type CreditDelta, type LedgerDirection, type LedgerEntry } from '@webai/protocol';
+import { LedgerEntrySchema, maximumLedgerPageSize, type AccountLedgerSummary, type CreditDelta, type LedgerDirection, type LedgerEntry } from '@webai/protocol';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -15,7 +15,7 @@ export type LedgerEntryDraft = Omit<LedgerEntry, 'ledgerEntryId' | 'recordedAt'>
 export type LedgerReadOptions = {
 	/** Which side of the ledger to read. Defaults to both. */
 	direction?: LedgerDirection | undefined;
-	/** How many entries to return at most. Defaults to 50, and is capped at 500. */
+	/** How many entries to return at most. Defaults to 50, and is capped at `maximumLedgerPageSize`. */
 	limit?: number | undefined;
 	/**
 	 * Continue from just after this entry.
@@ -45,8 +45,13 @@ export type LedgerPage = {
 /** How many entries a read returns when the caller states no limit. */
 const defaultReadLimit = 50;
 
-/** How many entries a read returns at most, however large a limit the caller states. */
-const maximumReadLimit = 500;
+/**
+ * How many entries a read returns at most, however large a limit the caller states.
+ *
+ * It is the same cap the message asking for a page is validated against, so a client cannot ask for
+ * more than a page can hold and be quietly given less.
+ */
+const maximumReadLimit = maximumLedgerPageSize;
 
 /**
  * Holds every accounting event, as an append-only file of one JSON object per line.

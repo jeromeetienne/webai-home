@@ -2,6 +2,7 @@ import { StagePayloadFactory, type ClientMessage, type Device } from '@webai/pro
 import { TaskProjection } from '@webai/protocol/task_projection';
 import type { WebSocket } from 'ws';
 import { AccountMessageHandler } from '../accounting/account_message_handler.js';
+import { AccountingQueryHandler } from '../accounting/accounting_query_handler.js';
 import type { AccountingRecorder } from '../accounting/accounting_recorder.js';
 import type { ConnectionHub } from '../connection/connection_hub.js';
 import type { DeviceAnnouncer } from '../device/device_announcer.js';
@@ -43,6 +44,7 @@ export class ClientMessageHandler {
 	 * @param accountMessageHandler The handler of the account messages, which are answered
 	 * asynchronously because verifying a signature is asynchronous.
 	 * @param accountingRecorder The recorder of the credit a completed stage earns and costs.
+	 * @param accountingQueryHandler The answerer of what an account is, what it holds, and what it did.
 	 */
 	constructor(
 		private readonly hub: ConnectionHub,
@@ -57,6 +59,7 @@ export class ClientMessageHandler {
 		private readonly maximumTasksPerPrincipal: number,
 		private readonly accountMessageHandler: AccountMessageHandler,
 		private readonly accountingRecorder: AccountingRecorder,
+		private readonly accountingQueryHandler: AccountingQueryHandler,
 	) { }
 
 	/**
@@ -119,7 +122,13 @@ export class ClientMessageHandler {
 		// which account it is before it registers as a worker. Answering it takes verifying a
 		// signature, which is asynchronous, so the answer is sent when it is ready rather than within
 		// this call; nothing else a connection may send depends on that answer having arrived.
-		if (AccountMessageHandler.isAccountMessage(message)) {
+		// The accounting reads are answered here and now, unlike the three account messages below them:
+		// reading a balance or a history takes no cryptography, so nothing about it is asynchronous.
+		if (AccountingQueryHandler.isAccountingQuery(message)) {
+			this.accountingQueryHandler.handle(socket, deviceId, message, inReplyToMessageId);
+			return true;
+		}
+		if (AccountMessageHandler.isAccountIdentityMessage(message)) {
 			void this.accountMessageHandler.handle(socket, deviceId, message, inReplyToMessageId).catch((error: unknown) => {
 				console.error(error);
 				this.hub.sendError(socket, inReplyToMessageId, this.hub.counterpartFor(deviceId), 'UNSUPPORTED', 'The account message could not be answered', { retryable: false });

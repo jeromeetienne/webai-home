@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { AccountProfile } from '../accounting/account_types.js';
+import type { AccountLedgerSummary, LedgerDirection, LedgerEntry } from '../accounting/ledger_types.js';
 import type { Device, DeviceActivity } from '../device_types.js';
 import type { StagePayload } from '../stage/stage_payload_types.js';
 import type { PipelineSpecification, StageName } from '../task/pipeline_types.js';
@@ -17,7 +18,7 @@ export const ProtocolErrorCode = z.enum([
 	'ASSIGNMENT_OWNER_MISMATCH', 'STALE_ASSIGNMENT', 'CAPACITY_EXHAUSTED', 'CANCELLED', 'DEADLINE_EXPIRED',
 	'WORKER_REQUIRED', 'CONSUMER_REQUIRED', 'TASK_OWNER_MISMATCH', 'ASSIGNMENT_STAGE_MISMATCH', 'ASSIGNMENT_NOT_ACCEPTED',
 	'MESSAGE_TOO_LARGE', 'UNSUPPORTED', 'NO_COMPATIBLE_WORKER', 'AUTHENTICATION_REQUIRED', 'RATE_LIMITED',
-	'ACCOUNT_NOT_FOUND', 'ACCOUNT_CHALLENGE_INVALID', 'ACCOUNT_SIGNATURE_REJECTED',
+	'ACCOUNT_NOT_FOUND', 'ACCOUNT_CHALLENGE_INVALID', 'ACCOUNT_SIGNATURE_REJECTED', 'ACCOUNT_REQUIRED',
 ]);
 /** The stable codes an error message may carry. */
 export type ProtocolErrorCode = z.infer<typeof ProtocolErrorCode>;
@@ -45,6 +46,12 @@ export type GatewayMessage =
 	| { type: 'account.registered'; account: AccountProfile; isNewAccount: boolean }
 	| { type: 'account.challenge'; challenge: string; expiresAt: string }
 	| { type: 'account.authenticated'; accountId: string; expiresAt: string }
+	// The three accounting answers. "account.ledger" states the direction it was read in, so a page
+	// says what it is a page of, and carries "nextCursor" only while there is more to read: a reader
+	// stops when the cursor is absent rather than by counting what it has.
+	| { type: 'account.profile'; account: AccountProfile }
+	| { type: 'account.balance'; summary: AccountLedgerSummary }
+	| { type: 'account.ledger'; accountId: string; direction: LedgerDirection; entries: LedgerEntry[]; nextCursor?: string }
 	| { type: 'deviceRegistered'; deviceId: string }
 	| { type: 'task.accepted'; taskRequestId: string; task: TaskSnapshot }
 	| { type: 'task.snapshot'; task: TaskSnapshot }

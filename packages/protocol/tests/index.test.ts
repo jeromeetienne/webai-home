@@ -18,6 +18,7 @@ import {
 	TaskInput,
 	TaskState,
 	maximumDiagnosticEntriesPerBatch,
+	maximumLedgerPageSize,
 	maximumSnapshotEventCount,
 	protocolVersion,
 } from '../src/index.js';
@@ -535,4 +536,20 @@ Test('an account profile is what the gateway stores, with an empty email address
 	Assert.equal(AccountProfileSchema.safeParse(profile).success, true);
 	Assert.equal(AccountProfileSchema.safeParse({ ...profile, accountId: '' }).success, false);
 	Assert.equal(AccountProfileSchema.safeParse({ ...profile, balance: 12 }).success, false);
+});
+
+Test('the three accounting reads are accepted, and a page larger than one page may hold is refused', () => {
+	// Each names no account by default and is answered for the account the connection authenticated as.
+	Assert.equal(ClientMessageSchema.safeParse({ type: 'account.get' }).success, true);
+	Assert.equal(ClientMessageSchema.safeParse({ type: 'account.balance.get' }).success, true);
+	Assert.equal(ClientMessageSchema.safeParse({ type: 'account.ledger.get' }).success, true);
+	Assert.equal(ClientMessageSchema.safeParse({ type: 'account.ledger.get', accountId: 'account-0123456789abcdef0123456789abcdef', direction: 'earned', limit: 10, before: 'ledgerEntry-1' }).success, true);
+
+	// A limit beyond what one page may hold is refused as the message is validated, rather than
+	// silently answered with less than was asked for.
+	Assert.equal(ClientMessageSchema.safeParse({ type: 'account.ledger.get', limit: maximumLedgerPageSize }).success, true);
+	Assert.equal(ClientMessageSchema.safeParse({ type: 'account.ledger.get', limit: maximumLedgerPageSize + 1 }).success, false);
+	Assert.equal(ClientMessageSchema.safeParse({ type: 'account.ledger.get', limit: 0 }).success, false);
+	Assert.equal(ClientMessageSchema.safeParse({ type: 'account.ledger.get', direction: 'sideways' }).success, false);
+	Assert.equal(ClientMessageSchema.safeParse({ type: 'account.balance.get', accountId: 'account-1', includeEveryAccount: true }).success, false);
 });

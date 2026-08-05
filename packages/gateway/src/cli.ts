@@ -11,6 +11,7 @@ import { MessageLogger } from '@webai/protocol/message_logger';
 
 // local imports
 import { AccountMessageHandler } from './accounting/account_message_handler.js';
+import { AccountingQueryHandler } from './accounting/accounting_query_handler.js';
 import { AccountingRecorder } from './accounting/accounting_recorder.js';
 import { AccountRegistry } from './accounting/account_registry.js';
 import { ChallengeRegistry } from './accounting/challenge_registry.js';
@@ -92,6 +93,7 @@ export class Cli {
 		const scheduler = new TaskScheduler(taskStore, deviceRegistry, stagePolicyResolver, hub, announcer, settings.maximumAttempts);
 		const accountMessageHandler = new AccountMessageHandler(hub, accountRegistry, challengeRegistry, sessionRegistry);
 		const accountingRecorder = new AccountingRecorder(ledgerStore, sessionRegistry);
+		const accountingQueryHandler = new AccountingQueryHandler(hub, accountRegistry, ledgerStore, sessionRegistry);
 		const messageHandler = new ClientMessageHandler(
 			hub,
 			deviceRegistry,
@@ -105,6 +107,7 @@ export class Cli {
 			settings.maximumTasksPerPrincipal,
 			accountMessageHandler,
 			accountingRecorder,
+			accountingQueryHandler,
 		);
 		const websocketRouter = new WebsocketRouter(
 			hub,
