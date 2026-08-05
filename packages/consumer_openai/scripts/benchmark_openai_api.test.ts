@@ -1,24 +1,16 @@
 import Assert from 'node:assert/strict';
 import Http from 'node:http';
 import Test from 'node:test';
-import { BenchmarkCommand, type BenchmarkOptions, type BenchmarkTarget, type CompletionResult } from '../src/commands/benchmark_command.js';
+import { BenchmarkOpenaiApi, type BenchmarkOptions, type BenchmarkTarget, type CompletionResult } from './benchmark_openai_api.js';
 
-const directTarget: BenchmarkTarget = {
-	name: 'LM Studio',
+const target: BenchmarkTarget = {
 	baseUrl: 'http://direct.test/v1',
-	model: 'direct-model',
-};
-
-const webaiTarget: BenchmarkTarget = {
-	name: 'webai-at-home',
-	baseUrl: 'http://webai.test/v1',
-	model: 'webai-model',
+	model: 'a-model',
+	apiKey: 'insecure-benchmark-key',
 };
 
 const options: BenchmarkOptions = {
-	directTarget,
-	webaiTarget,
-	target: 'both',
+	target,
 	prompt: 'same prompt',
 	runs: 2,
 	warmupRuns: 1,
@@ -38,7 +30,7 @@ function completionResult(answer: string, timeToFirstCharacterMs: number, timeTo
 }
 
 Test('summarizes every metric from measured samples', () => {
-	const summary = BenchmarkCommand.summarizeSamples(directTarget, [
+	const summary = BenchmarkOpenaiApi.summarizeSamples(target, [
 		{
 			run: 1,
 			timeToFirstCharacterMs: 10,
@@ -67,8 +59,8 @@ Test('summarizes every metric from measured samples', () => {
 });
 
 Test('computes Output Characters per Second from the Time to First and Time to Last Character of the completion', async () => {
-	const report = await BenchmarkCommand.runBenchmark({ ...options, target: 'direct', runs: 1, warmupRuns: 0 }, async () => completionResult('0123456789', 100, 600));
-	const sample = report.summaries[0].samples[0];
+	const report = await BenchmarkOpenaiApi.runBenchmark({ ...options, runs: 1, warmupRuns: 0 }, async () => completionResult('0123456789', 100, 600));
+	const sample = report.summary.samples[0];
 	Assert.equal(sample.timeToFirstCharacterMs, 100);
 	Assert.equal(sample.timeToLastCharacterMs, 600);
 	Assert.equal(sample.outputCharacters, 10);
@@ -78,100 +70,55 @@ Test('computes Output Characters per Second from the Time to First and Time to L
 });
 
 Test('floors the streaming duration at 1 ms rather than dividing by zero when the Time to First Character equals the Time to Last Character', async () => {
-	const report = await BenchmarkCommand.runBenchmark({ ...options, target: 'direct', runs: 1, warmupRuns: 0 }, async () => completionResult('whole answer', 50, 50));
-	const sample = report.summaries[0].samples[0];
+	const report = await BenchmarkOpenaiApi.runBenchmark({ ...options, runs: 1, warmupRuns: 0 }, async () => completionResult('whole answer', 50, 50));
+	const sample = report.summary.samples[0];
 	Assert.equal(sample.outputCharactersPerSecond, 'whole answer'.length * 1_000);
 });
 
-Test('runs warm-ups and measurements sequentially, direct endpoint before webai-at-home', async () => {
+Test('runs the warm-ups and then the measured requests in strict sequence', async () => {
 	const calls: string[] = [];
-	const report = await BenchmarkCommand.runBenchmark(options, async (target, prompt, timeoutMs) => {
-		calls.push(`${target.name}:${prompt}:${timeoutMs}`);
-		return target.name === 'LM Studio' ? completionResult('direct answer', 5, 50) : completionResult('WebAI answer', 8, 60);
+	const report = await BenchmarkOpenaiApi.runBenchmark(options, async (requestedTarget, prompt, timeoutMs) => {
+		calls.push(`${requestedTarget.baseUrl}:${prompt}:${timeoutMs}`);
+		return completionResult('the answer', 5, 50);
 	});
 
+	// One warm-up request plus the two measured runs from `options`.
 	Assert.deepEqual(calls, [
-		'LM Studio:same prompt:1000',
-		'LM Studio:same prompt:1000',
-		'LM Studio:same prompt:1000',
-		'webai-at-home:same prompt:1000',
-		'webai-at-home:same prompt:1000',
-		'webai-at-home:same prompt:1000',
+		'http://direct.test/v1:same prompt:1000',
+		'http://direct.test/v1:same prompt:1000',
+		'http://direct.test/v1:same prompt:1000',
 	]);
 	Assert.equal(report.settings.parallelism, 1);
-	Assert.equal(report.summaries[0].outputCharacters.average, 'direct answer'.length);
-	Assert.equal(report.summaries[1].outputCharacters.average, 'WebAI answer'.length);
+	Assert.equal(report.summary.outputCharacters.average, 'the answer'.length);
 });
 
 Test('writes the same report out as text, markdown, and JSON', async () => {
-	const report = await BenchmarkCommand.runBenchmark(options, async (target) => (target.name === 'LM Studio' ? completionResult('direct answer', 5, 50) : completionResult('WebAI answer', 8, 60)));
+	const report = await BenchmarkOpenaiApi.runBenchmark(options, async () => completionResult('the answer', 5, 50));
 
-	const text = BenchmarkCommand.formatReport(report, 'text');
+	const text = BenchmarkOpenaiApi.formatReport(report, 'text');
 	Assert.match(text, /OpenAI API benchmark \(parallelism: 1\)/);
 	Assert.match(text, /Time to First Character:/);
 	Assert.match(text, /Time to Last Character:/);
 	Assert.match(text, /Output Characters per Second:/);
-	Assert.match(text, /webai-at-home Time to First Character overhead:/);
-	Assert.match(text, /webai-at-home Time to Last Character overhead:/);
+	Assert.match(text, new RegExp(target.baseUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
 
-	const markdown = BenchmarkCommand.formatReport(report, 'markdown');
+	const markdown = BenchmarkOpenaiApi.formatReport(report, 'markdown');
 	Assert.match(markdown, /^# OpenAI API benchmark/);
-	Assert.match(markdown, /\| Endpoint \| Model \| Time to First Character \| Time to Last Character \| Output Characters per Second \| Input Characters \| Output Characters \|/);
-	Assert.match(markdown, /\| LM Studio \|/);
-	Assert.match(markdown, /\| webai-at-home \|/);
+	Assert.match(markdown, /\| Base URL \| Model \| Time to First Character \| Time to Last Character \| Output Characters per Second \| Input Characters \| Output Characters \|/);
+	Assert.match(markdown, new RegExp(`\\| ${target.baseUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\|`));
 
-	const json = BenchmarkCommand.formatReport(report, 'json');
+	const json = BenchmarkOpenaiApi.formatReport(report, 'json');
 	const parsed = JSON.parse(json);
 	Assert.equal(parsed.settings.runs, options.runs);
-	Assert.equal(parsed.summaries[0].name, 'LM Studio');
-	Assert.equal(typeof parsed.summaries[0].timeToFirstCharacterMs.average, 'number');
+	Assert.equal(parsed.summary.baseUrl, target.baseUrl);
+	Assert.equal(typeof parsed.summary.timeToFirstCharacterMs.average, 'number');
 });
 
 Test('accepts only the formats it knows about', () => {
-	Assert.equal(BenchmarkCommand.isReportFormat('text'), true);
-	Assert.equal(BenchmarkCommand.isReportFormat('markdown'), true);
-	Assert.equal(BenchmarkCommand.isReportFormat('json'), true);
-	Assert.equal(BenchmarkCommand.isReportFormat('yaml'), false);
-});
-
-Test('measures only the direct endpoint, and reports no webai-at-home overhead to compare against', async () => {
-	const calls: string[] = [];
-	const report = await BenchmarkCommand.runBenchmark({ ...options, target: 'direct' }, async (target) => {
-		calls.push(target.name);
-		return completionResult('direct answer', 5, 50);
-	});
-	// One warm-up request plus the two measured runs from `options`.
-	Assert.deepEqual(calls, ['LM Studio', 'LM Studio', 'LM Studio']);
-	Assert.equal(report.summaries.length, 1);
-	Assert.equal(report.summaries[0].name, 'LM Studio');
-	Assert.equal(report.webaiOverhead, undefined);
-});
-
-Test('measures only the webai-at-home endpoint, and reports no webai-at-home overhead to compare against', async () => {
-	const calls: string[] = [];
-	const report = await BenchmarkCommand.runBenchmark({ ...options, target: 'webai' }, async (target) => {
-		calls.push(target.name);
-		return completionResult('webai answer', 8, 60);
-	});
-	Assert.deepEqual(calls, ['webai-at-home', 'webai-at-home', 'webai-at-home']);
-	Assert.equal(report.summaries.length, 1);
-	Assert.equal(report.summaries[0].name, 'webai-at-home');
-	Assert.equal(report.webaiOverhead, undefined);
-});
-
-Test('leaves the overhead lines out of every format when only one endpoint was measured', async () => {
-	const report = await BenchmarkCommand.runBenchmark({ ...options, target: 'direct' }, async () => completionResult('direct answer', 5, 50));
-
-	Assert.doesNotMatch(BenchmarkCommand.formatReport(report, 'text'), /webai-at-home .* overhead/);
-	Assert.doesNotMatch(BenchmarkCommand.formatReport(report, 'markdown'), /webai-at-home .* overhead/);
-	Assert.equal(JSON.parse(BenchmarkCommand.formatReport(report, 'json')).webaiOverhead, undefined);
-});
-
-Test('accepts only the target selections it knows about', () => {
-	Assert.equal(BenchmarkCommand.isTargetSelection('direct'), true);
-	Assert.equal(BenchmarkCommand.isTargetSelection('webai'), true);
-	Assert.equal(BenchmarkCommand.isTargetSelection('both'), true);
-	Assert.equal(BenchmarkCommand.isTargetSelection('neither'), false);
+	Assert.equal(BenchmarkOpenaiApi.isReportFormat('text'), true);
+	Assert.equal(BenchmarkOpenaiApi.isReportFormat('markdown'), true);
+	Assert.equal(BenchmarkOpenaiApi.isReportFormat('json'), true);
+	Assert.equal(BenchmarkOpenaiApi.isReportFormat('yaml'), false);
 });
 
 Test('reads Time to First and Time to Last Character from a real server-sent event stream, spaced out over real wall-clock time', async () => {
@@ -196,12 +143,12 @@ Test('reads Time to First and Time to Last Character from a real server-sent eve
 		if (address === null || typeof address === 'string') {
 			throw new Error('The test server did not report a port');
 		}
-		const target: BenchmarkTarget = {
-			name: 'LM Studio',
+		const liveTarget: BenchmarkTarget = {
 			baseUrl: `http://127.0.0.1:${address.port}`,
 			model: 'irrelevant-to-this-test',
+			apiKey: 'insecure-benchmark-key',
 		};
-		const result = await BenchmarkCommand.requestOpenaiCompletion(target, 'say hello', 5_000);
+		const result = await BenchmarkOpenaiApi.requestOpenaiCompletion(liveTarget, 'say hello', 5_000);
 		Assert.equal(result.answer, 'Hello, world');
 		// The two content chunks are spaced 40 ms and then 60 ms apart, so the Time to First
 		// Character must land after roughly the first wait and the Time to Last Character after
@@ -227,12 +174,12 @@ Test('falls back to reading one JSON body when the server answers stream: true w
 		if (address === null || typeof address === 'string') {
 			throw new Error('The test server did not report a port');
 		}
-		const target: BenchmarkTarget = {
-			name: 'LM Studio',
+		const liveTarget: BenchmarkTarget = {
 			baseUrl: `http://127.0.0.1:${address.port}`,
 			model: 'irrelevant-to-this-test',
+			apiKey: 'insecure-benchmark-key',
 		};
-		const result = await BenchmarkCommand.requestOpenaiCompletion(target, 'say hello', 5_000);
+		const result = await BenchmarkOpenaiApi.requestOpenaiCompletion(liveTarget, 'say hello', 5_000);
 		Assert.equal(result.answer, 'whole answer, no streaming');
 		Assert.equal(result.timeToFirstCharacterMs, result.timeToLastCharacterMs);
 	} finally {

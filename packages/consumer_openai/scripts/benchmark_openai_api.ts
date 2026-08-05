@@ -1,15 +1,23 @@
+// node imports
+import Fs from 'node:fs';
+import Url from 'node:url';
+
 // npm imports
 import { Command } from 'commander';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
-//	BenchmarkCommand — compares LM Studio latency directly with the same model behind webai-at-home
+//	BenchmarkOpenaiApi — measures one OpenAI-compatible endpoint's streamed chat completion latency
 //
 //	Every request asks for its answer in pieces (`stream: true`), so the benchmark can measure
 //	Time to First Character and Time to Last Character separately, the way a person waiting on
 //	the answer would experience the difference between the two. An endpoint that ignores the
 //	streaming request and answers in one piece still works: its first and last character then
 //	arrive at the same moment.
+//
+//	This is a standalone script: it imports nothing from the rest of `@webai/consumer-openai`
+//	and nothing from any other workspace package, so it can run with `tsx` directly, with no
+//	build step first.
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -19,37 +27,25 @@ import { Command } from 'commander';
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
-/** One endpoint and model combination measured by the benchmark. */
+/** The endpoint and model the benchmark measures. */
 export type BenchmarkTarget = {
-	/** The label printed in the report. */
-	readonly name: 'LM Studio' | 'webai-at-home';
 	/** The base URL of the OpenAI-compatible API, without `/chat/completions`. */
 	readonly baseUrl: string;
-	/** The model identifier accepted by this endpoint. */
+	/** The model identifier accepted by the endpoint. */
 	readonly model: string;
-	/** An optional bearer token for this endpoint. */
-	readonly apiKey?: string;
+	/** The bearer token sent to the endpoint. */
+	readonly apiKey: string;
 };
-
-/** Which of the two endpoints a benchmark run measures. */
-export type BenchmarkTargetSelection = 'direct' | 'webai' | 'both';
-
-/** Every target selection `benchmark` accepts, in the order the help text lists them. */
-export const benchmarkTargetSelections: BenchmarkTargetSelection[] = ['direct', 'webai', 'both'];
 
 /** The options that control one benchmark run. */
 export type BenchmarkOptions = {
-	/** The direct LM Studio endpoint. */
-	readonly directTarget: BenchmarkTarget;
-	/** The webai-at-home OpenAI-compatible endpoint. */
-	readonly webaiTarget: BenchmarkTarget;
-	/** Which of the two endpoints to measure. */
-	readonly target: BenchmarkTargetSelection;
-	/** The one prompt sent to both endpoints. */
+	/** The endpoint and model to measure. */
+	readonly target: BenchmarkTarget;
+	/** The one prompt sent to the endpoint. */
 	readonly prompt: string;
-	/** The number of measured requests per endpoint. */
+	/** The number of measured requests. */
 	readonly runs: number;
-	/** The number of unreported warm-up requests per endpoint. */
+	/** The number of unreported warm-up requests. */
 	readonly warmupRuns: number;
 	/** The maximum time allowed for one request. */
 	readonly timeoutMs: number;
@@ -99,10 +95,10 @@ export type BenchmarkSample = {
 	readonly outputCharacters: number;
 };
 
-/** The aggregate measurements for one endpoint. */
+/** The aggregate measurements for the measured endpoint. */
 export type BenchmarkSummary = {
-	/** The label of the endpoint measured. */
-	readonly name: BenchmarkTarget['name'];
+	/** The base URL of the endpoint measured. */
+	readonly baseUrl: string;
 	/** The model identifier used by the endpoint. */
 	readonly model: string;
 	/** The measured samples, in request order. */
@@ -113,52 +109,33 @@ export type BenchmarkSummary = {
 	readonly timeToLastCharacterMs: MetricStatistics;
 	/** Output Characters per Second, across the measured samples. */
 	readonly outputCharactersPerSecond: MetricStatistics;
-	/** Input Characters sent in the prompt, the same for every sample since one prompt is sent to both endpoints. */
+	/** Input Characters sent in the prompt, the same for every sample since one prompt is sent every time. */
 	readonly inputCharacters: number;
 	/** Output Characters generated in the response, across the measured samples. */
 	readonly outputCharacters: MetricStatistics;
 };
 
-/** How webai-at-home's average timing differs from the direct baseline, for one metric. */
-type OverheadComparison = {
-	/** The added average time per request, in milliseconds. */
-	readonly averageMs: number;
-	/** The added average time as a percentage of the direct average. */
-	readonly percentOfDirectAverage: number;
-};
-
-/** The full benchmark report, including the direct-versus-WebAI comparison. */
+/** The full benchmark report. */
 export type BenchmarkReport = {
-	/** The benchmark settings that affect comparability. */
+	/** The benchmark settings that affect comparability with another run. */
 	readonly settings: {
-		/** The one prompt sent to both endpoints. */
+		/** The one prompt sent to the endpoint. */
 		readonly prompt: string;
-		/** The number of measured requests per endpoint. */
+		/** The number of measured requests. */
 		readonly runs: number;
-		/** The number of unreported warm-up requests per endpoint. */
+		/** The number of unreported warm-up requests. */
 		readonly warmupRuns: number;
 		/** The number of requests in flight at any moment, always one. */
 		readonly parallelism: 1;
 	};
-	/** The direct LM Studio summary, the webai-at-home summary, or both, in that order. */
-	readonly summaries: readonly BenchmarkSummary[];
-	/**
-	 * How webai-at-home's Time to First Character and Time to Last Character differ from the
-	 * direct baseline, present only when both endpoints were measured and there is a baseline
-	 * to compare against.
-	 */
-	readonly webaiOverhead?: {
-		/** How Time to First Character differs. */
-		readonly timeToFirstCharacterMs: OverheadComparison;
-		/** How Time to Last Character differs. */
-		readonly timeToLastCharacterMs: OverheadComparison;
-	};
+	/** The aggregate measurements for the measured endpoint. */
+	readonly summary: BenchmarkSummary;
 };
 
-/** The ways `benchmark` can write its report out. */
+/** The ways `benchmark_openai_api` can write its report out. */
 export type BenchmarkReportFormat = 'text' | 'markdown' | 'json';
 
-/** Every format `benchmark` accepts, in the order the help text lists them. */
+/** Every format `benchmark_openai_api` accepts, in the order the help text lists them. */
 export const benchmarkReportFormats: BenchmarkReportFormat[] = ['text', 'markdown', 'json'];
 
 /** What one completion request produced: the answer text and when its characters arrived. */
@@ -208,30 +185,24 @@ type StreamEvent =
 	| { readonly kind: 'done' }
 	| { readonly kind: 'ignore' };
 
-/** The command-line values before conversion to numbers. */
+/** The command-line values before conversion to numbers, keyed by their snake_case flag name. */
 type RawOptions = {
-	/** The LM Studio OpenAI-compatible API base URL. */
-	directBaseUrl: string;
-	/** The model identifier accepted by LM Studio. */
-	directModel: string;
-	/** The webai-at-home OpenAI-compatible API base URL. */
-	webaiBaseUrl: string;
-	/** The model identifier accepted by webai-at-home. */
-	webaiModel: string;
-	/** The one prompt sent to both endpoints. */
+	/** The OpenAI-compatible API base URL, without `/chat/completions`. */
+	base_url: string;
+	/** The model identifier accepted by the endpoint. */
+	model_name: string;
+	/** The one prompt sent to the endpoint. */
 	prompt: string;
-	/** The number of measured requests per endpoint, still as text. */
+	/** The number of measured requests, still as text. */
 	runs: string;
-	/** The number of unreported warm-up requests per endpoint, still as text. */
-	warmupRuns: string;
+	/** The number of unreported warm-up requests, still as text. */
+	warmup_runs: string;
 	/** The maximum time allowed for one request, still as text. */
-	timeoutMs: string;
-	/** The optional bearer token sent to both endpoints. */
-	apiKey?: string;
+	timeout_ms: string;
+	/** The bearer token sent to the endpoint. */
+	api_key: string;
 	/** The output format, still unchecked against `benchmarkReportFormats`. */
 	format: string;
-	/** Which endpoints to measure, still unchecked against `benchmarkTargetSelections`. */
-	target: string;
 };
 
 /** The parsed command line, split into the benchmark options and the output format. */
@@ -244,12 +215,12 @@ type ParsedCommandLine = {
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
-//	BenchmarkCommand
+//	BenchmarkOpenaiApi
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
-/** Measures and compares the latency of two OpenAI-compatible endpoints serving the same model. */
-export class BenchmarkCommand {
+/** Measures the latency of one OpenAI-compatible endpoint. */
+export class BenchmarkOpenaiApi {
 	/**
 	 * Sends one streamed Chat Completions request to an OpenAI-compatible endpoint, so Time to
 	 * First Character and Time to Last Character can be measured separately.
@@ -262,11 +233,9 @@ export class BenchmarkCommand {
 	static async requestOpenaiCompletion(target: BenchmarkTarget, prompt: string, timeoutMs: number): Promise<CompletionResult> {
 		const headers: Record<string, string> = {
 			'Content-Type': 'application/json',
+			'Authorization': `Bearer ${target.apiKey}`,
 		};
-		if (target.apiKey !== undefined) {
-			headers['Authorization'] = `Bearer ${target.apiKey}`;
-		}
-		const requestUrl = `${BenchmarkCommand._withoutTrailingSlash(target.baseUrl)}/chat/completions`;
+		const requestUrl = `${BenchmarkOpenaiApi._withoutTrailingSlash(target.baseUrl)}/chat/completions`;
 		const startedAt = performance.now();
 		const response = await fetch(requestUrl, {
 			method: 'POST',
@@ -284,22 +253,22 @@ export class BenchmarkCommand {
 			signal: AbortSignal.timeout(timeoutMs),
 		}).catch((error: unknown) => {
 			const reason = error instanceof Error ? error.message : String(error);
-			throw new Error(`${target.name} could not be reached: ${reason}`);
+			throw new Error(`${target.baseUrl} could not be reached: ${reason}`);
 		});
 		if (response.ok === false) {
-			throw await BenchmarkCommand._responseFailure(response, target);
+			throw await BenchmarkOpenaiApi._responseFailure(response, target);
 		}
 		const contentType = response.headers.get('content-type') ?? '';
 		// An endpoint that ignores `stream: true` and answers as one JSON object still has to be
 		// measurable: its whole answer arrives at once, so its first and last character are the
 		// same moment.
 		if (contentType.includes('text/event-stream') === false) {
-			return BenchmarkCommand._readWholeCompletion(response, startedAt, target);
+			return BenchmarkOpenaiApi._readWholeCompletion(response, startedAt, target);
 		}
 		if (response.body === null) {
-			throw new Error(`${target.name} sent no response body to stream`);
+			throw new Error(`${target.baseUrl} sent no response body to stream`);
 		}
-		return BenchmarkCommand._readEventStream(response.body, startedAt, target);
+		return BenchmarkOpenaiApi._readEventStream(response.body, startedAt, target);
 	}
 
 	/**
@@ -311,80 +280,63 @@ export class BenchmarkCommand {
 	 */
 	static summarizeSamples(target: BenchmarkTarget, samples: readonly BenchmarkSample[]): BenchmarkSummary {
 		if (samples.length === 0) {
-			throw new Error(`The benchmark produced no samples for ${target.name}`);
+			throw new Error(`The benchmark produced no samples for ${target.baseUrl}`);
 		}
 		return {
-			name: target.name,
+			baseUrl: target.baseUrl,
 			model: target.model,
 			samples,
-			timeToFirstCharacterMs: BenchmarkCommand._statistics(samples.map((sample) => sample.timeToFirstCharacterMs)),
-			timeToLastCharacterMs: BenchmarkCommand._statistics(samples.map((sample) => sample.timeToLastCharacterMs)),
-			outputCharactersPerSecond: BenchmarkCommand._statistics(samples.map((sample) => sample.outputCharactersPerSecond)),
+			timeToFirstCharacterMs: BenchmarkOpenaiApi._statistics(samples.map((sample) => sample.timeToFirstCharacterMs)),
+			timeToLastCharacterMs: BenchmarkOpenaiApi._statistics(samples.map((sample) => sample.timeToLastCharacterMs)),
+			outputCharactersPerSecond: BenchmarkOpenaiApi._statistics(samples.map((sample) => sample.outputCharactersPerSecond)),
 			inputCharacters: samples[0].inputCharacters,
-			outputCharacters: BenchmarkCommand._statistics(samples.map((sample) => sample.outputCharacters)),
+			outputCharacters: BenchmarkOpenaiApi._statistics(samples.map((sample) => sample.outputCharacters)),
 		};
 	}
 
 	/**
-	 * Runs LM Studio first and webai-at-home second, with no concurrent requests, measuring
-	 * whichever of the two `options.target` selects.
+	 * Runs the warm-up requests and then the measured requests against the target, with no
+	 * concurrent requests.
 	 *
 	 * @param options The options that control this benchmark run.
 	 * @param requester The completion request used for every measured and warm-up request.
-	 * @returns The full benchmark report. It includes the direct-versus-WebAI comparison only
-	 * when `options.target` is `'both'`, since there is no baseline to compare against otherwise.
+	 * @returns The full benchmark report.
 	 */
 	static async runBenchmark(
 		options: BenchmarkOptions,
-		requester: CompletionRequester = BenchmarkCommand.requestOpenaiCompletion,
+		requester: CompletionRequester = BenchmarkOpenaiApi.requestOpenaiCompletion,
 	): Promise<BenchmarkReport> {
 		if (options.runs < 1 || Number.isInteger(options.runs) === false) {
 			throw new Error('--runs must be a positive integer');
 		}
 		if (options.warmupRuns < 0 || Number.isInteger(options.warmupRuns) === false) {
-			throw new Error('--warmup-runs must be a non-negative integer');
+			throw new Error('--warmup_runs must be a non-negative integer');
 		}
 		if (options.timeoutMs < 1 || Number.isInteger(options.timeoutMs) === false) {
-			throw new Error('--timeout-ms must be a positive integer');
+			throw new Error('--timeout_ms must be a positive integer');
 		}
-		// These awaits are deliberately sequential. Parallel requests would measure queueing and
-		// shared-model contention, which is outside this first direct-versus-WebAI comparison.
-		const directSummary = options.target === 'webai' ? undefined : await BenchmarkCommand._benchmarkTarget(options.directTarget, options, requester);
-		const webaiSummary = options.target === 'direct' ? undefined : await BenchmarkCommand._benchmarkTarget(options.webaiTarget, options, requester);
-		const summaries: BenchmarkSummary[] = [directSummary, webaiSummary].filter((summary): summary is BenchmarkSummary => summary !== undefined);
-		const settings: BenchmarkReport['settings'] = {
-			prompt: options.prompt,
-			runs: options.runs,
-			warmupRuns: options.warmupRuns,
-			parallelism: 1,
-		};
-		if (directSummary === undefined || webaiSummary === undefined) {
-			return {
-				settings,
-				summaries,
-			};
-		}
+		const summary = await BenchmarkOpenaiApi._benchmarkTarget(options.target, options, requester);
 		return {
-			settings,
-			summaries,
-			webaiOverhead: {
-				timeToFirstCharacterMs: BenchmarkCommand._overheadComparison(directSummary.timeToFirstCharacterMs.average, webaiSummary.timeToFirstCharacterMs.average),
-				timeToLastCharacterMs: BenchmarkCommand._overheadComparison(directSummary.timeToLastCharacterMs.average, webaiSummary.timeToLastCharacterMs.average),
+			settings: {
+				prompt: options.prompt,
+				runs: options.runs,
+				warmupRuns: options.warmupRuns,
+				parallelism: 1,
 			},
+			summary,
 		};
 	}
 
 	/**
-	 * Runs the command-line benchmark and prints its report. This is what `Cli` in `../cli.ts`
-	 * calls for the `consumer_openai benchmark` subcommand.
+	 * Runs the command-line benchmark and prints its report.
 	 *
-	 * @param args The command-line arguments, without the runtime, script, and subcommand names.
+	 * @param args The command-line arguments, without the runtime and script names.
 	 * @returns Nothing, once the report has been printed.
 	 */
 	static async runCli(args: string[] = process.argv.slice(2)): Promise<void> {
-		const { options, format } = BenchmarkCommand._parseOptions(args);
-		const report = await BenchmarkCommand.runBenchmark(options);
-		console.log(BenchmarkCommand.formatReport(report, format));
+		const { options, format } = BenchmarkOpenaiApi._parseOptions(args);
+		const report = await BenchmarkOpenaiApi.runBenchmark(options);
+		console.log(BenchmarkOpenaiApi.formatReport(report, format));
 	}
 
 	/**
@@ -399,9 +351,9 @@ export class BenchmarkCommand {
 			return JSON.stringify(report, null, 2);
 		}
 		if (format === 'markdown') {
-			return BenchmarkCommand._renderMarkdownReport(report);
+			return BenchmarkOpenaiApi._renderMarkdownReport(report);
 		}
-		return BenchmarkCommand._renderTextReport(report);
+		return BenchmarkOpenaiApi._renderTextReport(report);
 	}
 
 	/**
@@ -415,13 +367,23 @@ export class BenchmarkCommand {
 	}
 
 	/**
-	 * Reports whether a string names a target selection `runBenchmark` can measure.
+	 * Reports whether this module was started directly, rather than imported.
 	 *
-	 * @param value The value to check, as typed on the command line.
-	 * @returns `true` when the value names a target selection.
+	 * `tsx` invokes this file through `process.argv[1]`, while `import.meta.url` is Node's
+	 * already-resolved real path. Comparing both sides after resolving symlinks means a test
+	 * that imports this module for its exports never triggers command-line parsing.
+	 *
+	 * @returns `true` when this process was started to run this file.
 	 */
-	static isTargetSelection(value: string): value is BenchmarkTargetSelection {
-		return (benchmarkTargetSelections as string[]).includes(value);
+	static isMainModule(): boolean {
+		if (process.argv[1] === undefined) {
+			return false;
+		}
+		try {
+			return Url.fileURLToPath(import.meta.url) === Fs.realpathSync(process.argv[1]);
+		} catch {
+			return false;
+		}
 	}
 
 	///////////////////////////////////////////////////////////////////////////////
@@ -450,7 +412,7 @@ export class BenchmarkCommand {
 	private static async _responseFailure(response: Response, target: BenchmarkTarget): Promise<Error> {
 		const body = await response.text().catch(() => '');
 		const detail = body.trim() === '' ? '' : `: ${body.trim().slice(0, 500)}`;
-		return new Error(`${target.name} answered with HTTP ${response.status}${detail}`);
+		return new Error(`${target.baseUrl} answered with HTTP ${response.status}${detail}`);
 	}
 
 	/**
@@ -465,7 +427,7 @@ export class BenchmarkCommand {
 		const body = await response.json() as ChatCompletionResponse;
 		const answer = body.choices?.[0]?.message?.content;
 		if (typeof answer !== 'string') {
-			throw new Error(`${target.name} returned no assistant answer in its Chat Completions response`);
+			throw new Error(`${target.baseUrl} returned no assistant answer in its Chat Completions response`);
 		}
 		const elapsedMs = performance.now() - startedAt;
 		return {
@@ -504,7 +466,7 @@ export class BenchmarkCommand {
 			while (boundary !== -1) {
 				const rawEvent = buffer.slice(0, boundary);
 				buffer = buffer.slice(boundary + 2);
-				const event = BenchmarkCommand._parseStreamEvent(rawEvent, target);
+				const event = BenchmarkOpenaiApi._parseStreamEvent(rawEvent, target);
 				if (event.kind === 'done') {
 					isDone = true;
 					break;
@@ -554,7 +516,7 @@ export class BenchmarkCommand {
 			try {
 				parsed = JSON.parse(data);
 			} catch {
-				throw new Error(`${target.name} sent a stream chunk that was not valid JSON`);
+				throw new Error(`${target.baseUrl} sent a stream chunk that was not valid JSON`);
 			}
 			const content = (parsed as ChatCompletionChunk).choices?.[0]?.delta?.content;
 			if (typeof content === 'string' && content.length > 0) {
@@ -565,7 +527,7 @@ export class BenchmarkCommand {
 	}
 
 	/**
-	 * Runs one target's warm-ups and measured requests in strict sequence.
+	 * Runs the target's warm-ups and measured requests in strict sequence.
 	 *
 	 * @param target The endpoint and model to measure.
 	 * @param options The prompt, request counts and timeout of this benchmark run.
@@ -583,9 +545,9 @@ export class BenchmarkCommand {
 		const samples: BenchmarkSample[] = [];
 		for (let run = 1; run <= options.runs; run += 1) {
 			const result = await requester(target, options.prompt, options.timeoutMs);
-			samples.push(BenchmarkCommand._buildSample(run, options.prompt, result));
+			samples.push(BenchmarkOpenaiApi._buildSample(run, options.prompt, result));
 		}
-		return BenchmarkCommand.summarizeSamples(target, samples);
+		return BenchmarkOpenaiApi.summarizeSamples(target, samples);
 	}
 
 	/**
@@ -633,90 +595,40 @@ export class BenchmarkCommand {
 	}
 
 	/**
-	 * Compares webai-at-home's average against the direct baseline for one metric.
-	 *
-	 * @param directAverage The direct endpoint's average for this metric.
-	 * @param webaiAverage The webai-at-home endpoint's average for this metric.
-	 * @returns The added average and its share of the direct average.
-	 */
-	private static _overheadComparison(directAverage: number, webaiAverage: number): OverheadComparison {
-		const averageMs = webaiAverage - directAverage;
-		const percentOfDirectAverage = directAverage === 0 ? 0 : (averageMs / directAverage) * 100;
-		return {
-			averageMs,
-			percentOfDirectAverage,
-		};
-	}
-
-	/**
 	 * Parses the benchmark command line.
 	 *
 	 * @param args The command-line arguments, without the runtime and script names.
-	 * @returns The benchmark options and whether the report should be printed as JSON.
+	 * @returns The benchmark options and which format the report should be printed in.
 	 */
 	private static _parseOptions(args: string[]): ParsedCommandLine {
 		const defaultPrompt = 'Count up to 30';
-		const program = new Command('benchmark')
-			.description('Compare direct LM Studio latency with the same model behind webai-at-home')
-			.option('--direct-base-url <url>', 'LM Studio OpenAI-compatible API base URL', 'http://localhost:1234/v1')
-			.option('--direct-model <model>', 'model identifier accepted by LM Studio', 'llama-3.2-3b-instruct')
-			.option('--webai-base-url <url>', 'webai-at-home OpenAI-compatible API base URL', 'http://localhost:8788/v1')
-			.option('--webai-model <model>', 'model identifier accepted by webai-at-home', 'llm_llama3_2_3b_full')
-			.option('--prompt <text>', 'one prompt sent to both endpoints', defaultPrompt)
-			.option('--runs <number>', 'measured requests per endpoint', '10')
-			.option('--warmup-runs <number>', 'unreported warm-up requests per endpoint', '1')
-			.option('--timeout-ms <number>', 'maximum time for one request', '600000')
-			.option('--api-key <key>', 'optional bearer token sent to both endpoints')
-			.option('-f, --format <format>', `output format: ${benchmarkReportFormats.join(', ')}`, 'text')
-			.option('-t, --target <target>', `which endpoint to measure: ${benchmarkTargetSelections.join(', ')}`, 'both');
+		const program = new Command('benchmark_openai_api')
+			.description('Measure one OpenAI-compatible endpoint\'s streamed chat completion latency')
+			.requiredOption('-u, --base_url <url>', 'OpenAI-compatible API base URL, without /chat/completions')
+			.requiredOption('-m, --model_name <model>', 'model identifier accepted by the endpoint')
+			.option('-p, --prompt <text>', 'one prompt sent to the endpoint', defaultPrompt)
+			.option('-r, --runs <number>', 'measured requests', '10')
+			.option('-w, --warmup_runs <number>', 'unreported warm-up requests', '1')
+			.option('-t, --timeout_ms <number>', 'maximum time for one request', '600000')
+			.option('-k, --api_key <key>', 'bearer token sent to the endpoint', 'insecure-benchmark-key')
+			.option('-f, --format <format>', `output format: ${benchmarkReportFormats.join(', ')}`, 'text');
 		const raw = program.parse(args, { from: 'user' }).opts<RawOptions>();
-		if (BenchmarkCommand.isReportFormat(raw.format) === false) {
+		if (BenchmarkOpenaiApi.isReportFormat(raw.format) === false) {
 			throw new Error(`--format must be one of ${benchmarkReportFormats.join(', ')}`);
-		}
-		if (BenchmarkCommand.isTargetSelection(raw.target) === false) {
-			throw new Error(`--target must be one of ${benchmarkTargetSelections.join(', ')}`);
 		}
 		return {
 			options: {
-				directTarget: BenchmarkCommand._buildTarget('LM Studio', raw.directBaseUrl, raw.directModel, raw.apiKey),
-				webaiTarget: BenchmarkCommand._buildTarget('webai-at-home', raw.webaiBaseUrl, raw.webaiModel, raw.apiKey),
-				target: raw.target,
+				target: {
+					baseUrl: raw.base_url,
+					model: raw.model_name,
+					apiKey: raw.api_key,
+				},
 				prompt: raw.prompt,
-				runs: BenchmarkCommand._positiveInteger(raw.runs, '--runs'),
-				warmupRuns: BenchmarkCommand._positiveInteger(raw.warmupRuns, '--warmup-runs', true),
-				timeoutMs: BenchmarkCommand._positiveInteger(raw.timeoutMs, '--timeout-ms'),
+				runs: BenchmarkOpenaiApi._positiveInteger(raw.runs, '--runs'),
+				warmupRuns: BenchmarkOpenaiApi._positiveInteger(raw.warmup_runs, '--warmup_runs', true),
+				timeoutMs: BenchmarkOpenaiApi._positiveInteger(raw.timeout_ms, '--timeout_ms'),
 			},
 			format: raw.format,
-		};
-	}
-
-	/**
-	 * Builds one measured endpoint, leaving the bearer token out when the command line did not set one.
-	 *
-	 * @param name The label printed in the report.
-	 * @param baseUrl The base URL of the OpenAI-compatible API.
-	 * @param model The model identifier accepted by the endpoint.
-	 * @param apiKey The bearer token for the endpoint, or `undefined` when no token was given.
-	 * @returns The endpoint and model combination to measure.
-	 */
-	private static _buildTarget(
-		name: BenchmarkTarget['name'],
-		baseUrl: string,
-		model: string,
-		apiKey: string | undefined,
-	): BenchmarkTarget {
-		if (apiKey === undefined) {
-			return {
-				name,
-				baseUrl,
-				model,
-			};
-		}
-		return {
-			name,
-			baseUrl,
-			model,
-			apiKey,
 		};
 	}
 
@@ -755,30 +667,18 @@ export class BenchmarkCommand {
 	 * @returns The whole report as one string.
 	 */
 	private static _renderTextReport(report: BenchmarkReport): string {
+		const summary = report.summary;
 		const lines: string[] = [
 			`OpenAI API benchmark (parallelism: ${report.settings.parallelism})`,
-			`Measured requests per endpoint: ${report.settings.runs}; warm-up requests: ${report.settings.warmupRuns}`,
+			`Measured requests: ${report.settings.runs}; warm-up requests: ${report.settings.warmupRuns}`,
+			'',
+			`${summary.baseUrl} (${summary.model})`,
+			`  Time to First Character:      ${BenchmarkOpenaiApi._rounded(summary.timeToFirstCharacterMs.average)} ms average, ${BenchmarkOpenaiApi._rounded(summary.timeToFirstCharacterMs.median)} ms median, ${BenchmarkOpenaiApi._rounded(summary.timeToFirstCharacterMs.minimum)}–${BenchmarkOpenaiApi._rounded(summary.timeToFirstCharacterMs.maximum)} ms range`,
+			`  Time to Last Character:       ${BenchmarkOpenaiApi._rounded(summary.timeToLastCharacterMs.average)} ms average, ${BenchmarkOpenaiApi._rounded(summary.timeToLastCharacterMs.median)} ms median, ${BenchmarkOpenaiApi._rounded(summary.timeToLastCharacterMs.minimum)}–${BenchmarkOpenaiApi._rounded(summary.timeToLastCharacterMs.maximum)} ms range`,
+			`  Output Characters per Second: ${BenchmarkOpenaiApi._rounded(summary.outputCharactersPerSecond.average)} characters/second average`,
+			`  Input Characters:             ${summary.inputCharacters} characters`,
+			`  Output Characters:            ${BenchmarkOpenaiApi._rounded(summary.outputCharacters.average)} characters average`,
 		];
-		for (const summary of report.summaries) {
-			lines.push('');
-			lines.push(`${summary.name} (${summary.model})`);
-			lines.push(`  Time to First Character:      ${BenchmarkCommand._rounded(summary.timeToFirstCharacterMs.average)} ms average, ${BenchmarkCommand._rounded(summary.timeToFirstCharacterMs.median)} ms median, ${BenchmarkCommand._rounded(summary.timeToFirstCharacterMs.minimum)}–${BenchmarkCommand._rounded(summary.timeToFirstCharacterMs.maximum)} ms range`);
-			lines.push(`  Time to Last Character:       ${BenchmarkCommand._rounded(summary.timeToLastCharacterMs.average)} ms average, ${BenchmarkCommand._rounded(summary.timeToLastCharacterMs.median)} ms median, ${BenchmarkCommand._rounded(summary.timeToLastCharacterMs.minimum)}–${BenchmarkCommand._rounded(summary.timeToLastCharacterMs.maximum)} ms range`);
-			lines.push(`  Output Characters per Second: ${BenchmarkCommand._rounded(summary.outputCharactersPerSecond.average)} characters/second average`);
-			lines.push(`  Input Characters:             ${summary.inputCharacters} characters`);
-			lines.push(`  Output Characters:            ${BenchmarkCommand._rounded(summary.outputCharacters.average)} characters average`);
-		}
-		if (report.webaiOverhead !== undefined) {
-			lines.push('');
-			lines.push(
-				`webai-at-home Time to First Character overhead: ${BenchmarkCommand._rounded(report.webaiOverhead.timeToFirstCharacterMs.averageMs)} ms per request ` +
-					`(${BenchmarkCommand._rounded(report.webaiOverhead.timeToFirstCharacterMs.percentOfDirectAverage)}% of the direct average)`,
-			);
-			lines.push(
-				`webai-at-home Time to Last Character overhead: ${BenchmarkCommand._rounded(report.webaiOverhead.timeToLastCharacterMs.averageMs)} ms per request ` +
-					`(${BenchmarkCommand._rounded(report.webaiOverhead.timeToLastCharacterMs.percentOfDirectAverage)}% of the direct average)`,
-			);
-		}
 		return lines.join('\n');
 	}
 
@@ -790,35 +690,30 @@ export class BenchmarkCommand {
 	 * @returns The whole report as one markdown document.
 	 */
 	private static _renderMarkdownReport(report: BenchmarkReport): string {
+		const summary = report.summary;
 		const blocks: string[] = [
 			'# OpenAI API benchmark',
-			`Parallelism: ${report.settings.parallelism} · measured requests per endpoint: ${report.settings.runs} · warm-up requests: ${report.settings.warmupRuns}`,
+			`Parallelism: ${report.settings.parallelism} · measured requests: ${report.settings.runs} · warm-up requests: ${report.settings.warmupRuns}`,
 			[
-				'| Endpoint | Model | Time to First Character | Time to Last Character | Output Characters per Second | Input Characters | Output Characters |',
+				'| Base URL | Model | Time to First Character | Time to Last Character | Output Characters per Second | Input Characters | Output Characters |',
 				'| --- | --- | ---: | ---: | ---: | ---: | ---: |',
-				...report.summaries.map((summary) => [
+				[
 					'|',
-					summary.name,
+					summary.baseUrl,
 					'|',
 					summary.model,
-					`| ${BenchmarkCommand._rounded(summary.timeToFirstCharacterMs.average)} ms`,
-					`| ${BenchmarkCommand._rounded(summary.timeToLastCharacterMs.average)} ms`,
-					`| ${BenchmarkCommand._rounded(summary.outputCharactersPerSecond.average)} chars/s`,
+					`| ${BenchmarkOpenaiApi._rounded(summary.timeToFirstCharacterMs.average)} ms`,
+					`| ${BenchmarkOpenaiApi._rounded(summary.timeToLastCharacterMs.average)} ms`,
+					`| ${BenchmarkOpenaiApi._rounded(summary.outputCharactersPerSecond.average)} chars/s`,
 					`| ${summary.inputCharacters}`,
-					`| ${BenchmarkCommand._rounded(summary.outputCharacters.average)} |`,
-				].join(' ')),
+					`| ${BenchmarkOpenaiApi._rounded(summary.outputCharacters.average)} |`,
+				].join(' '),
 			].join('\n'),
 		];
-		if (report.webaiOverhead !== undefined) {
-			blocks.push(
-				`webai-at-home Time to First Character overhead: **${BenchmarkCommand._rounded(report.webaiOverhead.timeToFirstCharacterMs.averageMs)} ms** per request `
-					+ `(${BenchmarkCommand._rounded(report.webaiOverhead.timeToFirstCharacterMs.percentOfDirectAverage)}% of the direct average)`,
-			);
-			blocks.push(
-				`webai-at-home Time to Last Character overhead: **${BenchmarkCommand._rounded(report.webaiOverhead.timeToLastCharacterMs.averageMs)} ms** per request `
-					+ `(${BenchmarkCommand._rounded(report.webaiOverhead.timeToLastCharacterMs.percentOfDirectAverage)}% of the direct average)`,
-			);
-		}
 		return `${blocks.join('\n\n')}\n`;
 	}
+}
+
+if (BenchmarkOpenaiApi.isMainModule()) {
+	await BenchmarkOpenaiApi.runCli();
 }

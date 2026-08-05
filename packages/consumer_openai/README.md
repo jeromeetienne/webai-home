@@ -8,15 +8,14 @@ It is a consumer of the cluster in exactly the same sense as [`@webai/consumer-c
 
 ## Run
 
-This package's command line program is `consumer_openai`, with two subcommands: `server` starts
-the OpenAI-compatible server, and `benchmark` runs the latency benchmark described below. Once
-this package has been built (`npm run build --workspace @webai/consumer-openai`), the binary is
-linked into the repository's own `node_modules/.bin`, so `npx` runs either subcommand from
-anywhere inside the project:
+This package's command line program is `consumer_openai`, with one subcommand: `server` starts
+the OpenAI-compatible server. The latency benchmark described below is a separate standalone
+script, not a subcommand of `consumer_openai`. Once this package has been built (`npm run build
+--workspace @webai/consumer-openai`), the binary is linked into the repository's own
+`node_modules/.bin`, so `npx` runs it from anywhere inside the project:
 
 ```sh
 npx consumer_openai server
-npx consumer_openai benchmark
 ```
 
 `@webai/consumer-cli` and `@webai/protocol` are used through their built output, so they have to be built before either subcommand runs:
@@ -25,8 +24,8 @@ npx consumer_openai benchmark
 npm run build --workspace @webai/protocol && npm run build --workspace @webai/consumer-cli
 ```
 
-During development, with the central gateway running, `npm run dev` and `npm run benchmark` reach
-the same two subcommands without a build:
+During development, with the central gateway running, `npm run dev` reaches the server without a
+build:
 
 ```sh
 npm run dev --workspace @webai/consumer-openai
@@ -34,12 +33,13 @@ npm run dev --workspace @webai/consumer-openai
 
 The server listens on port 8788, and an OpenAI client is pointed at `http://localhost:8788/v1`.
 
-## Benchmarking direct LM Studio and webai-at-home
+## Benchmarking an OpenAI-compatible endpoint
 
-This package includes a small OpenAI API benchmark. The benchmark sends the same streamed prompt
-to LM Studio directly first, then to this webai-at-home OpenAI-compatible server, which must be
-backed by the same LM Studio model through `worker_openai_api`. Requests run strictly one at a
-time, so the first comparison does not include parallel scheduling or shared-model contention.
+[`scripts/benchmark_openai_api.ts`](./scripts/benchmark_openai_api.ts) is a small, standalone
+OpenAI API benchmark for one endpoint at a time. It imports nothing from the rest of this
+package and nothing from any other workspace package, so it needs no build step — only
+`commander` and the platform's own `fetch`. It sends the same streamed prompt to the endpoint
+repeatedly, one request at a time.
 
 Each request measures five figures, all directly observable from the client side without any
 knowledge of the model or its tokenizer, which keeps them comparable across different providers:
@@ -56,34 +56,34 @@ An endpoint that ignores the streaming request and answers as one JSON object in
 measurable: its first and last character then arrive at the same moment, so the Time to First
 Character equals the Time to Last Character.
 
-Start LM Studio, the webai-at-home gateway, this `consumer_openai` server, and one
-`worker_openai_api` process first. Then run:
+`-u/--base_url` and `-m/--model_name` are required, with no default — every run names its own
+endpoint and model explicitly:
 
 ```sh
-npm run benchmark --workspace @webai/consumer-openai
+npm run benchmark --workspace @webai/consumer-openai -- --base_url http://localhost:1234/v1 --model_name llama-3.2-3b-instruct
 ```
 
-The defaults are LM Studio at `http://localhost:1234/v1` with
-`llama-3.2-3b-instruct`, and webai-at-home at `http://localhost:8788/v1` with
-`llm_llama3_2_3b_full`. Change either endpoint or model with the command-line options. Use
-`-f/--format` to choose the output format: `text` (default), `markdown` (pipe tables, for
+Two convenience scripts run it against the two endpoints this project most often benchmarks,
+LM Studio directly and this `consumer_openai` server backed by webai-at-home — start LM Studio,
+the webai-at-home gateway, the `consumer_openai` server, and one `worker_openai_api` process
+first:
+
+```sh
+npm run benchmark:lm_studio --workspace @webai/consumer-openai
+npm run benchmark:webai_at_home --workspace @webai/consumer-openai
+```
+
+Use `-f/--format` to choose the output format: `text` (default), `markdown` (pipe tables, for
 pasting into an issue or a notes file), or `json` (a machine-readable report):
 
 ```sh
-npm run benchmark --workspace @webai/consumer-openai -- --runs 10 --format json
+npm run benchmark --workspace @webai/consumer-openai -- --base_url http://localhost:1234/v1 --model_name llama-3.2-3b-instruct --runs 10 --format json
 ```
 
-Use `-t/--target` to measure only one side instead of both: `direct` (LM Studio only), `webai`
-(webai-at-home only), or `both` (default). The webai-at-home overhead is left out of the report
-when only one side is measured, since there is then no baseline to compare it against:
-
-```sh
-npm run benchmark --workspace @webai/consumer-openai -- --target webai
-```
-
-The report measures wall-clock latency and response size. It reports the webai-at-home latency
-difference from the direct baseline; it does not calculate a monetary price because these
-OpenAI-compatible endpoints do not provide token pricing or usage data.
+The report measures wall-clock latency and response size for that one endpoint; it does not
+calculate a monetary price because these OpenAI-compatible endpoints do not provide token
+pricing or usage data. To compare two endpoints, run the script once against each and read the
+two reports side by side.
 
 ## Command line options
 
@@ -279,9 +279,9 @@ The tests cover reading a request, the models on offer, the failure mapping, the
 
 ## The source files
 
-- [`src/cli.ts`](./src/cli.ts) — the `consumer_openai` command line program: dispatches to the `server` and `benchmark` subcommands.
+- [`src/cli.ts`](./src/cli.ts) — the `consumer_openai` command line program: dispatches to the `server` subcommand.
 - [`src/commands/server_command.ts`](./src/commands/server_command.ts) — the `server` subcommand: builds every part and starts serving.
-- [`src/commands/benchmark_command.ts`](./src/commands/benchmark_command.ts) — the `benchmark` subcommand: compares direct LM Studio latency with the same model behind webai-at-home.
+- [`scripts/benchmark_openai_api.ts`](./scripts/benchmark_openai_api.ts) — the standalone OpenAI API latency benchmark for one endpoint.
 - [`src/libs/server_settings.ts`](./src/libs/server_settings.ts) — the `server` subcommand's own command line options, read once and typed.
 - [`src/http/openai_routes.ts`](./src/http/openai_routes.ts) — the endpoints, including reading and checking a request.
 - [`src/libs/cluster_task_runner.ts`](./src/libs/cluster_task_runner.ts) — the one gateway connection, and one promise per submitted task.

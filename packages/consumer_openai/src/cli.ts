@@ -4,23 +4,21 @@ import Url from 'node:url';
 
 // local imports
 import { ServerCommand } from './commands/server_command.js';
-import { BenchmarkCommand } from './commands/benchmark_command.js';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
-//	Cli — the consumer_openai command line program: server and benchmark
+//	Cli — the consumer_openai command line program: server
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
 /** The subcommand names this program dispatches to. */
-const subcommandNames = ['server', 'benchmark'] as const;
+const subcommandNames = ['server'] as const;
 
 /**
  * The command line program of `@webai/consumer-openai`: `server` serves the OpenAI-compatible
- * completion interface in front of the cluster, and `benchmark` compares its latency with LM
- * Studio directly. Each subcommand parses its own remaining arguments and reads its own
- * `--help`, exactly as it did as a standalone script, so this dispatcher only picks which one
- * to hand the rest of the command line to.
+ * completion interface in front of the cluster. The latency benchmark against another
+ * OpenAI-compatible endpoint lives outside this dispatcher, as the standalone script
+ * `scripts/benchmark_openai_api.ts`, since it needs none of this package's own build output to run.
  */
 export class Cli {
 	/**
@@ -34,10 +32,6 @@ export class Cli {
 		const [subcommand, ...rest] = args;
 		if (subcommand === 'server') {
 			ServerCommand.run(rest);
-			return;
-		}
-		if (subcommand === 'benchmark') {
-			await BenchmarkCommand.runCli(rest);
 			return;
 		}
 		if (subcommand === undefined || subcommand === '-h' || subcommand === '--help') {
@@ -71,15 +65,15 @@ export class Cli {
 		}
 	}
 
-	/** Prints the two subcommands this program accepts, and where to find each one's own options. */
+	/** Prints the one subcommand this program accepts, and where to find its own options. */
 	private static _printUsage(): void {
 		console.log('Usage: consumer_openai <command> [options]');
 		console.log();
 		console.log('Commands:');
 		console.log(`  ${subcommandNames[0]}      serve the OpenAI-compatible completion interface in front of the webai-at-home cluster`);
-		console.log(`  ${subcommandNames[1]}   compare direct LM Studio latency with the same model behind webai-at-home`);
 		console.log();
-		console.log('Run "consumer_openai <command> --help" for a command\'s own options.');
+		console.log('Run "consumer_openai <command> --help" for the command\'s own options.');
+		console.log('The latency benchmark is a separate standalone script: see scripts/benchmark_openai_api.ts.');
 	}
 }
 
