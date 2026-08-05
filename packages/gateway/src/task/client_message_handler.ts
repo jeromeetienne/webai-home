@@ -2,6 +2,7 @@ import { StagePayloadFactory, type ClientMessage, type Device } from '@webai/pro
 import { TaskProjection } from '@webai/protocol/task_projection';
 import type { WebSocket } from 'ws';
 import { AccountMessageHandler } from '../accounting/account_message_handler.js';
+import type { AccountingRecorder } from '../accounting/accounting_recorder.js';
 import type { ConnectionHub } from '../connection/connection_hub.js';
 import type { DeviceAnnouncer } from '../device/device_announcer.js';
 import type { DeviceRegistry } from '../device/device_registry.js';
@@ -41,6 +42,7 @@ export class ClientMessageHandler {
 	 * @param maximumTasksPerPrincipal How many tasks one principal may have in flight.
 	 * @param accountMessageHandler The handler of the account messages, which are answered
 	 * asynchronously because verifying a signature is asynchronous.
+	 * @param accountingRecorder The recorder of the credit a completed stage earns and costs.
 	 */
 	constructor(
 		private readonly hub: ConnectionHub,
@@ -54,6 +56,7 @@ export class ClientMessageHandler {
 		private readonly authToken: string,
 		private readonly maximumTasksPerPrincipal: number,
 		private readonly accountMessageHandler: AccountMessageHandler,
+		private readonly accountingRecorder: AccountingRecorder,
 	) { }
 
 	/**
@@ -347,7 +350,9 @@ export class ClientMessageHandler {
 				this.hub.sendError(socket, inReplyToMessageId, this.hub.counterpartFor(deviceId), 'CAPACITY_EXHAUSTED', 'One or more stages this task requires have no connected worker', { taskRequestId: message.taskRequestId, retryable: true, details: { missingStageNames } });
 				return true;
 			}
-			const task = this.taskStore.create(message.input, deviceId, message.taskRequestId, authIdentity, {
+			// The account is read from the live session and recorded on the task, because the consumer of
+			// a batch task is expected to be gone by the time its stages complete.
+			const task = this.taskStore.create(message.input, deviceId, message.taskRequestId, { authIdentity, accountId: currentSession?.accountId }, {
 				pipelineId: pipeline.pipelineId,
 				pipelineVersion: pipeline.version,
 				pipelineStages: pipeline.stages.map((stage) => stage.name),
@@ -520,6 +525,17 @@ export class ClientMessageHandler {
 			return;
 		}
 		const updated = this.taskStore.addStage(task.taskId, { name: message.stage, value: message.value }, message.stageAssignmentId);
+		// The one place a stage is known to have completed, so the one place the accounting rules are
+		// applied: the worker earns a credit and the consumer spends one. The duration is measured from
+		// the moment the worker accepted the assignment, and is recorded for information only — it
+		// changes no balance, because every completed stage is worth the same credit.
+		this.accountingRecorder.recordCompletedStage({
+			task: updated,
+			stageName: message.stage,
+			stageAssignmentId: message.stageAssignmentId,
+			workerDeviceId: deviceId,
+			...(stageAssignment.acceptedAt === undefined ? {} : { stageDurationMs: Math.max(0, Date.now() - new Date(stageAssignment.acceptedAt).getTime()) }),
+		});
 		// A piece of an answer belongs to the revision that produced it and to no other, so it is
 		// sent from here. Every revision that follows this one — the assignment of the next stage,
 		// and the completion of the task — has already dropped it, and would otherwise be the

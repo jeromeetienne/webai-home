@@ -11,6 +11,7 @@ import { MessageLogger } from '@webai/protocol/message_logger';
 
 // local imports
 import { AccountMessageHandler } from './accounting/account_message_handler.js';
+import { AccountingRecorder } from './accounting/accounting_recorder.js';
 import { AccountRegistry } from './accounting/account_registry.js';
 import { ChallengeRegistry } from './accounting/challenge_registry.js';
 import { LedgerStore } from './accounting/ledger_store.js';
@@ -63,7 +64,7 @@ export class Cli {
 		const accountRegistry = new AccountRegistry(settings.accountFile);
 		const challengeRegistry = new ChallengeRegistry(settings.accountChallengeMs);
 		// Built here so the ledger file is opened, checked, and its balances rebuilt before the gateway
-		// accepts a single connection. Nothing records against it yet; that is what issue #127 does.
+		// accepts a single connection.
 		const ledgerStore = new LedgerStore(settings.ledgerFile);
 		console.log(`Accounting ledger at ${settings.ledgerFile}, holding ${ledgerStore.summaries().length} account(s)`);
 
@@ -90,6 +91,7 @@ export class Cli {
 		const announcer = new DeviceAnnouncer(deviceRegistry, hub, settings.deviceActivityCoalesceMs);
 		const scheduler = new TaskScheduler(taskStore, deviceRegistry, stagePolicyResolver, hub, announcer, settings.maximumAttempts);
 		const accountMessageHandler = new AccountMessageHandler(hub, accountRegistry, challengeRegistry, sessionRegistry);
+		const accountingRecorder = new AccountingRecorder(ledgerStore, sessionRegistry);
 		const messageHandler = new ClientMessageHandler(
 			hub,
 			deviceRegistry,
@@ -102,6 +104,7 @@ export class Cli {
 			settings.authToken,
 			settings.maximumTasksPerPrincipal,
 			accountMessageHandler,
+			accountingRecorder,
 		);
 		const websocketRouter = new WebsocketRouter(
 			hub,

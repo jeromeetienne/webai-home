@@ -21,6 +21,7 @@ import { SessionRegistry } from '../src/task/session_registry.js';
 import { AccountMessageHandler } from '../src/accounting/account_message_handler.js';
 import { AccountRegistry } from '../src/accounting/account_registry.js';
 import { ChallengeRegistry } from '../src/accounting/challenge_registry.js';
+import { AccountingRecorder } from '../src/accounting/accounting_recorder.js';
 import { LedgerStore } from '../src/accounting/ledger_store.js';
 import type { LedgerEntryDraft } from '../src/accounting/ledger_store.js';
 import { TaskScheduler } from '../src/task/task_scheduler.js';
@@ -763,23 +764,28 @@ const newFakeSocket = (): FakeSocket => {
  * Builds a `ClientMessageHandler` wired to real collaborators, the way the gateway itself
  * assembles them, so a test drives the same dispatch and authorisation rules a live connection
  * would meet.
+ *
+ * @param leaseMs How long an assignment's lease lasts. A test that wants an expired lease passes 0,
+ * so the very next recovery sweep retries the stage, rather than waiting out a real one.
  */
-const buildClientMessageHandlerHarness = () => {
+const buildClientMessageHandlerHarness = (leaseMs = 15_000) => {
 	const authToken = 'test-token';
 	const logsDirectory = Fs.mkdtempSync(Path.join(Os.tmpdir(), 'gateway-dispatch-'));
 	const deviceRegistry = new DeviceRegistry();
 	const messageLogger = new MessageLogger(Path.join(logsDirectory, 'gateway.log_entry.jsonl'));
 	const hub = new ConnectionHub(deviceRegistry, messageLogger, logsDirectory);
-	const taskStore = new TaskStore();
+	const taskStore = new TaskStore(undefined, 30_000, leaseMs);
 	const pipelineRegistry = new PipelineRegistry(builtinPipelineSpecifications);
 	const sessionRegistry = new SessionRegistry();
-	const stagePolicyResolver = new StagePolicyResolver(pipelineRegistry, 15_000);
+	const stagePolicyResolver = new StagePolicyResolver(pipelineRegistry, leaseMs);
 	const announcer = new DeviceAnnouncer(deviceRegistry, hub, 0);
 	const scheduler = new TaskScheduler(taskStore, deviceRegistry, stagePolicyResolver, hub, announcer, 3);
 	const accountRegistry = new AccountRegistry();
 	const challengeRegistry = new ChallengeRegistry();
 	const accountMessageHandler = new AccountMessageHandler(hub, accountRegistry, challengeRegistry, sessionRegistry);
-	const handler = new ClientMessageHandler(hub, deviceRegistry, taskStore, pipelineRegistry, sessionRegistry, stagePolicyResolver, scheduler, announcer, authToken, 2, accountMessageHandler);
+	const ledgerStore = new LedgerStore(Path.join(logsDirectory, 'gateway-ledger.jsonl'));
+	const accountingRecorder = new AccountingRecorder(ledgerStore, sessionRegistry);
+	const handler = new ClientMessageHandler(hub, deviceRegistry, taskStore, pipelineRegistry, sessionRegistry, stagePolicyResolver, scheduler, announcer, authToken, 2, accountMessageHandler, accountingRecorder);
 
 	const sockets = new Map<string, FakeSocket>();
 	let frameCounter = 0;
@@ -844,7 +850,23 @@ const buildClientMessageHandlerHarness = () => {
 		return (sockets.get(deviceId)?.sent ?? []).slice(sentBefore).map((frame) => frame.body);
 	};
 
-	return { drive, driveAccountMessage, authenticate, registerWorker, registerConsumer, allSentTo, authToken, taskStore, deviceRegistry, sessionRegistry, accountRegistry, challengeRegistry, scheduler };
+	/**
+	 * Authenticates an account on one connection, the way a worker browser page or a consumer does.
+	 *
+	 * @returns The account identifier the connection now authenticates as.
+	 */
+	const authenticateAccount = async (deviceId: string): Promise<string> => {
+		const keyPair = await AccountIdentity.generateKeyPair('Ed25519');
+		const publicKeySpkiBase64 = await AccountIdentity.exportPublicKeySpkiBase64(keyPair.publicKey);
+		const accountId = await AccountIdentity.accountIdFor(publicKeySpkiBase64);
+		await driveAccountMessage(deviceId, { type: 'account.register', signatureAlgorithmName: 'Ed25519', publicKeySpkiBase64 });
+		const [challenge] = await driveAccountMessage(deviceId, { type: 'account.challenge.request' });
+		const signatureBase64 = await AccountIdentity.signChallenge('Ed25519', keyPair.privateKey, (challenge as { challenge: string }).challenge);
+		await driveAccountMessage(deviceId, { type: 'account.authenticate', accountId, signatureBase64 });
+		return accountId;
+	};
+
+	return { drive, driveAccountMessage, authenticate, authenticateAccount, registerWorker, registerConsumer, allSentTo, authToken, taskStore, deviceRegistry, sessionRegistry, accountRegistry, challengeRegistry, ledgerStore, scheduler };
 };
 
 Test('every message needs an active session first, before any rule specific to that message type is even reached', () => {
@@ -1581,4 +1603,192 @@ Test('a cursor that names no entry of this account returns nothing, rather than 
 
 Test('a ledger with no file to write to is refused, rather than kept in memory and lost on restart', () => {
 	Assert.throws(() => new LedgerStore(''), /A ledger file path is required/);
+});
+
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+//	Recording the two accounting events
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+/**
+ * Runs one whole two-stage `dev_formula` task to completion, the way the four earlier tests of the
+ * dispatch harness do, and returns the identifier of the task that ran.
+ */
+const runWholeDevFormulaTask = (harness: ReturnType<typeof buildClientMessageHandlerHarness>): string => {
+	const [submitReply] = harness.drive('consumer-1', { type: 'task.submit', taskRequestId: `request-${Math.random()}`, input: devFormulaInput(5) });
+	const taskId = (submitReply as { task: { taskId: string } }).task.taskId;
+	const firstAssignment = harness.allSentTo('worker-1').find((sent): sent is Extract<GatewayMessage, { type: 'stage.assign' }> => sent.type === 'stage.assign' && sent.taskId === taskId);
+	harness.drive('worker-1', { type: 'stage.accepted', taskId, stageAssignmentId: firstAssignment!.stageAssignmentId, attempt: firstAssignment!.attempt });
+	const afterFirst = harness.drive('worker-1', { type: 'stage.result', taskId, stageAssignmentId: firstAssignment!.stageAssignmentId, attempt: firstAssignment!.attempt, stage: 'stage_dev_formula_multiply', value: 10 });
+	const secondAssignment = afterFirst.find((sent): sent is Extract<GatewayMessage, { type: 'stage.assign' }> => sent.type === 'stage.assign');
+	harness.drive('worker-1', { type: 'stage.accepted', taskId, stageAssignmentId: secondAssignment!.stageAssignmentId, attempt: secondAssignment!.attempt });
+	harness.drive('worker-1', { type: 'stage.result', taskId, stageAssignmentId: secondAssignment!.stageAssignmentId, attempt: secondAssignment!.attempt, stage: 'stage_dev_formula_add', value: 17 });
+	return taskId;
+};
+
+Test('every completed stage earns the worker one credit and costs the consumer one credit', () => {
+	const harness = buildClientMessageHandlerHarness();
+	harness.registerWorker('worker-1', 'worker-one');
+	harness.registerConsumer('consumer-1', 'consumer-one');
+	const taskId = runWholeDevFormulaTask(harness);
+
+	// Two stages ran, so four entries exist: the worker earned twice and the consumer spent twice.
+	const entries = harness.ledgerStore.readAll();
+	Assert.equal(entries.length, 4);
+	Assert.deepEqual(entries.map((entry) => entry.creditDelta), [1, -1, 1, -1]);
+	Assert.deepEqual(entries.map((entry) => entry.stageName), ['stage_dev_formula_multiply', 'stage_dev_formula_multiply', 'stage_dev_formula_add', 'stage_dev_formula_add']);
+	Assert.equal(entries.every((entry) => entry.taskId === taskId), true);
+	Assert.equal(entries.every((entry) => entry.workerDeviceId === 'worker-1' && entry.consumerDeviceId === 'consumer-1'), true);
+
+	// The two entries of one completed stage carry the same assignment identifier, which is what lets
+	// one stage be followed from either side of the ledger.
+	Assert.equal(entries[0]?.stageAssignmentId, entries[1]?.stageAssignmentId);
+	Assert.notEqual(entries[0]?.stageAssignmentId, entries[2]?.stageAssignmentId);
+
+	// Every stage was held by a worker that accepted its assignment, so every entry carries how long
+	// that took. It changes no balance: both sides moved by exactly one credit per stage.
+	Assert.equal(entries.every((entry) => typeof entry.stageDurationMs === 'number'), true);
+});
+
+Test('a worker earns into its own account, and the consumer spends from its own', async () => {
+	const harness = buildClientMessageHandlerHarness();
+	harness.registerWorker('worker-1', 'worker-one');
+	const workerAccountId = await harness.authenticateAccount('worker-1');
+	harness.registerConsumer('consumer-1', 'consumer-one');
+	const consumerAccountId = await harness.authenticateAccount('consumer-1');
+
+	runWholeDevFormulaTask(harness);
+
+	Assert.notEqual(workerAccountId, consumerAccountId);
+	Assert.deepEqual(harness.ledgerStore.summaryFor(workerAccountId), { accountId: workerAccountId, balance: 2, earnedStageCount: 2, spentStageCount: 0 });
+	Assert.deepEqual(harness.ledgerStore.summaryFor(consumerAccountId), { accountId: consumerAccountId, balance: -2, earnedStageCount: 0, spentStageCount: 2 });
+	Assert.deepEqual(harness.ledgerStore.summaryFor(AccountingRecorder.sharedDevelopmentAccountId), { accountId: AccountingRecorder.sharedDevelopmentAccountId, balance: 0, earnedStageCount: 0, spentStageCount: 0 });
+});
+
+Test('a participant that has authenticated no account of its own is recorded against the shared development account', () => {
+	const harness = buildClientMessageHandlerHarness();
+	harness.registerWorker('worker-1', 'worker-one');
+	harness.registerConsumer('consumer-1', 'consumer-one');
+
+	// Both connections presented the gateway's shared token and nothing else, which says nothing about
+	// who presented it, so their work is attributed to nobody rather than dropped.
+	runWholeDevFormulaTask(harness);
+	Assert.deepEqual(harness.ledgerStore.summaryFor(AccountingRecorder.sharedDevelopmentAccountId), { accountId: AccountingRecorder.sharedDevelopmentAccountId, balance: 0, earnedStageCount: 2, spentStageCount: 2 });
+});
+
+Test('a consumer spends from the account it submitted under, even once that consumer has gone', async () => {
+	const harness = buildClientMessageHandlerHarness();
+	harness.registerWorker('worker-1', 'worker-one');
+	harness.registerConsumer('consumer-1', 'consumer-one');
+	const consumerAccountId = await harness.authenticateAccount('consumer-1');
+
+	const [submitReply] = harness.drive('consumer-1', { type: 'task.submit', taskRequestId: 'request-1', input: devFormulaInput(5) });
+	const taskId = (submitReply as { task: { taskId: string } }).task.taskId;
+	Assert.equal(harness.taskStore.get(taskId)?.consumerAccountId, consumerAccountId);
+
+	// A consumer that submitted batch work is expected to be gone by the time its stages complete, so
+	// the account is read from the task rather than from a session that no longer exists.
+	harness.sessionRegistry.close('consumer-1');
+
+	const firstAssignment = harness.allSentTo('worker-1').find((sent): sent is Extract<GatewayMessage, { type: 'stage.assign' }> => sent.type === 'stage.assign');
+	harness.drive('worker-1', { type: 'stage.accepted', taskId, stageAssignmentId: firstAssignment!.stageAssignmentId, attempt: firstAssignment!.attempt });
+	harness.drive('worker-1', { type: 'stage.result', taskId, stageAssignmentId: firstAssignment!.stageAssignmentId, attempt: firstAssignment!.attempt, stage: 'stage_dev_formula_multiply', value: 10 });
+
+	Assert.equal(harness.ledgerStore.summaryFor(consumerAccountId).spentStageCount, 1);
+});
+
+Test('a stage that fails earns nothing and costs nothing', () => {
+	const harness = buildClientMessageHandlerHarness();
+	harness.registerWorker('worker-1', 'worker-one');
+	harness.registerConsumer('consumer-1', 'consumer-one');
+
+	const [submitReply] = harness.drive('consumer-1', { type: 'task.submit', taskRequestId: 'request-1', input: devFormulaInput(5) });
+	const taskId = (submitReply as { task: { taskId: string } }).task.taskId;
+	const assignment = harness.allSentTo('worker-1').find((sent): sent is Extract<GatewayMessage, { type: 'stage.assign' }> => sent.type === 'stage.assign');
+	harness.drive('worker-1', { type: 'stage.accepted', taskId, stageAssignmentId: assignment!.stageAssignmentId, attempt: assignment!.attempt });
+	harness.drive('worker-1', { type: 'stage.failed', taskId, stageAssignmentId: assignment!.stageAssignmentId, attempt: assignment!.attempt, stage: 'stage_dev_formula_multiply', error: 'the shard fell over' });
+
+	Assert.deepEqual(harness.ledgerStore.readAll(), []);
+});
+
+Test('a stage handed back and finished by another worker earns one credit and costs one credit, not one per attempt', () => {
+	const harness = buildClientMessageHandlerHarness();
+	harness.registerWorker('worker-1', 'worker-one');
+	harness.registerWorker('worker-2', 'worker-two');
+	harness.registerConsumer('consumer-1', 'consumer-one');
+
+	const [submitReply] = harness.drive('consumer-1', { type: 'task.submit', taskRequestId: 'request-1', input: devFormulaInput(5) });
+	const taskId = (submitReply as { task: { taskId: string } }).task.taskId;
+
+	// The first worker hands the assignment back rather than running it, which places the same stage on
+	// the other worker under a new assignment identifier.
+	const firstAttempt = harness.taskStore.get(taskId)?.stageAssignment;
+	harness.drive(firstAttempt!.workerDeviceId, { type: 'stage.relinquish', taskId, stageAssignmentId: firstAttempt!.stageAssignmentId, attempt: firstAttempt!.attempt });
+	Assert.deepEqual(harness.ledgerStore.readAll(), []);
+
+	const secondAttempt = harness.taskStore.get(taskId)?.stageAssignment;
+	Assert.notEqual(secondAttempt?.stageAssignmentId, firstAttempt?.stageAssignmentId);
+	Assert.notEqual(secondAttempt?.workerDeviceId, firstAttempt?.workerDeviceId);
+
+	harness.drive(secondAttempt!.workerDeviceId, { type: 'stage.accepted', taskId, stageAssignmentId: secondAttempt!.stageAssignmentId, attempt: secondAttempt!.attempt });
+	harness.drive(secondAttempt!.workerDeviceId, { type: 'stage.result', taskId, stageAssignmentId: secondAttempt!.stageAssignmentId, attempt: secondAttempt!.attempt, stage: 'stage_dev_formula_multiply', value: 10 });
+
+	// One completion happened, so one credit and one debit exist, and they name the attempt that
+	// actually finished and the worker that actually ran it.
+	const forThatStage = harness.ledgerStore.readAll().filter((entry) => entry.stageName === 'stage_dev_formula_multiply');
+	Assert.equal(forThatStage.length, 2);
+	Assert.deepEqual(forThatStage.map((entry) => entry.creditDelta), [1, -1]);
+	Assert.equal(forThatStage.every((entry) => entry.stageAssignmentId === secondAttempt?.stageAssignmentId), true);
+	Assert.equal(forThatStage.every((entry) => entry.workerDeviceId === secondAttempt?.workerDeviceId), true);
+});
+
+Test('a stale result that the gateway has already recorded is not recorded a second time', () => {
+	const harness = buildClientMessageHandlerHarness();
+	harness.registerWorker('worker-1', 'worker-one');
+	harness.registerConsumer('consumer-1', 'consumer-one');
+
+	const [submitReply] = harness.drive('consumer-1', { type: 'task.submit', taskRequestId: 'request-1', input: devFormulaInput(5) });
+	const taskId = (submitReply as { task: { taskId: string } }).task.taskId;
+	const assignment = harness.allSentTo('worker-1').find((sent): sent is Extract<GatewayMessage, { type: 'stage.assign' }> => sent.type === 'stage.assign');
+	harness.drive('worker-1', { type: 'stage.accepted', taskId, stageAssignmentId: assignment!.stageAssignmentId, attempt: assignment!.attempt });
+	harness.drive('worker-1', { type: 'stage.result', taskId, stageAssignmentId: assignment!.stageAssignmentId, attempt: assignment!.attempt, stage: 'stage_dev_formula_multiply', value: 10 });
+	const afterFirstResult = harness.ledgerStore.readAll().length;
+
+	// A worker whose connection dropped as it sent its result sends that result again on reconnecting.
+	// The gateway answers that the result is already in hand, and the ledger must not move for it: the
+	// stage completed once.
+	const [repeatedReply] = harness.drive('worker-1', { type: 'stage.result', taskId, stageAssignmentId: assignment!.stageAssignmentId, attempt: assignment!.attempt, stage: 'stage_dev_formula_multiply', value: 10 });
+	Assert.equal(repeatedReply?.type, 'stage.result.accepted');
+	Assert.equal(harness.ledgerStore.readAll().length, afterFirstResult);
+});
+
+Test('a stage whose lease expired and is retried earns one credit and costs one credit, not one per attempt', () => {
+	const harness = buildClientMessageHandlerHarness(0);
+	// Two workers, because this stage keeps no state on the device running it, so the recovery sweep
+	// deliberately places the retry somewhere other than the worker that went quiet.
+	harness.registerWorker('worker-1', 'worker-one');
+	harness.registerWorker('worker-2', 'worker-two');
+	harness.registerConsumer('consumer-1', 'consumer-one');
+
+	const [submitReply] = harness.drive('consumer-1', { type: 'task.submit', taskRequestId: 'request-1', input: devFormulaInput(5) });
+	const taskId = (submitReply as { task: { taskId: string } }).task.taskId;
+	const firstAttempt = harness.taskStore.get(taskId)?.stageAssignment;
+
+	// The most common retry: a worker that went quiet, whose lease ran out, and whose stage the
+	// recovery sweep places again. Nothing is recorded for the attempt that was abandoned.
+	harness.scheduler.recoverAssignments();
+	Assert.deepEqual(harness.ledgerStore.readAll(), []);
+
+	const secondAttempt = harness.taskStore.get(taskId)?.stageAssignment;
+	Assert.equal(secondAttempt?.attempt, 2);
+	Assert.notEqual(secondAttempt?.stageAssignmentId, firstAttempt?.stageAssignmentId);
+
+	harness.drive(secondAttempt!.workerDeviceId, { type: 'stage.accepted', taskId, stageAssignmentId: secondAttempt!.stageAssignmentId, attempt: secondAttempt!.attempt });
+	harness.drive(secondAttempt!.workerDeviceId, { type: 'stage.result', taskId, stageAssignmentId: secondAttempt!.stageAssignmentId, attempt: secondAttempt!.attempt, stage: 'stage_dev_formula_multiply', value: 10 });
+
+	const forThatStage = harness.ledgerStore.readAll().filter((entry) => entry.stageName === 'stage_dev_formula_multiply');
+	Assert.equal(forThatStage.length, 2);
+	Assert.deepEqual(forThatStage.map((entry) => entry.creditDelta), [1, -1]);
+	Assert.equal(forThatStage.every((entry) => entry.stageAssignmentId === secondAttempt?.stageAssignmentId), true);
 });

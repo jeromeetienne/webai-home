@@ -8,6 +8,20 @@ import Fs from 'node:fs';
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
+/**
+ * Who submitted a task, as far as the gateway could tell when it arrived.
+ *
+ * Both fields are recorded on the task rather than looked up later, because the consumer of a batch
+ * task is expected to be gone by the time its stages complete: the accounting ledger has to know
+ * whose credit a stage spends whether or not that consumer is still connected.
+ */
+export type TaskSubmitter = {
+	/** The principal derived from the credential presented, which the active-task limit counts against. */
+	authIdentity?: string | undefined;
+	/** The account the connection had authenticated as, when it had authenticated one. */
+	accountId?: string | undefined;
+};
+
 /** Stores task state for the lifetime of the gateway process. */
 export class TaskStore {
 	private readonly tasks = new Map<string, Task>();
@@ -25,16 +39,19 @@ export class TaskStore {
 	/**
 	 * Creates and stores a queued task.
 	 *
+	 * @param submitter Who submitted it, as far as the gateway could tell when it arrived.
+	 *
 	 * @param input - The validated input submitted for the task.
 	 * @returns The newly created task.
 	 */
-	create(input: TaskInput, consumerDeviceId = 'consumer-unknown', taskRequestId: string = crypto.randomUUID(), consumerAuthIdentity?: string, pipeline?: Pick<Task, 'pipelineId' | 'pipelineVersion' | 'pipelineStages' | 'pipelineRepeatsUntilDone'>): Task {
+	create(input: TaskInput, consumerDeviceId = 'consumer-unknown', taskRequestId: string = crypto.randomUUID(), submitter?: TaskSubmitter, pipeline?: Pick<Task, 'pipelineId' | 'pipelineVersion' | 'pipelineStages' | 'pipelineRepeatsUntilDone'>): Task {
 		const now = this.now().toISOString();
 		const task: Task = {
 			taskId: `task-${crypto.randomUUID()}`,
 			taskRequestId,
 			consumerDeviceId,
-			...(consumerAuthIdentity === undefined ? {} : { consumerAuthIdentity }),
+			...(submitter?.authIdentity === undefined ? {} : { consumerAuthIdentity: submitter.authIdentity }),
+			...(submitter?.accountId === undefined ? {} : { consumerAccountId: submitter.accountId }),
 			...(pipeline ?? {}),
 			input,
 			state: 'queued',

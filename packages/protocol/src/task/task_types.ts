@@ -98,6 +98,16 @@ export type Task = {
 	taskRequestId: string;
 	consumerDeviceId: string;
 	consumerAuthIdentity?: string;
+	/**
+	 * The account of the participant that submitted this task, when it had authenticated one.
+	 *
+	 * It is recorded on the task rather than looked up when a stage completes, because a consumer
+	 * that submitted batch work is expected to be gone by then: the accounting ledger has to know
+	 * whose credit a stage spends whether or not that consumer is still connected. A task submitted
+	 * by a connection with no account carries none, and its stages are recorded against the shared
+	 * development account instead.
+	 */
+	consumerAccountId?: string | undefined;
 	input: TaskInput;
 	state: TaskState;
 	completedStages: StageResult[];
