@@ -1,4 +1,4 @@
-import type { StageName, StagePayload, ClientMessage, GenerationSettings } from '@webai/protocol';
+import type { StageName, StagePayload, ClientMessage, GenerationSettings, AccountLedgerSummary } from '@webai/protocol';
 import { SessionRenewal } from '@webai/protocol/session_renewal';
 import { StageHelperDevFormula } from './stages/stage_helper_dev_formula';
 import { StageHelperLlmQwen3_0_6bSharded } from './stages/stage_helper_llm_qwen3_0_6b_sharded';
@@ -12,6 +12,7 @@ import { PageElements } from './page/page_elements';
 import { PageMarkup } from './page/page_markup';
 import { WorkerEventLog } from './page/worker_event_log';
 import { WorkerStageOffer } from './connection/worker_stage_offer';
+import { WorkerAccount } from './connection/worker_account';
 import { ThemeToggle } from './page/theme_toggle.js';
 import { AudioKeepalive, type AudioKeepaliveState } from './page/audio_keepalive.js';
 
@@ -54,6 +55,20 @@ type GatewayMessage = {
 	pipelines?: { stages: { name: string; computation: string }[] }[];
 	/** When the authenticated session expires, in reply to `authenticate`. */
 	expiresAt?: string;
+	/** The account profile, in reply to `account.register`. */
+	account?: { accountId: string };
+	/** Whether registering created the account, in reply to `account.register`. */
+	isNewAccount?: boolean;
+	/** The value to sign, in reply to `account.challenge.request`. */
+	challenge?: string;
+	/** The account now on this connection, in reply to `account.authenticate`. */
+	accountId?: string;
+	/** What this account's entries add up to, in reply to `account.balance.get`. */
+	summary?: AccountLedgerSummary;
+	/** The stable error code, on an error. */
+	code?: string;
+	/** What the gateway said, on an error. */
+	message?: string;
 };
 
 /** The stages this browser could offer, as the loaded pipelines describe them. */
@@ -84,6 +99,10 @@ export class WorkerPage {
 	private readonly disconnectButtonEl: HTMLButtonElement;
 	private readonly workerNameEl: HTMLElement;
 	private readonly deviceIdEl: HTMLElement;
+	/** Shows which account the credits earned by this tab are recorded against. */
+	private readonly accountIdEl: HTMLElement;
+	/** Shows what that account holds, so a volunteer can watch credits accumulate. */
+	private readonly accountCreditsEl: HTMLElement;
 	private readonly stagesEl: HTMLElement;
 	/** The message shown when the language model built into the browser is not ready to run. */
 	private readonly builtInModelNoticeEl: HTMLElement;
@@ -121,6 +140,13 @@ export class WorkerPage {
 	private enabledStageNames: string[] = [];
 	/** Prevents another connection attempt while enabled LLM shards are preloading. */
 	private isPreparing = false;
+	/**
+	 * The account conversation of the current connection, once it has started.
+	 *
+	 * It is built per connection, because proving which account is on a connection is something each
+	 * connection does for itself: a session belongs to one connection and so does the account on it.
+	 */
+	private workerAccount: WorkerAccount | undefined;
 
 	/** Finds every element the page is built around. */
 	constructor() {
@@ -130,6 +156,8 @@ export class WorkerPage {
 		this.disconnectButtonEl = PageElements.getButton('#disconnect');
 		this.workerNameEl = PageElements.getElement('#worker-name');
 		this.deviceIdEl = PageElements.getElement('#device-id');
+		this.accountIdEl = PageElements.getElement('#account-id');
+		this.accountCreditsEl = PageElements.getElement('#account-credits');
 		this.stagesEl = PageElements.getElement('#stages');
 		this.builtInModelNoticeEl = PageElements.getElement('#built-in-model-notice');
 		this.builtInModelMessageEl = PageElements.getElement('#built-in-model-message');
@@ -299,6 +327,9 @@ export class WorkerPage {
 			StageHelperLlmGemmaNanoChromeFull.clearEveryGeneration();
 			StageHelperLlmQwen3_5_0_8bFull.clearEveryGeneration();
 			this.isRegistered = false;
+			// The account belongs to the connection that proved it, so the next connection proves it
+			// again. The key pair itself stays in this browser's storage and is the same account.
+			this.workerAccount = undefined;
 			if (this.sessionRenewalTimer !== undefined) {
 				window.clearTimeout(this.sessionRenewalTimer);
 			}
@@ -351,6 +382,67 @@ export class WorkerPage {
 
 	///////////////////////////////////////////////////////////////////////////////
 	///////////////////////////////////////////////////////////////////////////////
+	//	Account
+	///////////////////////////////////////////////////////////////////////////////
+	///////////////////////////////////////////////////////////////////////////////
+
+	/**
+	 * Builds the account conversation for one connection, and says what to do with what it reports.
+	 *
+	 * @param openSocket The connection the conversation runs on.
+	 * @returns The conversation, not yet started.
+	 */
+	private buildWorkerAccount(openSocket: WebSocket): WorkerAccount {
+		return new WorkerAccount((message: ClientMessage): void => {
+			if (openSocket.readyState !== WebSocket.OPEN) {
+				return;
+			}
+			GatewayLink.send(openSocket, message);
+			this.eventLog.add({
+				direction: 'sent',
+				type: message.type,
+				timestamp: new Date().toISOString(),
+			});
+		}, {
+			onAccountKnown: (accountId: string): void => {
+				this.accountIdEl.textContent = accountId;
+			},
+			onSettled: (accountId: string | undefined): void => {
+				if (accountId === undefined) {
+					this.accountIdEl.textContent = 'None: this tab contributes anonymously';
+					this.accountCreditsEl.textContent = 'Not recorded for any account';
+				}
+				// Which stages this browser offers is decided from the pipelines the gateway has loaded, so
+				// asking for them is what carries on towards registration.
+				if (openSocket.readyState !== WebSocket.OPEN) {
+					return;
+				}
+				const request: ClientMessage = {
+					type: 'pipelines.get',
+				};
+				GatewayLink.send(openSocket, request);
+				this.eventLog.add({
+					direction: 'sent',
+					type: request.type,
+					timestamp: new Date().toISOString(),
+				});
+			},
+			onBalance: (summary: AccountLedgerSummary): void => {
+				const balance = `${summary.balance > 0 ? '+' : ''}${String(summary.balance)}`;
+				this.accountCreditsEl.textContent = `${balance} (${String(summary.earnedStageCount)} stage(s) completed, ${String(summary.spentStageCount)} run)`;
+			},
+			onNote: (note: string): void => {
+				this.eventLog.add({
+					direction: 'received',
+					type: `account: ${note}`,
+					timestamp: new Date().toISOString(),
+				});
+			},
+		});
+	}
+
+	///////////////////////////////////////////////////////////////////////////////
+	///////////////////////////////////////////////////////////////////////////////
 	//	Incoming Messages
 	///////////////////////////////////////////////////////////////////////////////
 	///////////////////////////////////////////////////////////////////////////////
@@ -391,22 +483,26 @@ export class WorkerPage {
 			// expiry it just advertised, so the session has to be renewed before that moment
 			// or the next message this page sends is refused.
 			this.scheduleSessionRenewal(this.socket, message.expiresAt);
-			// A renewal is answered with "deviceAuthenticated" too. Asking for the pipelines again
-			// each time would restart the whole registration sequence, so it is only asked
-			// for on the first one.
-			if (this.isRegistered) {
+			// A renewal is answered with "deviceAuthenticated" too. Starting the sequence again
+			// each time would restart the whole registration, so it is only started on the first one.
+			if (this.isRegistered || this.workerAccount !== undefined) {
 				return;
 			}
-			const request: ClientMessage = {
-				type: 'pipelines.get',
-			};
-			GatewayLink.send(this.socket, request);
-			this.eventLog.add({
-				direction: 'sent',
-				type: request.type,
-				timestamp: new Date().toISOString(),
-			});
+			// Proving which account this browser is comes before asking for the pipelines, and therefore
+			// before registering as a worker, so that no stage can ever complete before the gateway knows
+			// whose account earned it. A browser or a gateway that cannot manage an account releases the
+			// page to register anyway: contributing anonymously is far better than not contributing.
+			this.workerAccount = this.buildWorkerAccount(this.socket);
+			void this.workerAccount.begin();
 			return;
+		}
+		if (this.workerAccount?.handleMessage(message) === true) {
+			return;
+		}
+		// A completed stage is exactly when this account's balance changed, so that is when the page asks
+		// for it again, rather than on a timer that would ask when nothing had happened.
+		if (message.type === 'stage.result.accepted') {
+			this.workerAccount?.requestBalance();
 		}
 		if (message.type === 'pipelines' && this.socket !== undefined) {
 			this.registerOfferedStages(WorkerStageOffer.offeredStages(message.pipelines ?? [], this.requestedStageNames));
