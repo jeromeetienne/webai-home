@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Does a real browser tab hold an account key pair it cannot leak, and sign a challenge Node.js can verify?" />
+    <link rel="stylesheet" href="/account_key_pair_log/css/styles.css" />
+    <title>Account key pair log</title>
+  </head>
+  <body>
+    <main class="shell">
+      <p class="eyebrow">WebAI at Home / account key experiments</p>
+      <h1>Can this browser tab hold<br /><em>an account key pair?</em></h1>
+      <p class="intro">The de-risk gate of the accounting system in issue #122. This page generates a key pair whose private key the
+        browser refuses to hand back, keeps it in IndexedDB across page reloads and browser restarts, and signs a random challenge
+        inside a message that names this project and this purpose. The signature is verified here, and then again in Node.js by
+        <code>tools/verify_account_key_signature.js</code>, which is where the gateway would verify it.</p>
+
+      <section class="panel">
+        <h2>How to run the whole gate</h2>
+        <ol>
+          <li>Open this page. It generates and stores a key pair on the first visit.</li>
+          <li>Reload the page. The log must say the key pair was read back from IndexedDB.</li>
+          <li>Quit the browser completely, reopen it, and open this page again. The log must still say the key pair was read back, with the same generation time and a higher load count.</li>
+          <li>Copy the verification document below into a file and run <code>node tools/verify_account_key_signature.js that_file.json</code>.</li>
+          <li>Repeat all of it in every browser the project asks volunteers to use.</li>
+        </ol>
+      </section>
+
+      <section class="panel">
+        <h2>Log</h2>
+        <div id="log" class="log"></div>
+        <div class="controls">
+          <button id="sign-again" type="button">Sign a new challenge</button>
+          <button id="delete-key-pair" type="button">Delete the stored key pair and reload</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Verification document</h2>
+        <p>Everything the Node.js script needs, and nothing secret. The private key is not here and cannot be: the browser refuses to export it.</p>
+        <pre id="verification-document" class="document"></pre>
+      </section>
+    </main>
+    <script type="module" src="/account_key_pair_log/src/main.ts"></script>
+  </body>
+</html>

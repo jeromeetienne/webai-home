@@ -1,0 +1,31 @@
+:root { font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; color: #eef1f0; background: #0f1412; }
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; background: #0f1412; }
+code { font-family: ui-monospace, 'SF Mono', Menlo, monospace; color: #9ed7b8; }
+.shell { width: min(1080px, calc(100% - 48px)); margin: 0 auto; padding: 30px 0 40px; }
+.eyebrow { font-family: ui-monospace, 'SF Mono', Menlo, monospace; text-transform: uppercase; letter-spacing: .08em; font-size: 11px; color: #8ea89b; margin: 0 0 28px; }
+h1 { font-size: clamp(32px, 5vw, 56px); line-height: 1; letter-spacing: -.04em; margin: 0; font-weight: 700; }
+h1 em { font-style: normal; color: #6fae8f; }
+.intro { color: #a8b3ae; font-size: 15px; line-height: 1.7; max-width: 760px; margin: 24px 0 0; }
+
+.panel { background: #131916; border: 1px solid #29332e; padding: clamp(18px, 3vw, 26px); margin-top: 22px; }
+.panel h2 { font-size: 17px; margin: 0 0 12px; letter-spacing: -.02em; }
+.panel p { color: #9aa6a0; font-size: 14px; line-height: 1.6; margin: 0 0 8px; }
+.panel ol { color: #9aa6a0; font-size: 14px; line-height: 1.8; margin: 8px 0 0; padding-left: 20px; }
+
+.log { display: flex; flex-direction: column; border: 1px solid #29332e; }
+.log-row { display: grid; grid-template-columns: 210px 1fr; gap: 14px; padding: 9px 12px; border-bottom: 1px solid #1d2521; font-size: 13px; line-height: 1.5; }
+.log-row:last-child { border-bottom: 0; }
+.log-label { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: #7d8b84; padding-top: 2px; }
+.log-detail { color: #cfd8d3; word-break: break-word; }
+.log-row.verdict-pass .log-label { color: #63c48e; }
+.log-row.verdict-fail .log-label { color: #d9695f; }
+.log-row.verdict-fail .log-detail { color: #f0b3ac; }
+
+.controls { display: flex; gap: 12px; margin-top: 18px; flex-wrap: wrap; }
+button { border: 0; cursor: pointer; font: 600 13px system-ui, sans-serif; background: #dff0e6; color: #10261c; padding: 11px 16px; }
+button:hover { background: #fff; }
+
+.document { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px; line-height: 1.6; color: #cfd8d3; background: #0d120f; border: 1px solid #29332e; padding: 14px; overflow-x: auto; white-space: pre; margin: 8px 0 0; min-height: 40px; }
+
+@media (max-width: 700px) { .shell { width: min(100% - 32px, 1080px); } .log-row { grid-template-columns: 1fr; gap: 4px; } }

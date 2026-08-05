@@ -11,3 +11,7 @@ packages/*/logs/
 # directory, so the file can appear at the repository root or inside a package.
 gateway-state.json
 *-state.json
+
+# Raw results of the account key pair experiment, written at runtime by its development server.
+packages/_account_key_experiments/verification_documents/
+packages/_account_key_experiments/run_reports/
