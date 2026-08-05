@@ -269,8 +269,9 @@ function loadModel(): Promise<TextGenerationPipeline> {
 		},
 	}).then((loadedGenerator) => {
 		generator = loadedGenerator;
-		getElement<HTMLElement>('#load-time').textContent = `${((performance.now() - (loadStartedAt ?? performance.now())) / 1000).toFixed(1)} s`;
-		setStatus('Model ready. Enter a prompt and run inference.');
+		const loadTimeStr = `${((performance.now() - (loadStartedAt ?? performance.now())) / 1000).toFixed(1)} s`;
+		getElement<HTMLElement>('#load-time').textContent = loadTimeStr;
+		setStatus(`Model ready in ${loadTimeStr}. Enter a prompt and run inference.`);
 		button.disabled = false;
 		button.innerHTML = 'Run inference <span>↗</span>';
 		return loadedGenerator;
