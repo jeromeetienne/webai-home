@@ -13,6 +13,7 @@ import { MessageLogger } from '@webai/protocol/message_logger';
 import { AccountMessageHandler } from './accounting/account_message_handler.js';
 import { AccountRegistry } from './accounting/account_registry.js';
 import { ChallengeRegistry } from './accounting/challenge_registry.js';
+import { LedgerStore } from './accounting/ledger_store.js';
 import { ClientMessageHandler } from './task/client_message_handler.js';
 import { ConnectionHub } from './connection/connection_hub.js';
 import { DeviceAnnouncer } from './device/device_announcer.js';
@@ -61,6 +62,10 @@ export class Cli {
 		const sessionRegistry = new SessionRegistry(settings.sessionMs);
 		const accountRegistry = new AccountRegistry(settings.accountFile);
 		const challengeRegistry = new ChallengeRegistry(settings.accountChallengeMs);
+		// Built here so the ledger file is opened, checked, and its balances rebuilt before the gateway
+		// accepts a single connection. Nothing records against it yet; that is what issue #127 does.
+		const ledgerStore = new LedgerStore(settings.ledgerFile);
+		console.log(`Accounting ledger at ${settings.ledgerFile}, holding ${ledgerStore.summaries().length} account(s)`);
 
 		const pipelineRegistry = new PipelineRegistry(builtinPipelineSpecifications);
 		if (settings.pipelineFile !== undefined) {

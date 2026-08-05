@@ -21,6 +21,8 @@ import { SessionRegistry } from '../src/task/session_registry.js';
 import { AccountMessageHandler } from '../src/accounting/account_message_handler.js';
 import { AccountRegistry } from '../src/accounting/account_registry.js';
 import { ChallengeRegistry } from '../src/accounting/challenge_registry.js';
+import { LedgerStore } from '../src/accounting/ledger_store.js';
+import type { LedgerEntryDraft } from '../src/accounting/ledger_store.js';
 import { TaskScheduler } from '../src/task/task_scheduler.js';
 import { ClientMessageHandler } from '../src/task/client_message_handler.js';
 import { WorkerPlacement } from '../src/device/worker_placement.js';
@@ -1440,4 +1442,143 @@ Test('an account survives its connection, and a new connection authenticates as 
 	const [authenticated] = await driveAccountMessage('device-b', { type: 'account.authenticate', accountId, signatureBase64 });
 	Assert.equal(authenticated?.type, 'account.authenticated');
 	Assert.equal(sessionRegistry.active('device-b')?.accountId, accountId);
+});
+
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+//	The append-only accounting ledger
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+/** Builds a ledger store on a file of its own, with a fixed clock and countable entry identifiers. */
+const buildLedgerStore = (): { store: LedgerStore; ledgerFilePath: string; reopen: () => LedgerStore } => {
+	const directory = Fs.mkdtempSync(Path.join(Os.tmpdir(), 'gateway-ledger-'));
+	const ledgerFilePath = Path.join(directory, 'gateway-ledger.jsonl');
+	let recordedCount = 0;
+	const newLedgerEntryId = (): string => `ledgerEntry-${String(++recordedCount).padStart(4, '0')}`;
+	const at = new Date('2026-08-05T12:00:00.000Z');
+	return {
+		store: new LedgerStore(ledgerFilePath, () => at, newLedgerEntryId),
+		ledgerFilePath,
+		reopen: (): LedgerStore => new LedgerStore(ledgerFilePath, () => at),
+	};
+};
+
+/** One completed stage, as the recorder of the next milestone will state it. */
+const stageEvent = (accountId: string, creditDelta: 1 | -1, stageNumber: number): LedgerEntryDraft => ({
+	accountId,
+	creditDelta,
+	taskId: 'task-1',
+	stageName: 'stage_dev_formula_multiply',
+	stageAssignmentId: `stageAssignment-${stageNumber}`,
+	workerDeviceId: 'device-worker',
+	consumerDeviceId: 'device-consumer',
+	stageDurationMs: 120,
+});
+
+Test('a balance is what an account\'s entries add up to, and each side of the ledger is counted', () => {
+	const { store } = buildLedgerStore();
+
+	for (const stageNumber of [1, 2, 3]) store.append(stageEvent('account-worker', 1, stageNumber));
+	for (const stageNumber of [1, 2, 3]) store.append(stageEvent('account-consumer', -1, stageNumber));
+	store.append(stageEvent('account-worker', -1, 4));
+
+	Assert.deepEqual(store.summaryFor('account-worker'), { accountId: 'account-worker', balance: 2, earnedStageCount: 3, spentStageCount: 1 });
+
+	// A consumer goes negative and is not stopped: Version 1 has no floor, which is exactly what the
+	// worked example of issue #122 describes.
+	Assert.deepEqual(store.summaryFor('account-consumer'), { accountId: 'account-consumer', balance: -3, earnedStageCount: 0, spentStageCount: 3 });
+
+	// An account that has neither earned nor spent anything is a real state, not a missing one.
+	Assert.deepEqual(store.summaryFor('account-nobody'), { accountId: 'account-nobody', balance: 0, earnedStageCount: 0, spentStageCount: 0 });
+});
+
+Test('the ledger is one JSON object per line, appended and never rewritten', () => {
+	const { store, ledgerFilePath } = buildLedgerStore();
+
+	const first = store.append(stageEvent('account-worker', 1, 1));
+	const afterFirst = Fs.readFileSync(ledgerFilePath, 'utf8');
+	const second = store.append(stageEvent('account-worker', 1, 2));
+	const afterSecond = Fs.readFileSync(ledgerFilePath, 'utf8');
+
+	// The file after the second entry is the file after the first with one line added to the end, so
+	// nothing already written was touched to record what came next.
+	Assert.equal(afterSecond.startsWith(afterFirst), true);
+	Assert.deepEqual(afterSecond.trim().split('\n').map((line) => JSON.parse(line).ledgerEntryId), [first.ledgerEntryId, second.ledgerEntryId]);
+	Assert.equal(first.recordedAt, '2026-08-05T12:00:00.000Z');
+});
+
+Test('balances survive a gateway restart, because they are rebuilt from the file', () => {
+	const { store, reopen } = buildLedgerStore();
+	store.append(stageEvent('account-worker', 1, 1));
+	store.append(stageEvent('account-worker', 1, 2));
+	store.append(stageEvent('account-consumer', -1, 1));
+
+	const afterRestart = reopen();
+	Assert.deepEqual(afterRestart.summaryFor('account-worker'), store.summaryFor('account-worker'));
+	Assert.deepEqual(afterRestart.summaryFor('account-consumer'), store.summaryFor('account-consumer'));
+	Assert.equal(afterRestart.summaries().length, 2);
+
+	// A restarted gateway keeps appending to the same history rather than starting a new one.
+	afterRestart.append(stageEvent('account-worker', 1, 3));
+	Assert.equal(afterRestart.readAll().length, 4);
+});
+
+Test('a ledger line this gateway cannot read stops the read and names the line, rather than being skipped', () => {
+	const { store, ledgerFilePath, reopen } = buildLedgerStore();
+	store.append(stageEvent('account-worker', 1, 1));
+	store.append(stageEvent('account-worker', 1, 2));
+
+	// Skipping what cannot be parsed would report a balance wrong by however much was skipped, with
+	// nothing to say anything was missing.
+	Fs.appendFileSync(ledgerFilePath, 'this line is not a ledger entry\n', 'utf8');
+	Assert.throws(() => reopen(), /Unreadable accounting ledger entry .* line 3/);
+
+	// A credit change Version 1 does not have is refused just as firmly as text that is not JSON, so
+	// a larger number cannot be written into the same ledger without widening the definition first.
+	const { store: other, ledgerFilePath: otherPath, reopen: reopenOther } = buildLedgerStore();
+	other.append(stageEvent('account-worker', 1, 1));
+	Fs.appendFileSync(otherPath, `${JSON.stringify({ ...stageEvent('account-worker', 1, 2), ledgerEntryId: 'ledgerEntry-x', recordedAt: '2026-08-05T12:00:00.000Z', creditDelta: 7 })}\n`, 'utf8');
+	Assert.throws(() => reopenOther(), /Unreadable accounting ledger entry .* line 2/);
+});
+
+Test('history is read newest first, one side of the ledger at a time, one page at a time', () => {
+	const { store } = buildLedgerStore();
+	const earned = [1, 2, 3].map((stageNumber) => store.append(stageEvent('account-worker', 1, stageNumber)));
+	const spent = [4, 5].map((stageNumber) => store.append(stageEvent('account-worker', -1, stageNumber)));
+	store.append(stageEvent('account-someone-else', 1, 1));
+
+	const everything = store.entriesFor('account-worker');
+	Assert.deepEqual(everything.entries.map((entry) => entry.ledgerEntryId), [...earned, ...spent].reverse().map((entry) => entry.ledgerEntryId));
+	Assert.equal(everything.nextCursor, undefined);
+
+	Assert.deepEqual(store.entriesFor('account-worker', { direction: 'earned' }).entries.map((entry) => entry.creditDelta), [1, 1, 1]);
+	Assert.deepEqual(store.entriesFor('account-worker', { direction: 'spent' }).entries.map((entry) => entry.creditDelta), [-1, -1]);
+
+	// One account's history holds nothing belonging to another account.
+	Assert.equal(store.entriesFor('account-worker').entries.every((entry) => entry.accountId === 'account-worker'), true);
+
+	const firstPage = store.entriesFor('account-worker', { limit: 2 });
+	Assert.equal(firstPage.entries.length, 2);
+	Assert.equal(firstPage.nextCursor, firstPage.entries.at(-1)?.ledgerEntryId);
+
+	const secondPage = store.entriesFor('account-worker', { limit: 2, before: firstPage.nextCursor });
+	const thirdPage = store.entriesFor('account-worker', { limit: 2, before: secondPage.nextCursor });
+	Assert.deepEqual([...firstPage.entries, ...secondPage.entries, ...thirdPage.entries].map((entry) => entry.ledgerEntryId), everything.entries.map((entry) => entry.ledgerEntryId));
+
+	// The reader stops because the last page offers no cursor, rather than by counting.
+	Assert.equal(thirdPage.nextCursor, undefined);
+});
+
+Test('a cursor that names no entry of this account returns nothing, rather than the newest page again', () => {
+	const { store } = buildLedgerStore();
+	store.append(stageEvent('account-worker', 1, 1));
+	const otherAccountEntry = store.append(stageEvent('account-someone-else', 1, 1));
+
+	Assert.deepEqual(store.entriesFor('account-worker', { before: 'ledgerEntry-does-not-exist' }).entries, []);
+	Assert.deepEqual(store.entriesFor('account-worker', { before: otherAccountEntry.ledgerEntryId }).entries, []);
+});
+
+Test('a ledger with no file to write to is refused, rather than kept in memory and lost on restart', () => {
+	Assert.throws(() => new LedgerStore(''), /A ledger file path is required/);
 });

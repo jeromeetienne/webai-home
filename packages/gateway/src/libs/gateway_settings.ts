@@ -15,6 +15,7 @@ type RawOptions = {
 	stateFile: string;
 	accountFile: string;
 	accountChallengeMs: string;
+	ledgerFile: string;
 	authToken: string;
 	maxTasksPerPrincipal: string;
 	sessionMs: string;
@@ -44,6 +45,8 @@ export class GatewaySettings {
 	readonly accountFile: string;
 	/** How long a challenge handed out for an account to sign stays usable. */
 	readonly accountChallengeMs: number;
+	/** The append-only file every accounting event is written to. */
+	readonly ledgerFile: string;
 	/** The bearer token every connection and every diagnostics report must present. */
 	readonly authToken: string;
 	/** How many tasks one principal may have in flight at once. */
@@ -67,6 +70,7 @@ export class GatewaySettings {
 			.option('--state-file <path>', 'Durable task state file', 'gateway-state.json')
 			.option('--account-file <path>', 'Account profile file', 'gateway-accounts.json')
 			.option('--account-challenge-ms <number>', 'How long a challenge handed out for an account to sign stays usable', '60000')
+			.option('--ledger-file <path>', 'Append-only accounting ledger file', 'gateway-ledger.jsonl')
 			.option('--auth-token <token>', 'Required bearer token for development connections', 'development-token')
 			.option('--max-tasks-per-principal <number>', 'Maximum non-terminal tasks per principal', '20')
 			.option('--session-ms <number>', 'How long an authenticated session lasts before the client must authenticate again', '3600000')
@@ -81,6 +85,7 @@ export class GatewaySettings {
 		this.stateFile = options.stateFile;
 		this.accountFile = options.accountFile;
 		this.accountChallengeMs = Number(options.accountChallengeMs);
+		this.ledgerFile = options.ledgerFile;
 		this.authToken = options.authToken;
 		this.maximumTasksPerPrincipal = Number(options.maxTasksPerPrincipal);
 		this.sessionMs = Number(options.sessionMs);

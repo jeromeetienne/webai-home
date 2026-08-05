@@ -20,3 +20,8 @@ packages/_account_key_experiments/run_reports/
 # gateway's --account-file option, which defaults to gateway-accounts.json in the
 # working directory, so the file can appear at the repository root or inside a package.
 gateway-accounts.json
+
+# The gateway's append-only accounting ledger, written at runtime. The file name comes
+# from the gateway's --ledger-file option, which defaults to gateway-ledger.jsonl in the
+# working directory, so the file can appear at the repository root or inside a package.
+gateway-ledger.jsonl
