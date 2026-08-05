@@ -63,14 +63,15 @@ endpoint and model explicitly:
 npm run benchmark --workspace @webai/consumer-openai -- --base_url http://localhost:1234/v1 --model_name llama-3.2-3b-instruct
 ```
 
-Two convenience scripts run it against the two endpoints this project most often benchmarks,
-LM Studio directly and this `consumer_openai` server backed by webai-at-home — start LM Studio,
-the webai-at-home gateway, the `consumer_openai` server, and one `worker_openai_api` process
-first:
+Convenience scripts run it against the endpoints this project most often benchmarks — LM
+Studio directly, and this `consumer_openai` server backed by webai-at-home for two of its
+models — start LM Studio, the webai-at-home gateway, the `consumer_openai` server, and the
+worker processes each model needs first:
 
 ```sh
 npm run benchmark:lm_studio:llama-3.2-3b-instruct --workspace @webai/consumer-openai
 npm run benchmark:webai_at_home:llm_llama3_2_3b_full --workspace @webai/consumer-openai
+npm run benchmark:webai_at_home:llm_qwen3_0_6b_sharded --workspace @webai/consumer-openai
 ```
 
 Use `-f/--format` to choose the output format: `text` (default), `markdown` (pipe tables, for

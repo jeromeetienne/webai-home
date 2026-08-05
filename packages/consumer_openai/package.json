@@ -14,6 +14,7 @@
 		"benchmark": "tsx scripts/benchmark_openai_api.ts",
 		"benchmark:lm_studio:llama-3.2-3b-instruct": "tsx scripts/benchmark_openai_api.ts --base_url http://localhost:1234/v1 --model_name llama-3.2-3b-instruct",
 		"benchmark:webai_at_home:llm_llama3_2_3b_full": "tsx scripts/benchmark_openai_api.ts --base_url http://localhost:8788/v1 --model_name llm_llama3_2_3b_full",
+		"benchmark:webai_at_home:llm_qwen3_0_6b_sharded": "tsx scripts/benchmark_openai_api.ts --base_url http://localhost:8788/v1 --model_name llm_qwen3_0_6b_sharded",
 		"prestart": "npm run build:dependencies",
 		"start": "node dist/cli.js server",
 		"test": "npx tsx --test tests/index.test.ts scripts/benchmark_openai_api.test.ts",
