@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import * as Commander from 'commander';
 import Fs from 'node:fs';
+import Path from 'node:path';
 import Url from 'node:url';
 import { TaskInputFactory, taskTypeNames } from './libs/task_input_factory.js';
 import { CliError } from './libs/cli_errors.js';
@@ -31,8 +32,13 @@ const defaultAuthenticationToken = 'development-token';
  * This is one shared identity for this checkout of the repository, used by `consumer_cli`,
  * `consumer_openai`, and `worker_openai_api` alike, so a task submitted or a stage completed by any
  * of them during local development lands on the same account. `--key_file` overrides it per command.
+ *
+ * Resolved from this file's own location rather than written as a bare `data/account_keys/…` string,
+ * because a relative path resolves against the process's working directory, not this file's — and
+ * `npm run dev --workspace @webai/consumer-cli --` and `npx tsx src/cli.ts` both run with the working
+ * directory somewhere other than the repository root.
  */
-const defaultAccountKeyFilePath = '/Users/jetienne/webwork/webai-at-home/data/account_keys/default.account_key.json';
+const defaultAccountKeyFilePath = Path.resolve(Path.dirname(Url.fileURLToPath(import.meta.url)), '../../../data/account_keys/default.account_key.json');
 
 /** The shared options every subcommand accepts, before each subcommand's own options. */
 type GlobalOptions = { url: string; authToken?: string };

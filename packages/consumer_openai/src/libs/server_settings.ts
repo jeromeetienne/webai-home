@@ -1,4 +1,6 @@
 import { Command } from 'commander';
+import Path from 'node:path';
+import Url from 'node:url';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -12,8 +14,13 @@ import { Command } from 'commander';
  * This is one shared identity for this checkout of the repository, used by `consumer_cli`,
  * `consumer_openai`, and `worker_openai_api` alike, so a task submitted or a stage completed by any
  * of them during local development lands on the same account. `--account-key-file` overrides it.
+ *
+ * Resolved from this file's own location rather than written as a bare `data/account_keys/…` string,
+ * because a relative path resolves against the process's working directory, not this file's — and
+ * `npm run dev --workspace @webai/consumer-openai --` and `npx tsx src/cli.ts` both run with the
+ * working directory somewhere other than the repository root.
  */
-const defaultAccountKeyFilePath = '/Users/jetienne/webwork/webai-at-home/data/account_keys/default.account_key.json';
+const defaultAccountKeyFilePath = Path.resolve(Path.dirname(Url.fileURLToPath(import.meta.url)), '../../../../data/account_keys/default.account_key.json');
 
 /** The command line options exactly as they arrive, before they are converted. */
 type RawOptions = {
