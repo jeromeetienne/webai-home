@@ -24,7 +24,7 @@ Every subcommand accepts:
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `-u, --url <url>` | `ws://localhost:8787` | Gateway WebSocket address. |
+| `-u, --url <url>` | `GATEWAY_WS_URL` environment variable, then `ws://localhost:8787` | The central gateway's WebSocket URL. |
 | `-a, --auth-token <token>` | `WEBAI_AUTH_TOKEN` environment variable, then `development-token` | Bearer token for the central gateway. |
 
 ## `submit`
