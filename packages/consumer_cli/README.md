@@ -4,7 +4,7 @@ Command-line client for the central gateway: submitting tasks, reading the worke
 
 The program has four subcommands about tasks and the cluster: `submit` sends one task and shows its updates until it completes or fails, `status` reports the connected workers and their free capacity, `capacity` estimates how many concurrent runs of a task type the cluster can currently support, and `log_stats` measures one already recorded `.log_entry.jsonl` message log file.
 
-It has five further subcommands about this participant's own account in the accounting system: `account_key` generates the key pair that is the account, `account_register` tells the central gateway about it, and `account_information`, `account_balance`, and `account_history` read back what the gateway holds for it. [`docs/accounting_system.md`](../../docs/accounting_system.md) describes what an account and a credit are; the sections below describe the commands.
+It has five further subcommands about this participant's own account in the accounting system: `account_key` generates the key pair that is the account, `identity_register` tells the central gateway about it, and `account_information`, `account_balance`, and `account_history` read back what the gateway holds for it. [`docs/accounting_system.md`](../../docs/accounting_system.md) describes what an account and a credit are; the sections below describe the commands.
 
 ## Run with `npx`
 
@@ -84,7 +84,7 @@ Submitting as account-37b98b4c860818d3396d3b4b1b04ab88.
 A machine with no key pair at that path submits anyway, and says so:
 
 ```
-Submitting with no account of its own, so the stages this task runs are recorded against the shared development account. Run "consumer_cli account_key" and "consumer_cli account_register" to have them recorded against you.
+Submitting with no account of its own, so the stages this task runs are recorded against the shared development account. Run "consumer_cli account_key" and "consumer_cli identity_register" to have them recorded against you.
 ```
 
 ## `status`
@@ -156,7 +156,7 @@ All but `account_key` also accept `--timeout <ms>`, defaulting to `10000`, and t
 
 ### `account_key`
 
-Generates the key pair that is this participant's account, and prints the account identifier it produces. It connects to nothing: an account identifier is a digest of its own public key, so it exists as soon as the key pair does, and the gateway learns about it later through `account_register`.
+Generates the key pair that is this participant's account, and prints the account identifier it produces. It connects to nothing: an account identifier is a digest of its own public key, so it exists as soon as the key pair does, and the gateway learns about it later through `identity_register`.
 
 ```sh
 npm run dev --workspace @webai/consumer-cli -- account_key
@@ -176,12 +176,12 @@ The file is written readable and writable by its owner only. **The private key i
 | --- | --- | --- |
 | `--force` | off | Overwrite a key pair that is already there, losing the account it belongs to. |
 
-### `account_register`
+### `identity_register`
 
 Tells the central gateway about this machine's public key.
 
 ```sh
-npm run dev --workspace @webai/consumer-cli -- account_register --email_address volunteer@example.com --display_name "my laptop"
+npm run dev --workspace @webai/consumer-cli -- identity_register --email_address volunteer@example.com --display_name "my laptop"
 ```
 
 Running it twice is harmless: registering a public key the gateway already knows changes nothing and reports the profile it already holds, with `was created now` answering `no`. Registration does not prove that the sender holds the private key, so it must not be able to rewrite the email address or display name of an account somebody else owns; editing a profile is not part of Version 1 of the accounting system.

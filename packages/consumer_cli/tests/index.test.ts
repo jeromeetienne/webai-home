@@ -468,7 +468,7 @@ Test('an error the gateway sends fails the command with the exit code that error
 	// An unregistered account is told what to do about it, rather than only what went wrong.
 	await Assert.rejects(async () => client.authenticateAccount(), (error: unknown) => {
 		Assert.equal(error instanceof CliError, true);
-		Assert.match((error as CliError).message, /Run "consumer_cli account_register" first/);
+		Assert.match((error as CliError).message, /Run "consumer_cli identity_register" first/);
 		return true;
 	});
 });

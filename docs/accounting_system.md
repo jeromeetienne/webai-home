@@ -132,7 +132,7 @@ Five [`consumer_cli`](../packages/consumer_cli/README.md) commands, described in
 | Command | What it does |
 | --- | --- |
 | `account_key` | Generates the key pair that is the account, and prints the account identifier. Talks to nothing. |
-| `account_register` | Tells the central gateway about the public key. |
+| `identity_register` | Tells the central gateway about the public key. |
 | `account_information` | Prints the profile the gateway holds. |
 | `account_balance` | Prints the balance, the stages completed as a worker, and the stages run as a consumer. |
 | `account_history` | Prints the entries newest first, with `--direction earned`, `spent`, or `both`. |

@@ -3,12 +3,12 @@ import { AccountOutputFormatter, type AccountOutputFormat } from '../account/acc
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
-//	AccountRegisterCommand — tells the central gateway about this machine's public key
+//	IdentityRegisterCommand — tells the central gateway about this machine's public key
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
-/** What `consumer_cli account_register` needs to connect and what profile to state. */
-export type AccountRegisterCommandOptions = AccountClientOptions & {
+/** What `consumer_cli identity_register` needs to connect and what profile to state. */
+export type IdentityRegisterCommandOptions = AccountClientOptions & {
 	/** The email address for the profile. May be empty. */
 	emailAddress: string;
 	/** The display name for the profile. May be empty. */
@@ -25,7 +25,7 @@ export type AccountRegisterCommandOptions = AccountClientOptions & {
  * Version 1: registration does not prove that the sender holds the private key, so it must not be
  * able to rewrite the email address or display name of an account somebody else owns.
  */
-export class AccountRegisterCommand {
+export class IdentityRegisterCommand {
 	/**
 	 * Runs the command.
 	 *
@@ -33,7 +33,7 @@ export class AccountRegisterCommand {
 	 * @returns Nothing.
 	 * @throws {CliError} If the connection, the token, or the registration is refused.
 	 */
-	static async run(options: AccountRegisterCommandOptions): Promise<void> {
+	static async run(options: IdentityRegisterCommandOptions): Promise<void> {
 		const client = new AccountClient(options);
 		try {
 			await client.connect();
