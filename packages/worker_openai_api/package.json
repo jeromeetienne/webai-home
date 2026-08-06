@@ -13,6 +13,8 @@
     "typecheck": "tsc -p tsconfig.json",
     "predev": "npm run build:dependencies",
     "dev": "tsx src/cli.ts",
+    "predev:deployed_gateway": "npm run build:dependencies",
+    "dev:deployed_gateway": "npx tsx src/cli.ts --url ws://135.125.8.186:8787",
     "prestart": "npm run build:dependencies",
     "start": "node dist/cli.js",
     "presample:lmstudio": "npm run build:dependencies",
