@@ -1,9 +1,15 @@
-# Run from the repository root: docker compose -f packages/docker_server/docker/docker-compose.yml up --build
+# Run from the repository root: docker compose -f packages/docker_server/docker/docker-compose.yml --project-directory . up --build
 # See packages/docker_server/README.md for what each environment variable configures.
+#
+# Every relative path below is written relative to the repository root, not to this file's own
+# directory, because Compose resolves relative paths against the project directory. That is why
+# each command that uses this file passes `--project-directory` pointing at the repository root.
+# Deployment platforms that build from a checkout of this repository (Coolify, for one) already
+# pass the repository root as the project directory, so they need no extra configuration.
 services:
   webai-at-home:
     build:
-      context: ../../..
+      context: .
       dockerfile: packages/docker_server/docker/Dockerfile
     ports:
       - "8787:8787"

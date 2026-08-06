@@ -3,11 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "build": "docker compose -f docker/docker-compose.yml build",
-    "start": "docker compose -f docker/docker-compose.yml up -d",
-    "stop": "docker compose -f docker/docker-compose.yml down",
-    "restart": "docker compose -f docker/docker-compose.yml restart",
-    "logs": "docker compose -f docker/docker-compose.yml logs -f",
+    "build": "docker compose -f docker/docker-compose.yml --project-directory ../.. build",
+    "start": "docker compose -f docker/docker-compose.yml --project-directory ../.. up -d",
+    "stop": "docker compose -f docker/docker-compose.yml --project-directory ../.. down",
+    "restart": "docker compose -f docker/docker-compose.yml --project-directory ../.. restart",
+    "logs": "docker compose -f docker/docker-compose.yml --project-directory ../.. logs -f",
     "test": "echo \"packages/docker_server has no automated tests; see README.md for manual verification steps\""
   }
 }

@@ -24,15 +24,15 @@ The two ports the underlying issue names are `8787` and `8788`; `8789` was added
 
 ## npm scripts
 
-[`package.json`](package.json) wraps the `docker` and `docker compose` commands used throughout this document, each already pointed at [`docker/docker-compose.yml`](docker/docker-compose.yml), so none of these need the `-f` path spelled out. Run them from this directory, or from anywhere in the repository with `--workspace @webai/docker-server`:
+[`package.json`](package.json) wraps the `docker` and `docker compose` commands used throughout this document, each already pointed at [`docker/docker-compose.yml`](docker/docker-compose.yml) and at the repository root as the Compose project directory, so none of these need the `-f` or `--project-directory` paths spelled out. Run them from this directory, or from anywhere in the repository with `--workspace @webai/docker-server`:
 
 | Script | Runs | Does |
 | --- | --- | --- |
-| `npm run build` | `docker compose -f docker/docker-compose.yml build` | Builds the image (see [Build](#build)) |
-| `npm run start` | `docker compose -f docker/docker-compose.yml up -d` | Starts the container in the background (see [Start](#start)) |
-| `npm run stop` | `docker compose -f docker/docker-compose.yml down` | Stops and removes the container (see [Shutdown](#shutdown)) |
-| `npm run restart` | `docker compose -f docker/docker-compose.yml restart` | Restarts the running container without rebuilding it |
-| `npm run logs` | `docker compose -f docker/docker-compose.yml logs -f` | Follows both programs' startup and error output (see [Logs](#logs)) |
+| `npm run build` | `docker compose -f docker/docker-compose.yml --project-directory ../.. build` | Builds the image (see [Build](#build)) |
+| `npm run start` | `docker compose -f docker/docker-compose.yml --project-directory ../.. up -d` | Starts the container in the background (see [Start](#start)) |
+| `npm run stop` | `docker compose -f docker/docker-compose.yml --project-directory ../.. down` | Stops and removes the container (see [Shutdown](#shutdown)) |
+| `npm run restart` | `docker compose -f docker/docker-compose.yml --project-directory ../.. restart` | Restarts the running container without rebuilding it |
+| `npm run logs` | `docker compose -f docker/docker-compose.yml --project-directory ../.. logs -f` | Follows both programs' startup and error output (see [Logs](#logs)) |
 | `npm test` | prints a pointer to this file | There is nothing to automate here; this only exists so the repository's root `npm test` (which runs every workspace's `test` script) does not fail on this package |
 
 `npm run start` reads its environment variables and port mapping from [`docker/docker-compose.yml`](docker/docker-compose.yml) rather than from a command line, so edit that file (or override with `docker compose run -e ...`) to change them — see [Configuration](#configuration).
@@ -48,7 +48,7 @@ docker build -f packages/docker_server/docker/Dockerfile -t webai-at-home .
 Or with Compose:
 
 ```bash
-docker compose -f packages/docker_server/docker/docker-compose.yml build
+docker compose -f packages/docker_server/docker/docker-compose.yml --project-directory . build
 ```
 
 Or with the npm scripts below (already resolve the paths above): `npm run build --workspace @webai/docker-server`.
@@ -66,7 +66,7 @@ docker run -d --name webai-at-home \
 Or:
 
 ```bash
-docker compose -f packages/docker_server/docker/docker-compose.yml up -d
+docker compose -f packages/docker_server/docker/docker-compose.yml --project-directory . up -d
 ```
 
 Or with the npm scripts: `npm run start --workspace @webai/docker-server`.
