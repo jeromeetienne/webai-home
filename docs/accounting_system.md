@@ -39,11 +39,15 @@ The rules the gateway enforces around an account are these:
 | Participant | Where the private key lives | Can the holder read it out? |
 | --- | --- | --- |
 | A worker browser tab | IndexedDB in that browser, under this origin | No. It is generated as non-extractable, so the browser signs with it and no script can copy it, including the page's own. |
-| `consumer_cli`, `consumer_openai`, and `worker_openai_api` | A key file, `~/.webai-at-home/account_key.json` by default, readable and writable by its owner only | Yes, necessarily. A process that ends holds nothing, so it has to be able to read the key back to be the same account on its next run. |
+| `consumer_cli` | A key file, readable and writable by its owner only, defaulting to `data/consumer_cli_config/default.account_key.json` in this checkout of the repository | Yes, necessarily. A process that ends holds nothing, so it has to be able to read the key back to be the same account on its next run. |
+| `consumer_openai` | A key file, defaulting to `data/consumer_openai_config/default.account_key.json` | Yes, for the same reason. |
+| `worker_openai_api` | A key file, defaulting to `data/worker_openai_api_config/default.account_key.json` | Yes, for the same reason. |
+
+Each of the three defaults to its own key file, not a shared one: a task `consumer_cli submit` submits and a stage `worker_openai_api` completes are two different accounts by default, unless `--key_file` / `--account-key-file` is pointed at the same file for both. Every one of these defaults is resolved from the running program's own source location, so it lands on the same file wherever the command is invoked from, rather than depending on the working directory the command happened to be run in.
 
 Every one of them proves its account the same way, through `AccountAuthentication` in the shared protocol package, and every one of them proves it **before** it does the thing that would otherwise be recorded against nobody: a worker registers only once its account is settled, and a consumer submits only once its own is. A participant that could not get an account carries on without one rather than refusing to work.
 
-Both arrangements have the same two consequences, and they are worth stating plainly because they decide what a participant can expect:
+The two ways of keeping a private key — non-extractable in a browser, or in a file — have the same two consequences, and they are worth stating plainly because they decide what a participant can expect:
 
 - **An account is one browser profile on one device, or one key file.** A person contributing from a laptop and from a phone earns into two accounts. Joining several of them to one person needs an account recovery or linking mechanism, which Version 1 does not have.
 - **Losing the key pair loses the account.** An account identifier is a digest of its own public key and nothing else can produce it again, so there is no recovery. A browser page asks `navigator.storage.persist()` so the browser is less likely to evict its storage, and does not insist: Safari and the in-app Chromium of Claude Code both answered `false` when the de-risk gate asked them, and a page that refused to run without a promise would refuse to run at all. `account_key` refuses to overwrite an existing key file unless `--force` is given, for the same reason.
@@ -107,7 +111,7 @@ The page shows the account identifier and what it holds, and refreshes the figur
 
 ### A server or a command line program
 
-`consumer_cli`, the OpenAI-compatible server, and the Node.js worker each read a key file and prove that account as they connect. Each takes an option saying where to look — `--key_file` for `consumer_cli submit`, `--account-key-file` for the other two — defaulting to `~/.webai-at-home/account_key.json`, and each carries on with no account when there is no key pair there.
+`consumer_cli`, the OpenAI-compatible server, and the Node.js worker each read a key file and prove that account as they connect. Each takes an option saying where to look — `--key_file` for `consumer_cli submit`, `--account-key-file` for the other two — and each carries on with no account when there is no key pair at that path. Each defaults to its own file under `data/` in this checkout of the repository, listed in "Where a key pair is kept" above.
 
 One deployment of the OpenAI-compatible server is one account. It is that server's account and not the account of whichever program called its OpenAI-compatible endpoint, because the server is what the gateway sees.
 
