@@ -13,18 +13,12 @@ services:
       dockerfile: packages/docker_server/docker/Dockerfile
     ports:
       - "8787:8787"
-      - "8788:8788"
       - "8789:8789"
     environment:
       GATEWAY_PORT: "8787"
       GATEWAY_AUTH_TOKEN: "development-token"
       GATEWAY_STATE_FILE: "/data/gateway-state.json"
-      CONSUMER_OPENAI_PORT: "8788"
-      GATEWAY_WS_URL: "ws://127.0.0.1:8787"
-      CONSUMER_OPENAI_AUTH_TOKEN: "development-token"
-      CONSUMER_OPENAI_NAME: "consumer_openai server"
       WORKER_PORT: "8789"
-      # CONSUMER_OPENAI_API_KEY: "set-a-key-to-require-callers-to-present-it"
     volumes:
       - webai-at-home-data:/data
 volumes:

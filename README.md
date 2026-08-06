@@ -55,7 +55,7 @@ The central research questions are still open, especially result verification, b
 - [`packages/_onnx_experiments`](packages/_onnx_experiments/README.md) — browser experiments for ONNX Runtime Web.
 - [`packages/_account_key_experiments`](packages/_account_key_experiments/README.md) — browser experiments about the signing key pair a participant's account is, and whether a real browser tab can hold one it cannot leak.
 - [`packages/_tiny_iris_classifier`](packages/_tiny_iris_classifier/README.md) — small end-to-end browser inference example.
-- [`packages/docker_server`](packages/docker_server/README.md) — Linux Docker image that runs the gateway and `consumer_openai` together.
+- [`packages/docker_server`](packages/docker_server/README.md) — Linux Docker image that runs the gateway and serves the built worker browser page.
 - [`packages/worker_webpage`](packages/worker_webpage/README.md) — browser page that connects workers to the gateway.
 
 ## Documentation

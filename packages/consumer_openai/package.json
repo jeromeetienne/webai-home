@@ -11,6 +11,8 @@
 		"typecheck": "tsc -p tsconfig.json",
 		"predev": "npm run build:dependencies",
 		"dev": "tsx src/cli.ts server",
+		"predev:deployed_gateway": "npm run build:dependencies",
+		"dev:deployed_gateway": "npx tsx src/cli.ts server --gateway-url ws://135.125.8.186:8787",
 		"benchmark": "tsx scripts/benchmark_openai_api.ts",
 		"benchmark:lm_studio:llama-3.2-3b-instruct": "tsx scripts/benchmark_openai_api.ts --base_url http://localhost:1234/v1 --model_name llama-3.2-3b-instruct",
 		"benchmark:webai_at_home:llm_llama3_2_3b_full": "tsx scripts/benchmark_openai_api.ts --base_url http://localhost:8788/v1 --model_name llm_llama3_2_3b_full",

@@ -1,31 +1,29 @@
 #!/bin/bash
-# Starts the gateway, the OpenAI-compatible server, and a static file server for the built
-# worker page, translating environment variables into the command line options each program
-# reads (none of the three read environment variables directly). See
-# packages/docker_server/README.md for what each variable configures.
+# Starts the gateway and a static file server for the built worker page, translating environment
+# variables into the command line options each program reads (neither of the two reads
+# environment variables directly). See packages/docker_server/README.md for what each variable
+# configures.
+#
+# The OpenAI-compatible server from packages/consumer_openai is deliberately not started here:
+# one deployment of that server is one account, and every task it submits is debited to that one
+# account whoever called its OpenAI-compatible endpoint, so running it in a publicly reachable
+# container makes the operator of this container pay for everybody else's consumption. Anyone who
+# wants an OpenAI-compatible endpoint runs consumer_openai themselves, with their own account key
+# file, pointing --gateway-url at this gateway. See issue #139.
 set -euo pipefail
 
 GATEWAY_PORT="${GATEWAY_PORT:-8787}"
 GATEWAY_AUTH_TOKEN="${GATEWAY_AUTH_TOKEN:-development-token}"
 GATEWAY_STATE_FILE="${GATEWAY_STATE_FILE:-/data/gateway-state.json}"
 
-CONSUMER_OPENAI_PORT="${CONSUMER_OPENAI_PORT:-8788}"
-GATEWAY_WS_URL="${GATEWAY_WS_URL:-ws://127.0.0.1:${GATEWAY_PORT}}"
-# Defaults to the gateway's own token, so setting GATEWAY_AUTH_TOKEN alone still leaves the two
-# servers able to authenticate with each other; set CONSUMER_OPENAI_AUTH_TOKEN separately only
-# if the gateway sits behind a different token than this container's own gateway process.
-CONSUMER_OPENAI_AUTH_TOKEN="${CONSUMER_OPENAI_AUTH_TOKEN:-$GATEWAY_AUTH_TOKEN}"
-CONSUMER_OPENAI_NAME="${CONSUMER_OPENAI_NAME:-consumer_openai server}"
-
 WORKER_PORT="${WORKER_PORT:-8789}"
 
 gateway_pid=""
-consumer_openai_pid=""
 worker_pid=""
 
 shutdown() {
 	trap - TERM INT
-	for pid in "$gateway_pid" "$consumer_openai_pid" "$worker_pid"; do
+	for pid in "$gateway_pid" "$worker_pid"; do
 		[ -n "$pid" ] && kill "$pid" 2>/dev/null || true
 	done
 	wait 2>/dev/null || true
@@ -39,34 +37,11 @@ node packages/gateway/dist/cli.js \
 	--state-file "$GATEWAY_STATE_FILE" &
 gateway_pid=$!
 
-echo "Waiting for the gateway to accept connections on port $GATEWAY_PORT..."
-attempt=0
-until node -e "fetch('http://127.0.0.1:${GATEWAY_PORT}/health').then(() => process.exit(0)).catch(() => process.exit(1))"; do
-	attempt=$((attempt + 1))
-	if [ "$attempt" -ge 60 ]; then
-		echo "The gateway did not become ready in time" >&2
-		shutdown
-	fi
-	if ! kill -0 "$gateway_pid" 2>/dev/null; then
-		echo "The gateway exited before it became ready" >&2
-		shutdown
-	fi
-	sleep 1
-done
-echo "The gateway is ready"
-
-consumer_openai_args=(server --port "$CONSUMER_OPENAI_PORT" --gateway-url "$GATEWAY_WS_URL" --auth-token "$CONSUMER_OPENAI_AUTH_TOKEN" --consumer_name "$CONSUMER_OPENAI_NAME")
-if [ -n "${CONSUMER_OPENAI_API_KEY:-}" ]; then
-	consumer_openai_args+=(--api-key "$CONSUMER_OPENAI_API_KEY")
-fi
-node packages/consumer_openai/dist/cli.js "${consumer_openai_args[@]}" &
-consumer_openai_pid=$!
-
 node packages/docker_server/src/static_server.mjs packages/worker_webpage/dist "$WORKER_PORT" &
 worker_pid=$!
 
 set +e
-wait -n "$gateway_pid" "$consumer_openai_pid" "$worker_pid"
+wait -n "$gateway_pid" "$worker_pid"
 exit_code=$?
 set -e
 echo "One of the servers exited (code $exit_code); shutting down the rest" >&2
