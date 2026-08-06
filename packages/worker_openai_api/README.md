@@ -45,7 +45,7 @@ npm run start --workspace @webai/worker-openai-api
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `-u, --url <url>` | `ws://localhost:8787` | The central gateway's WebSocket URL. Falls back to the `WEBAI_GATEWAY_URL` environment variable. |
+| `-u, --url <url>` | `ws://localhost:8787` | The central gateway's WebSocket URL. Falls back to the `GATEWAY_WS_URL` environment variable. |
 | `-a, --auth-token <token>` | `development-token` | The bearer token the gateway requires. Falls back to the `WEBAI_AUTH_TOKEN` environment variable. |
 | `-n, --worker_name <name>` | `openai-api-worker` | The worker name shown in the gateway's device list. |
 | `-b, --base-url <url>` | `http://localhost:1234/v1` | The base URL of the local server's OpenAI-compatible API. That default is LM Studio's; Ollama's is `http://localhost:11434/v1`. |

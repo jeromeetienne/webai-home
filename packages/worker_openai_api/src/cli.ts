@@ -63,7 +63,7 @@ export class Cli {
 	static async run(args: string[] = process.argv.slice(2)): Promise<void> {
 		const program = new Commander.Command('worker_openai_api')
 			.description('A worker that runs its assigned stage by calling a local server speaking the OpenAI-compatible Chat Completions API, such as Ollama or LM Studio')
-			.option('-u, --url <url>', `central gateway WebSocket URL (falls back to the WEBAI_GATEWAY_URL environment variable, then to ${defaultGatewayUrl})`)
+			.option('-u, --url <url>', `central gateway WebSocket URL (falls back to the GATEWAY_WS_URL environment variable, then to ${defaultGatewayUrl})`)
 			.option('-a, --auth-token <token>', 'bearer token for the central gateway (falls back to the WEBAI_AUTH_TOKEN environment variable, then to a development default)')
 			.option('-n, --worker_name <name>', 'worker name, which the gateway shows in its device list', 'openai-api-worker')
 			.option('-b, --base-url <url>', "base URL of the local server's OpenAI-compatible API", 'http://localhost:1234/v1')
@@ -133,12 +133,6 @@ export class Cli {
 	}
 
 	/**
-	 * Chooses the bearer token to present to the central gateway.
-	 *
-	 * @param fromCommandLine The token given on the command line, if one was given.
-	 * @returns The token to present.
-	 */
-	/**
 	 * Chooses the central gateway WebSocket URL to connect to.
 	 *
 	 * @param fromCommandLine The URL given on the command line, if one was given.
@@ -148,13 +142,19 @@ export class Cli {
 		if (fromCommandLine !== undefined && fromCommandLine !== '') {
 			return fromCommandLine;
 		}
-		const fromEnvironment = process.env.WEBAI_GATEWAY_URL;
+		const fromEnvironment = process.env.GATEWAY_WS_URL;
 		if (fromEnvironment !== undefined && fromEnvironment !== '') {
 			return fromEnvironment;
 		}
 		return defaultGatewayUrl;
 	}
 
+	/**
+	 * Chooses the bearer token to present to the central gateway.
+	 *
+	 * @param fromCommandLine The token given on the command line, if one was given.
+	 * @returns The token to present.
+	 */
 	private static resolveAuthToken(fromCommandLine: string | undefined): string {
 		if (fromCommandLine !== undefined && fromCommandLine !== '') {
 			return fromCommandLine;
