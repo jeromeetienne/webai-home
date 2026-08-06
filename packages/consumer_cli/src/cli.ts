@@ -2,7 +2,6 @@
 import * as Commander from 'commander';
 import Fs from 'node:fs';
 import Path from 'node:path';
-import Url from 'node:url';
 import { TaskInputFactory, taskTypeNames } from './libs/task_input_factory.js';
 import { CliError } from './libs/cli_errors.js';
 import { SubmitCommand } from './commands/submit_command.js';
@@ -23,8 +22,11 @@ import { AccountHistoryCommand, accountHistoryDirections } from './commands/acco
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
+const __filename = import.meta.filename;
+const __dirname = import.meta.dirname;
+
 /** The default bearer token, matching the gateway's own `--auth-token` default. */
-const defaultAuthenticationToken = 'development-token';
+const DEFAULT_AUTHENTICATION_TOKEN = 'development-token';
 
 /**
  * Where every account command defaults to keeping or reading the account key pair.
@@ -38,10 +40,15 @@ const defaultAuthenticationToken = 'development-token';
  * `npm run dev --workspace @webai/consumer-cli --` and `npx tsx src/cli.ts` both run with the working
  * directory somewhere other than the repository root.
  */
-const defaultAccountKeyFilePath = Path.resolve(Path.dirname(Url.fileURLToPath(import.meta.url)), '../../../data/account_keys/default.account_key.json');
+const DEFAULT_ACCOUNT_KEY_FILE_PATH = Path.resolve(__dirname, '../../../data/account_keys/default.account_key.json');
 
 /** The shared options every subcommand accepts, before each subcommand's own options. */
-type GlobalOptions = { url: string; authToken?: string };
+type GlobalOptions = {
+	/** The WebSocket URL of the central gateway every connecting subcommand talks to. */
+	url: string;
+	/** The bearer token to authenticate with, when the `-a/--auth-token` option was given. */
+	authToken?: string;
+};
 
 /**
  * The command line program of the consumer: `submit` sends one task to the central gateway,
@@ -61,22 +68,48 @@ export class Cli {
 	 *
 	 * @param args The command line arguments, without the program name. Defaults to the
 	 * arguments this process was started with.
+	 * @returns A promise that settles once the requested subcommand has finished.
 	 */
 	static async run(args: string[] = process.argv.slice(2)): Promise<void> {
 		const program = new Commander.Command('consumer_cli')
 			.option('-u, --url <url>', 'central gateway WebSocket URL', 'ws://localhost:8787')
-			.option('-a, --auth-token <token>', `bearer token for the central gateway (falls back to the ${'WEBAI_AUTH_TOKEN'} environment variable, then to a development default)`);
+			.option(
+				'-a, --auth-token <token>',
+				'bearer token for the central gateway (falls back to the WEBAI_AUTH_TOKEN'
+					+ ' environment variable, then to a development default)',
+			);
 
 		program
 			.command('submit')
 			.argument('<input>', 'number for dev_formula, free text for every language-model task type')
 			.option('-t, --task_type <type>', `task type: ${taskTypeNames.join(', ')}`, 'dev_formula')
 			.option('-n, --consumer_name <name>', 'consumer name', 'consumer')
-			.option('-s, --stream', 'ask for the answer in pieces as it is produced, rather than in one result once it is finished')
-			.option('-k, --key_file <path>', 'where this participant\'s account key pair is kept, so the stages this task runs are recorded against that account. A machine with no key pair there submits with no account', defaultAccountKeyFilePath)
-			.action(async (input: string, localOptions: { task_type: string; consumer_name: string; stream?: boolean; key_file: string }, command: Commander.Command) => {
+			.option(
+				'-s, --stream',
+				'ask for the answer in pieces as it is produced, rather than in one result once'
+					+ ' it is finished',
+			)
+			.option(
+				'-k, --key_file <path>',
+				'where this participant\'s account key pair is kept, so the stages this task runs'
+					+ ' are recorded against that account. A machine with no key pair there'
+					+ ' submits with no account',
+				DEFAULT_ACCOUNT_KEY_FILE_PATH,
+			)
+			.action(async (
+				input: string,
+				localOptions: {
+					task_type: string;
+					consumer_name: string;
+					stream?: boolean;
+					key_file: string;
+				},
+				command: Commander.Command,
+			): Promise<void> => {
 				const options = command.optsWithGlobals<GlobalOptions & typeof localOptions>();
-				if (TaskInputFactory.isTaskTypeName(options.task_type) === false) throw new Error(`Type must be one of ${taskTypeNames.join(', ')}`);
+				if (TaskInputFactory.isTaskTypeName(options.task_type) === false) {
+					throw new Error(`Type must be one of ${taskTypeNames.join(', ')}`);
+				}
 				await SubmitCommand.run({
 					url: options.url,
 					authToken: Cli.resolveAuthToken(options.authToken),
@@ -90,13 +123,31 @@ export class Cli {
 
 		program
 			.command('status')
-			.description('print the worker cluster state: how many worker browsers are connected, how much of their capacity is free, and one row per worker')
-			.option('--watch', 'after the first snapshot, stay connected and print a new snapshot every time the worker cluster changes, until you interrupt with Ctrl-C or the connection drops (default: print one snapshot and exit)')
+			.description(
+				'print the worker cluster state: how many worker browsers are connected, how much'
+					+ ' of their capacity is free, and one row per worker',
+			)
+			.option(
+				'--watch',
+				'after the first snapshot, stay connected and print a new snapshot every time the'
+					+ ' worker cluster changes, until you interrupt with Ctrl-C or the connection'
+					+ ' drops (default: print one snapshot and exit)',
+			)
 			.option('-f, --format <format>', `output format: ${statusFormats.join(', ')}`, 'text')
-			.option('--timeout <ms>', 'milliseconds to wait for the central gateway to accept the connection and send the first snapshot before giving up', '10000')
-			.action(async (localOptions: { watch?: boolean; format: string; timeout: string }, command: Commander.Command) => {
+			.option(
+				'--timeout <ms>',
+				'milliseconds to wait for the central gateway to accept the connection and send'
+					+ ' the first snapshot before giving up',
+				'10000',
+			)
+			.action(async (
+				localOptions: { watch?: boolean; format: string; timeout: string },
+				command: Commander.Command,
+			): Promise<void> => {
 				const options = command.optsWithGlobals<GlobalOptions & typeof localOptions>();
-				if (StatusCommand.isFormat(options.format) === false) throw new Error(`Format must be one of ${statusFormats.join(', ')}`);
+				if (StatusCommand.isFormat(options.format) === false) {
+					throw new Error(`Format must be one of ${statusFormats.join(', ')}`);
+				}
 				await StatusCommand.run({
 					url: options.url,
 					authToken: Cli.resolveAuthToken(options.authToken),
@@ -111,9 +162,14 @@ export class Cli {
 			.requiredOption('--task_type <type>', `task type: ${taskTypeNames.join(', ')}`)
 			.option('-f, --format <format>', `output format: ${capacityFormats.join(', ')}`, 'text')
 			.option('--timeout <ms>', 'how long to wait for the central gateway to answer', '10000')
-			.action(async (localOptions: { task_type: string; format: string; timeout: string }, command: Commander.Command) => {
+			.action(async (
+				localOptions: { task_type: string; format: string; timeout: string },
+				command: Commander.Command,
+			): Promise<void> => {
 				const options = command.optsWithGlobals<GlobalOptions & typeof localOptions>();
-				if (CapacityCommand.isFormat(options.format) === false) throw new Error(`Format must be one of ${capacityFormats.join(', ')}`);
+				if (CapacityCommand.isFormat(options.format) === false) {
+					throw new Error(`Format must be one of ${capacityFormats.join(', ')}`);
+				}
 				await CapacityCommand.run({
 					url: options.url,
 					authToken: Cli.resolveAuthToken(options.authToken),
@@ -125,14 +181,29 @@ export class Cli {
 
 		program
 			.command('log_stats')
-			.description('measure one .log_entry.jsonl message log file and print what it says: how much traffic it carried, who carried it, how long every answer took, what became of every task and every stage run, and anything worth a second look')
+			.description(
+				'measure one .log_entry.jsonl message log file and print what it says: how much'
+					+ ' traffic it carried, who carried it, how long every answer took, what'
+					+ ' became of every task and every stage run, and anything worth a second look',
+			)
 			.argument('<file>', 'path of the .log_entry.jsonl file to measure')
 			.option('-f, --format <format>', `output format: ${logStatisticsFormats.join(', ')}`, 'text')
-			.option('--top <count>', 'how many rows of each table to print before the rest are only counted', '12')
-			.action(async (file: string, localOptions: { format: string; top: string }): Promise<void> => {
-				if (LogStatisticsFormatter.isFormat(localOptions.format) === false) throw new Error(`Format must be one of ${logStatisticsFormats.join(', ')}`);
+			.option(
+				'--top <count>',
+				'how many rows of each table to print before the rest are only counted',
+				'12',
+			)
+			.action(async (
+				file: string,
+				localOptions: { format: string; top: string },
+			): Promise<void> => {
+				if (LogStatisticsFormatter.isFormat(localOptions.format) === false) {
+					throw new Error(`Format must be one of ${logStatisticsFormats.join(', ')}`);
+				}
 				const top = Number(localOptions.top);
-				if (Number.isInteger(top) === false || top < 1) throw new Error('Top must be a whole number of at least 1');
+				if (Number.isInteger(top) === false || top < 1) {
+					throw new Error('Top must be a whole number of at least 1');
+				}
 				await LogStatsCommand.run({
 					filePath: file,
 					format: localOptions.format,
@@ -142,12 +213,23 @@ export class Cli {
 
 		program
 			.command('account_key')
-			.description('generate the key pair that is this participant\'s account, and print the account identifier it produces. It talks to nothing: the identifier is a digest of the public key, so it exists as soon as the key pair does')
-			.option('-k, --key_file <path>', 'where to keep the key pair', defaultAccountKeyFilePath)
-			.option('--force', 'overwrite a key pair that is already there, losing the account it belongs to')
+			.description(
+				'generate the key pair that is this participant\'s account, and print the account'
+					+ ' identifier it produces. It talks to nothing: the identifier is a digest of'
+					+ ' the public key, so it exists as soon as the key pair does',
+			)
+			.option('-k, --key_file <path>', 'where to keep the key pair', DEFAULT_ACCOUNT_KEY_FILE_PATH)
+			.option(
+				'--force',
+				'overwrite a key pair that is already there, losing the account it belongs to',
+			)
 			.option('-f, --format <format>', `output format: ${accountOutputFormats.join(', ')}`, 'text')
-			.action(async (localOptions: { key_file: string; force?: boolean; format: string }): Promise<void> => {
-				if (AccountOutputFormatter.isFormat(localOptions.format) === false) throw new Error(`Format must be one of ${accountOutputFormats.join(', ')}`);
+			.action(async (
+				localOptions: { key_file: string; force?: boolean; format: string },
+			): Promise<void> => {
+				if (AccountOutputFormatter.isFormat(localOptions.format) === false) {
+					throw new Error(`Format must be one of ${accountOutputFormats.join(', ')}`);
+				}
 				await AccountKeyCommand.run({
 					keyFilePath: localOptions.key_file,
 					isForced: localOptions.force === true,
@@ -157,15 +239,29 @@ export class Cli {
 
 		program
 			.command('account_register')
-			.description('tell the central gateway about this machine\'s public key, so completed and consumed stages can be recorded against the account it identifies')
-			.option('-k, --key_file <path>', 'where the key pair is kept', defaultAccountKeyFilePath)
+			.description(
+				'tell the central gateway about this machine\'s public key, so completed and'
+					+ ' consumed stages can be recorded against the account it identifies',
+			)
+			.option('-k, --key_file <path>', 'where the key pair is kept', DEFAULT_ACCOUNT_KEY_FILE_PATH)
 			.option('--email_address <address>', 'the email address for the account profile', '')
 			.option('--display_name <name>', 'the display name for the account profile', '')
 			.option('-f, --format <format>', `output format: ${accountOutputFormats.join(', ')}`, 'text')
 			.option('--timeout <ms>', 'how long to wait for the central gateway to answer', '10000')
-			.action(async (localOptions: { key_file: string; email_address: string; display_name: string; format: string; timeout: string }, command: Commander.Command): Promise<void> => {
+			.action(async (
+				localOptions: {
+					key_file: string;
+					email_address: string;
+					display_name: string;
+					format: string;
+					timeout: string;
+				},
+				command: Commander.Command,
+			): Promise<void> => {
 				const options = command.optsWithGlobals<GlobalOptions & typeof localOptions>();
-				if (AccountOutputFormatter.isFormat(options.format) === false) throw new Error(`Format must be one of ${accountOutputFormats.join(', ')}`);
+				if (AccountOutputFormatter.isFormat(options.format) === false) {
+					throw new Error(`Format must be one of ${accountOutputFormats.join(', ')}`);
+				}
 				await AccountRegisterCommand.run({
 					url: options.url,
 					authToken: Cli.resolveAuthToken(options.authToken),
@@ -179,13 +275,22 @@ export class Cli {
 
 		program
 			.command('account_information')
-			.description('print the profile the central gateway holds for this account: its identifier, its public key, its display name, its email address, and when it was registered')
-			.option('-k, --key_file <path>', 'where the key pair is kept', defaultAccountKeyFilePath)
+			.description(
+				'print the profile the central gateway holds for this account: its identifier,'
+					+ ' its public key, its display name, its email address, and when it was'
+					+ ' registered',
+			)
+			.option('-k, --key_file <path>', 'where the key pair is kept', DEFAULT_ACCOUNT_KEY_FILE_PATH)
 			.option('-f, --format <format>', `output format: ${accountOutputFormats.join(', ')}`, 'text')
 			.option('--timeout <ms>', 'how long to wait for the central gateway to answer', '10000')
-			.action(async (localOptions: { key_file: string; format: string; timeout: string }, command: Commander.Command): Promise<void> => {
+			.action(async (
+				localOptions: { key_file: string; format: string; timeout: string },
+				command: Commander.Command,
+			): Promise<void> => {
 				const options = command.optsWithGlobals<GlobalOptions & typeof localOptions>();
-				if (AccountOutputFormatter.isFormat(options.format) === false) throw new Error(`Format must be one of ${accountOutputFormats.join(', ')}`);
+				if (AccountOutputFormatter.isFormat(options.format) === false) {
+					throw new Error(`Format must be one of ${accountOutputFormats.join(', ')}`);
+				}
 				await AccountInformationCommand.run({
 					url: options.url,
 					authToken: Cli.resolveAuthToken(options.authToken),
@@ -197,13 +302,21 @@ export class Cli {
 
 		program
 			.command('account_balance')
-			.description('print what this account holds: one credit for every stage it completed as a worker, less one for every stage it had run as a consumer')
-			.option('-k, --key_file <path>', 'where the key pair is kept', defaultAccountKeyFilePath)
+			.description(
+				'print what this account holds: one credit for every stage it completed as a'
+					+ ' worker, less one for every stage it had run as a consumer',
+			)
+			.option('-k, --key_file <path>', 'where the key pair is kept', DEFAULT_ACCOUNT_KEY_FILE_PATH)
 			.option('-f, --format <format>', `output format: ${accountOutputFormats.join(', ')}`, 'text')
 			.option('--timeout <ms>', 'how long to wait for the central gateway to answer', '10000')
-			.action(async (localOptions: { key_file: string; format: string; timeout: string }, command: Commander.Command): Promise<void> => {
+			.action(async (
+				localOptions: { key_file: string; format: string; timeout: string },
+				command: Commander.Command,
+			): Promise<void> => {
 				const options = command.optsWithGlobals<GlobalOptions & typeof localOptions>();
-				if (AccountOutputFormatter.isFormat(options.format) === false) throw new Error(`Format must be one of ${accountOutputFormats.join(', ')}`);
+				if (AccountOutputFormatter.isFormat(options.format) === false) {
+					throw new Error(`Format must be one of ${accountOutputFormats.join(', ')}`);
+				}
 				await AccountBalanceCommand.run({
 					url: options.url,
 					authToken: Cli.resolveAuthToken(options.authToken),
@@ -215,19 +328,43 @@ export class Cli {
 
 		program
 			.command('account_history')
-			.description('print this account\'s accounting entries, newest first. --direction earned lists the stages this account completed, and --direction spent lists the stages it had run')
-			.option('-k, --key_file <path>', 'where the key pair is kept', defaultAccountKeyFilePath)
-			.option('-d, --direction <direction>', `which side of the ledger to print: ${accountHistoryDirections.join(', ')}`, 'both')
+			.description(
+				'print this account\'s accounting entries, newest first. --direction earned lists'
+					+ ' the stages this account completed, and --direction spent lists the stages'
+					+ ' it had run',
+			)
+			.option('-k, --key_file <path>', 'where the key pair is kept', DEFAULT_ACCOUNT_KEY_FILE_PATH)
+			.option(
+				'-d, --direction <direction>',
+				`which side of the ledger to print: ${accountHistoryDirections.join(', ')}`,
+				'both',
+			)
 			.option('-l, --limit <count>', 'how many entries to ask for at a time', '20')
 			.option('--all', 'keep asking for further pages until the whole history has been printed')
 			.option('-f, --format <format>', `output format: ${accountOutputFormats.join(', ')}`, 'text')
 			.option('--timeout <ms>', 'how long to wait for the central gateway to answer', '10000')
-			.action(async (localOptions: { key_file: string; direction: string; limit: string; all?: boolean; format: string; timeout: string }, command: Commander.Command): Promise<void> => {
+			.action(async (
+				localOptions: {
+					key_file: string;
+					direction: string;
+					limit: string;
+					all?: boolean;
+					format: string;
+					timeout: string;
+				},
+				command: Commander.Command,
+			): Promise<void> => {
 				const options = command.optsWithGlobals<GlobalOptions & typeof localOptions>();
-				if (AccountOutputFormatter.isFormat(options.format) === false) throw new Error(`Format must be one of ${accountOutputFormats.join(', ')}`);
-				if (AccountHistoryCommand.isDirection(options.direction) === false) throw new Error(`Direction must be one of ${accountHistoryDirections.join(', ')}`);
+				if (AccountOutputFormatter.isFormat(options.format) === false) {
+					throw new Error(`Format must be one of ${accountOutputFormats.join(', ')}`);
+				}
+				if (AccountHistoryCommand.isDirection(options.direction) === false) {
+					throw new Error(`Direction must be one of ${accountHistoryDirections.join(', ')}`);
+				}
 				const limit = Number(options.limit);
-				if (Number.isInteger(limit) === false || limit < 1) throw new Error('Limit must be a whole number of at least 1');
+				if (Number.isInteger(limit) === false || limit < 1) {
+					throw new Error('Limit must be a whole number of at least 1');
+				}
 				await AccountHistoryCommand.run({
 					url: options.url,
 					authToken: Cli.resolveAuthToken(options.authToken),
@@ -254,15 +391,17 @@ export class Cli {
 	 *
 	 * `npx`, and the `bin` symlink `npm install` creates for it, invoke this file through a
 	 * symlink under `node_modules/.bin`, so `process.argv[1]` is the symlink path while
-	 * `import.meta.url` is Node's already-resolved real path. Comparing both sides after
+	 * `__filename` is Node's already-resolved real path. Comparing both sides after
 	 * resolving symlinks handles that invocation the same as running this file directly.
 	 *
 	 * @returns `true` when this process was started to run this file.
 	 */
 	static isMainModule(): boolean {
-		if (process.argv[1] === undefined) return false;
+		if (process.argv[1] === undefined) {
+			return false;
+		}
 		try {
-			return Url.fileURLToPath(import.meta.url) === Fs.realpathSync(process.argv[1]);
+			return __filename === Fs.realpathSync(process.argv[1]);
 		} catch {
 			return false;
 		}
@@ -276,8 +415,10 @@ export class Cli {
 	 * @returns The bearer token to authenticate with.
 	 */
 	private static resolveAuthToken(optionValue: string | undefined): string {
-		return optionValue ?? process.env.WEBAI_AUTH_TOKEN ?? defaultAuthenticationToken;
+		return optionValue ?? process.env.WEBAI_AUTH_TOKEN ?? DEFAULT_AUTHENTICATION_TOKEN;
 	}
 }
 
-if (Cli.isMainModule()) void Cli.run();
+if (Cli.isMainModule()) {
+	void Cli.run();
+}
