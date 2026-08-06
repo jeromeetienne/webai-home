@@ -213,6 +213,24 @@ The answers are `account.profile`, `account.balance`, and `account.ledger`:
 
 `account.ledger` states the direction it was read in, so a page says what it is a page of. Entries come newest first. `nextCursor` is present only while there is more to read, so a reader stops when it is absent rather than by counting what it has, and it is the `ledgerEntryId` of the last entry of the page. A cursor naming an entry the account does not have returns nothing, rather than the newest page again, so a stale cursor cannot be mistaken for progress. `limit` may not exceed 500, the largest page the gateway will assemble; a larger one is refused as the message is validated rather than quietly answered with less.
 
+### Reading what every account holds
+
+One message reads further than the asking connection's own account, and it is drawn narrowly: it is answered for an observer connection and no other.
+
+```json
+{ "type": "accounting.summaries.get" }
+```
+
+```json
+{ "type": "accounting.summaries", "summaries": [{ "accountId": "account-785c857b…", "displayName": "alice", "createdAt": "2026-08-06T03:24:03.682Z", "balance": 6, "earnedStageCount": 8, "spentStageCount": 2 }] }
+```
+
+A row is one account's ledger summary joined with the little of its profile that makes the row recognisable, so a reader answers "what does everybody hold" with one request rather than two lists to match up. Rows come highest balance first, ties broken by account identifier so two reads that changed nothing come back in the same order.
+
+Every account either source names is included: one that registered but has not worked yet appears with a balance of zero, and the shared development account appears with entries and no profile fields, since it was never registered. A connection that is not an observer is refused with `AUTHORISATION`.
+
+This is what the gateway's own `/ledger` page reads. Balances only: an account's entries stay readable by that account alone.
+
 ### The account error codes
 
 | Code | What it means | Retryable |
@@ -263,6 +281,8 @@ The answers are `account.profile`, `account.balance`, and `account.ledger`:
 | `account.balance` | Gateway | The requesting client | Return the balance, the stages earned, and the stages spent. |
 | `account.ledger.get` | Account holder | Gateway | Request one page of this account's accounting entries. |
 | `account.ledger` | Gateway | The requesting client | Return that page, newest first, with a cursor while there is more. |
+| `accounting.summaries.get` | Observer | Gateway | Request what every account holds. Answered for an observer connection and no other. |
+| `accounting.summaries` | Gateway | The requesting observer | Return one row per account, highest balance first. |
 | `error` | Gateway | The requesting client | Report invalid input, an unexpected stage, or another protocol error. |
 
 ## Diagnostics do not travel on the scheduling connection

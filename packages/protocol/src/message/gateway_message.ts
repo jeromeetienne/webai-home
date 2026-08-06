@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { AccountProfile } from '../accounting/account_types.js';
-import type { AccountLedgerSummary, LedgerDirection, LedgerEntry } from '../accounting/ledger_types.js';
+import type { AccountLedgerSummary, AccountSummaryRow, LedgerDirection, LedgerEntry } from '../accounting/ledger_types.js';
 import type { Device, DeviceActivity } from '../device_types.js';
 import type { StagePayload } from '../stage/stage_payload_types.js';
 import type { PipelineSpecification, StageName } from '../task/pipeline_types.js';
@@ -52,6 +52,7 @@ export type GatewayMessage =
 	| { type: 'account.profile'; account: AccountProfile }
 	| { type: 'account.balance'; summary: AccountLedgerSummary }
 	| { type: 'account.ledger'; accountId: string; direction: LedgerDirection; entries: LedgerEntry[]; nextCursor?: string }
+	| { type: 'accounting.summaries'; summaries: AccountSummaryRow[] }
 	| { type: 'deviceRegistered'; deviceId: string }
 	| { type: 'task.accepted'; taskRequestId: string; task: TaskSnapshot }
 	| { type: 'task.snapshot'; task: TaskSnapshot }

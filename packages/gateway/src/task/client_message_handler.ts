@@ -4,6 +4,7 @@ import type { WebSocket } from 'ws';
 import { AccountMessageHandler } from '../accounting/account_message_handler.js';
 import { AccountingQueryHandler } from '../accounting/accounting_query_handler.js';
 import type { AccountingRecorder } from '../accounting/accounting_recorder.js';
+import { AccountingSummaryHandler } from '../accounting/accounting_summary_handler.js';
 import type { ConnectionHub } from '../connection/connection_hub.js';
 import type { DeviceAnnouncer } from '../device/device_announcer.js';
 import type { DeviceRegistry } from '../device/device_registry.js';
@@ -45,6 +46,7 @@ export class ClientMessageHandler {
 	 * asynchronously because verifying a signature is asynchronous.
 	 * @param accountingRecorder The recorder of the credit a completed stage earns and costs.
 	 * @param accountingQueryHandler The answerer of what an account is, what it holds, and what it did.
+	 * @param accountingSummaryHandler The answerer of what every account holds, for an observer.
 	 */
 	constructor(
 		private readonly hub: ConnectionHub,
@@ -60,6 +62,7 @@ export class ClientMessageHandler {
 		private readonly accountMessageHandler: AccountMessageHandler,
 		private readonly accountingRecorder: AccountingRecorder,
 		private readonly accountingQueryHandler: AccountingQueryHandler,
+		private readonly accountingSummaryHandler: AccountingSummaryHandler,
 	) { }
 
 	/**
@@ -126,6 +129,10 @@ export class ClientMessageHandler {
 		// reading a balance or a history takes no cryptography, so nothing about it is asynchronous.
 		if (AccountingQueryHandler.isAccountingQuery(message)) {
 			this.accountingQueryHandler.handle(socket, deviceId, message, inReplyToMessageId);
+			return true;
+		}
+		if (AccountingSummaryHandler.isAccountingSummaryMessage(message)) {
+			this.accountingSummaryHandler.handle(socket, deviceId, inReplyToMessageId);
 			return true;
 		}
 		if (AccountMessageHandler.isAccountIdentityMessage(message)) {

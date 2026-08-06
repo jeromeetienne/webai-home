@@ -30,6 +30,10 @@ export const ClientMessageSchema = z.discriminatedUnion('type', [
 	z.object({ type: z.literal('account.get'), accountId: AccountId.optional() }).strict(),
 	z.object({ type: z.literal('account.balance.get'), accountId: AccountId.optional() }).strict(),
 	z.object({ type: z.literal('account.ledger.get'), accountId: AccountId.optional(), direction: LedgerDirection.optional(), limit: z.number().int().min(1).max(maximumLedgerPageSize).optional(), before: Identifier.optional() }).strict(),
+	// The one cluster-wide accounting read, answered for an observer connection only: every other
+	// accounting message is answered for the connection's own account and no other. An observer
+	// already sees the whole device list, so this reaches no further than an observer already does.
+	z.object({ type: z.literal('accounting.summaries.get') }).strict(),
 	z.object({ type: z.literal('task.observe'), taskId: Identifier }).strict(),
 	z.object({ type: z.literal('task.unobserve'), taskId: Identifier }).strict(),
 	z.object({ type: z.literal('task.resync'), taskId: Identifier }).strict(),

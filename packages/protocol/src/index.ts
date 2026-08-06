@@ -39,7 +39,7 @@ export type { AccountAuthenticationCallbacks, AccountAuthenticationMessage, Acco
 export { AccountIdentity } from './accounting/account_identity.js';
 export type { AccountCryptoKey, AccountCryptoKeyPair, AccountKeyJsonWebKey, AccountSignatureCheck } from './accounting/account_identity.js';
 export { CreditDelta, LedgerDirection, LedgerEntrySchema, maximumLedgerPageSize } from './accounting/ledger_types.js';
-export type { AccountLedgerSummary, LedgerEntry } from './accounting/ledger_types.js';
+export type { AccountLedgerSummary, AccountSummaryRow, LedgerEntry } from './accounting/ledger_types.js';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////

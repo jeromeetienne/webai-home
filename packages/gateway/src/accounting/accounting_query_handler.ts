@@ -21,12 +21,12 @@ const accountingQueryTypes: readonly AccountingQueryMessage['type'][] = ['accoun
  * Answers the three questions an account may ask about itself: what it is, what it holds, and what
  * it did.
  *
- * A connection may read its own account and no other. There is no operator view of the whole
- * cluster's accounting in Version 1, so a connection naming somebody else's account is refused
- * rather than answered — and naming an account at all is optional, because a connection that has
+ * A connection may read its own account and no other; naming somebody else's account is refused
+ * rather than answered, and naming an account at all is optional, because a connection that has
  * authenticated one already knows which account it is asking about. Naming it is what lets a client
  * state which account it believes it is and be told plainly when it is wrong, instead of being
- * handed a balance belonging to somebody else.
+ * handed a balance belonging to somebody else. `AccountingSummaryHandler` is the one exception to
+ * "its own account and no other": it answers the whole cluster's summary, for an observer connection.
  *
  * This is a class of its own rather than three more branches of `ClientMessageHandler`, which is
  * already the largest file in the gateway.

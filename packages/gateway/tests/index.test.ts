@@ -22,6 +22,7 @@ import { AccountMessageHandler } from '../src/accounting/account_message_handler
 import { AccountRegistry } from '../src/accounting/account_registry.js';
 import { ChallengeRegistry } from '../src/accounting/challenge_registry.js';
 import { AccountingQueryHandler } from '../src/accounting/accounting_query_handler.js';
+import { AccountingSummaryHandler } from '../src/accounting/accounting_summary_handler.js';
 import { AccountingRecorder } from '../src/accounting/accounting_recorder.js';
 import { LedgerStore } from '../src/accounting/ledger_store.js';
 import type { LedgerEntryDraft } from '../src/accounting/ledger_store.js';
@@ -787,7 +788,8 @@ const buildClientMessageHandlerHarness = (leaseMs = 15_000) => {
 	const ledgerStore = new LedgerStore(Path.join(logsDirectory, 'gateway-ledger.jsonl'));
 	const accountingRecorder = new AccountingRecorder(ledgerStore, sessionRegistry);
 	const accountingQueryHandler = new AccountingQueryHandler(hub, accountRegistry, ledgerStore, sessionRegistry);
-	const handler = new ClientMessageHandler(hub, deviceRegistry, taskStore, pipelineRegistry, sessionRegistry, stagePolicyResolver, scheduler, announcer, authToken, 2, accountMessageHandler, accountingRecorder, accountingQueryHandler);
+	const accountingSummaryHandler = new AccountingSummaryHandler(hub, accountRegistry, ledgerStore);
+	const handler = new ClientMessageHandler(hub, deviceRegistry, taskStore, pipelineRegistry, sessionRegistry, stagePolicyResolver, scheduler, announcer, authToken, 2, accountMessageHandler, accountingRecorder, accountingQueryHandler, accountingSummaryHandler);
 
 	const sockets = new Map<string, FakeSocket>();
 	let frameCounter = 0;
@@ -1919,4 +1921,78 @@ Test('an accounting read is answered before the connection registers as anything
 	const accountId = await harness.authenticateAccount('device-a');
 	Assert.equal(harness.deviceRegistry.get('device-a'), undefined);
 	Assert.deepEqual(harness.drive('device-a', { type: 'account.balance.get' })[0], { type: 'account.balance', summary: { accountId, balance: 0, earnedStageCount: 0, spentStageCount: 0 } });
+});
+
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+//	The cluster-wide accounting summary, for an observer
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+Test('only an observer connection may read the accounting summary of every account', () => {
+	const harness = buildClientMessageHandlerHarness();
+	harness.registerWorker('worker-1', 'worker-one');
+
+	// A registered worker is not an observer, so it is refused just as a stranger would be — this read
+	// reaches no further than an observer already sees, and a worker is not one.
+	const [refused] = harness.drive('worker-1', { type: 'accounting.summaries.get' });
+	Assert.equal((refused as { code: string }).code, 'AUTHORISATION');
+
+	harness.authenticate('device-observer');
+	const [observed] = harness.drive('device-observer', { type: 'accounting.summaries.get' });
+	Assert.equal(observed?.type, 'error');
+
+	harness.drive('device-observer', { type: 'observe' });
+	const [answered] = harness.drive('device-observer', { type: 'accounting.summaries.get' });
+	Assert.equal(answered?.type, 'accounting.summaries');
+});
+
+Test('the accounting summary joins the ledger with the account profile, and includes an account that has only one of the two', async () => {
+	const harness = buildClientMessageHandlerHarness();
+	harness.registerWorker('worker-1', 'worker-one');
+	const workerAccountId = await harness.authenticateAccount('worker-1');
+	harness.registerConsumer('consumer-1', 'consumer-one');
+	const consumerAccountId = await harness.authenticateAccount('consumer-1');
+	runWholeDevFormulaTask(harness);
+
+	// Registered but never done anything: no ledger entries, and must still be listed.
+	harness.authenticate('device-idle');
+	const idleAccountId = await harness.authenticateAccount('device-idle');
+
+	harness.authenticate('device-observer');
+	harness.drive('device-observer', { type: 'observe' });
+	const [answered] = harness.drive('device-observer', { type: 'accounting.summaries.get' });
+	const summaries = (answered as { summaries: { accountId: string; displayName: string; createdAt?: string; balance: number; earnedStageCount: number; spentStageCount: number }[] }).summaries;
+
+	const worker = summaries.find((row) => row.accountId === workerAccountId);
+	Assert.deepEqual(worker, { accountId: workerAccountId, displayName: '', createdAt: worker?.createdAt, balance: 2, earnedStageCount: 2, spentStageCount: 0 });
+	Assert.equal(typeof worker?.createdAt, 'string');
+
+	const consumer = summaries.find((row) => row.accountId === consumerAccountId);
+	Assert.deepEqual(consumer, { accountId: consumerAccountId, displayName: '', createdAt: consumer?.createdAt, balance: -2, earnedStageCount: 0, spentStageCount: 2 });
+
+	// Registered, no ledger entries: present with a zero balance rather than left out.
+	const idle = summaries.find((row) => row.accountId === idleAccountId);
+	Assert.deepEqual(idle, { accountId: idleAccountId, displayName: '', createdAt: idle?.createdAt, balance: 0, earnedStageCount: 0, spentStageCount: 0 });
+
+	// Ordered by balance, highest first.
+	Assert.deepEqual([...summaries].sort((left, right) => right.balance - left.balance || left.accountId.localeCompare(right.accountId)), summaries);
+});
+
+Test('the accounting summary lists the shared development account too, though it has no profile', () => {
+	const harness = buildClientMessageHandlerHarness();
+	harness.registerWorker('worker-1', 'worker-one');
+	harness.registerConsumer('consumer-1', 'consumer-one');
+
+	// Neither connection authenticated an account, so both halves of every stage land on the shared
+	// development account. It was never registered, so it has no profile to join to, and an operator
+	// still has to see how much work is going unattributed.
+	runWholeDevFormulaTask(harness);
+
+	harness.authenticate('device-observer');
+	harness.drive('device-observer', { type: 'observe' });
+	const [answered] = harness.drive('device-observer', { type: 'accounting.summaries.get' });
+	const summaries = (answered as { summaries: { accountId: string; displayName: string; createdAt?: string; balance: number; earnedStageCount: number; spentStageCount: number }[] }).summaries;
+
+	Assert.deepEqual(summaries, [{ accountId: 'account-shared-development', displayName: '', balance: 0, earnedStageCount: 2, spentStageCount: 2 }]);
 });

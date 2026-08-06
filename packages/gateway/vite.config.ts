@@ -8,6 +8,7 @@ export default defineConfig({
 			input: {
 				home: Path.resolve(import.meta.dirname, 'web/home/index.html'),
 				monitor: Path.resolve(import.meta.dirname, 'web/monitor/index.html'),
+				ledger: Path.resolve(import.meta.dirname, 'web/ledger/index.html'),
 				debug: Path.resolve(import.meta.dirname, 'web/debug/index.html'),
 				debugIframe: Path.resolve(import.meta.dirname, 'web/debug_iframe/index.html'),
 				debugIframeDevFormula: Path.resolve(import.meta.dirname, 'web/debug_iframe_dev_formula/index.html'),

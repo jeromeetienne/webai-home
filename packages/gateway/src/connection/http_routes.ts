@@ -31,6 +31,7 @@ export type PageDevServer = {
 const pageRoutes: Record<string, string> = {
 	'/home': 'home/index.html',
 	'/monitor': 'monitor/index.html',
+	'/ledger': 'ledger/index.html',
 	'/debug': 'debug/index.html',
 	'/debug_iframe': 'debug_iframe/index.html',
 	'/debug_iframe_dev_formula': 'debug_iframe_dev_formula/index.html',

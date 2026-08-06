@@ -13,6 +13,7 @@ import { MessageLogger } from '@webai/protocol/message_logger';
 import { AccountMessageHandler } from './accounting/account_message_handler.js';
 import { AccountingQueryHandler } from './accounting/accounting_query_handler.js';
 import { AccountingRecorder } from './accounting/accounting_recorder.js';
+import { AccountingSummaryHandler } from './accounting/accounting_summary_handler.js';
 import { AccountRegistry } from './accounting/account_registry.js';
 import { ChallengeRegistry } from './accounting/challenge_registry.js';
 import { LedgerStore } from './accounting/ledger_store.js';
@@ -94,6 +95,7 @@ export class Cli {
 		const accountMessageHandler = new AccountMessageHandler(hub, accountRegistry, challengeRegistry, sessionRegistry);
 		const accountingRecorder = new AccountingRecorder(ledgerStore, sessionRegistry);
 		const accountingQueryHandler = new AccountingQueryHandler(hub, accountRegistry, ledgerStore, sessionRegistry);
+		const accountingSummaryHandler = new AccountingSummaryHandler(hub, accountRegistry, ledgerStore);
 		const messageHandler = new ClientMessageHandler(
 			hub,
 			deviceRegistry,
@@ -108,6 +110,7 @@ export class Cli {
 			accountMessageHandler,
 			accountingRecorder,
 			accountingQueryHandler,
+			accountingSummaryHandler,
 		);
 		const websocketRouter = new WebsocketRouter(
 			hub,

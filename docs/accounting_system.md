@@ -111,6 +111,14 @@ The page shows the account identifier and what it holds, and refreshes the figur
 
 One deployment of the OpenAI-compatible server is one account. It is that server's account and not the account of whichever program called its OpenAI-compatible endpoint, because the server is what the gateway sees.
 
+### An operator at the gateway
+
+The gateway serves a `/ledger` page showing what every account has earned and spent, highest balance first, with the three totals above it: credits earned, credits spent, and how many accounts exist. Those first two are always equal, because every completed stage records both halves.
+
+It is the one place any account other than your own is readable. The page connects as an observer — the same connection type the device list already goes to — and `accounting.summaries.get` is answered for an observer and nobody else. A participant cannot reach another participant's balance through the ordinary accounting messages, which is unchanged.
+
+The page shows balances, not history: an account's own entries stay readable only by that account. Work by participants holding no account of their own appears as one row named for what it is, rather than looking like a volunteer.
+
 ### A person at a terminal
 
 Five [`consumer_cli`](../packages/consumer_cli/README.md) commands, described in full in that package's README:
@@ -147,7 +155,7 @@ Every one of these is a decision, not an oversight. They are recorded in #122 an
 - No reputation or reliability score.
 - No credit expiry or decay.
 - No verification that a returned stage result is correct, which stays the separate open research question it already is.
-- No cluster-wide accounting view for an operator.
+- No cluster-wide accounting view beyond the gateway's own `/ledger` page, which shows balances and no history, and is answered only for an observer connection.
 - No editing of an account profile after registration, and no account recovery or linking.
 
 ## Where the code is

@@ -87,3 +87,18 @@ export type AccountLedgerSummary = {
 	/** How many stages this account had run as a consumer. */
 	spentStageCount: number;
 };
+
+/**
+ * One row of the accounting summary of every account, for the `/ledger` operator page.
+ *
+ * It is `AccountLedgerSummary` joined with the little of the account profile that makes a row
+ * recognisable. The join happens on the gateway, not the wire, because a client should not have to
+ * make two requests and match them up itself to answer one question: what does everybody hold.
+ */
+export type AccountSummaryRow = AccountLedgerSummary & {
+	/** The display name on the account profile, when the account has one. Empty for an account with no
+	 * profile, which today is only the shared development account. */
+	displayName: string;
+	/** When the account was registered, when it has a profile. */
+	createdAt?: string;
+};

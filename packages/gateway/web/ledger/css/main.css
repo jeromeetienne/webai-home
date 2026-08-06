@@ -1,0 +1,61 @@
+body {
+    background: #f5f7fb;
+}
+
+html[data-theme="dark"] body {
+    background: #18202b;
+}
+
+html[data-theme="dark"] .card,
+html[data-theme="dark"] .card-header {
+    background-color: #232d3b !important;
+    color: #e9eef7;
+}
+
+html[data-theme="dark"] .account-item {
+    border-color: #3a4656;
+}
+
+.gateway-status {
+    min-width: max-content;
+}
+
+@media (max-width: 576px) {
+    .gateway-status .small {
+        display: none;
+    }
+}
+
+.card {
+    border-radius: 1rem;
+}
+
+.card-header {
+    border-radius: 1rem 1rem 0 0 !important;
+}
+
+.account-item {
+    border-bottom: 1px solid #edf0f5;
+    padding: 0.9rem 0;
+}
+
+.account-item:first-child {
+    padding-top: 0;
+}
+
+.account-item:last-child {
+    border-bottom: 0;
+}
+
+/* An account identifier is thirty-two hexadecimal characters, so it is set in a monospaced face and
+   allowed to wrap rather than pushing the balance off a narrow screen. */
+.account-identifier {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 0.85rem;
+    word-break: break-all;
+}
+
+.account-balance {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
