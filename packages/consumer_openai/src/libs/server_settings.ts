@@ -11,16 +11,17 @@ import Url from 'node:url';
 /**
  * Where this server defaults to reading its own account key pair.
  *
- * This is one shared identity for this checkout of the repository, used by `consumer_cli`,
- * `consumer_openai`, and `worker_openai_api` alike, so a task submitted or a stage completed by any
- * of them during local development lands on the same account. `--account-key-file` overrides it.
+ * This is `consumer_openai`'s own identity for this checkout of the repository, kept separate from
+ * `consumer_cli`'s in `data/consumer_cli_config/` and `worker_openai_api`'s in
+ * `data/worker_openai_api_config/`, so every task this server submits lands on one consistent account
+ * without `--account-key-file` being passed by hand.
  *
- * Resolved from this file's own location rather than written as a bare `data/account_keys/…` string,
- * because a relative path resolves against the process's working directory, not this file's — and
- * `npm run dev --workspace @webai/consumer-openai --` and `npx tsx src/cli.ts` both run with the
- * working directory somewhere other than the repository root.
+ * Resolved from this file's own location rather than written as a bare
+ * `data/consumer_openai_config/…` string, because a relative path resolves against the process's
+ * working directory, not this file's — and `npm run dev --workspace @webai/consumer-openai --` and
+ * `npx tsx src/cli.ts` both run with the working directory somewhere other than the repository root.
  */
-const defaultAccountKeyFilePath = Path.resolve(Path.dirname(Url.fileURLToPath(import.meta.url)), '../../../../data/account_keys/default.account_key.json');
+const defaultAccountKeyFilePath = Path.resolve(Path.dirname(Url.fileURLToPath(import.meta.url)), '../../../../data/consumer_openai_config/default.account_key.json');
 
 /** The command line options exactly as they arrive, before they are converted. */
 type RawOptions = {

@@ -31,16 +31,17 @@ const DEFAULT_AUTHENTICATION_TOKEN = 'development-token';
 /**
  * Where every account command defaults to keeping or reading the account key pair.
  *
- * This is one shared identity for this checkout of the repository, used by `consumer_cli`,
- * `consumer_openai`, and `worker_openai_api` alike, so a task submitted or a stage completed by any
- * of them during local development lands on the same account. `--key_file` overrides it per command.
+ * This is `consumer_cli`'s own identity for this checkout of the repository, kept separate from
+ * `consumer_openai`'s in `data/consumer_openai_config/` and `worker_openai_api`'s in
+ * `data/worker_openai_api_config/`, so every `consumer_cli` command run here uses one consistent
+ * account without `--key_file` being passed by hand.
  *
- * Resolved from this file's own location rather than written as a bare `data/account_keys/…` string,
- * because a relative path resolves against the process's working directory, not this file's — and
- * `npm run dev --workspace @webai/consumer-cli --` and `npx tsx src/cli.ts` both run with the working
- * directory somewhere other than the repository root.
+ * Resolved from this file's own location rather than written as a bare `data/consumer_cli_config/…`
+ * string, because a relative path resolves against the process's working directory, not this file's —
+ * and `npm run dev --workspace @webai/consumer-cli --` and `npx tsx src/cli.ts` both run with the
+ * working directory somewhere other than the repository root.
  */
-const DEFAULT_ACCOUNT_KEY_FILE_PATH = Path.resolve(__dirname, '../../../data/account_keys/default.account_key.json');
+const DEFAULT_ACCOUNT_KEY_FILE_PATH = Path.resolve(__dirname, '../../../data/consumer_cli_config/default.account_key.json');
 
 /** The shared options every subcommand accepts, before each subcommand's own options. */
 type GlobalOptions = {

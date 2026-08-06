@@ -19,16 +19,17 @@ const defaultAuthenticationToken = 'development-token';
 /**
  * Where this worker defaults to reading its own account key pair.
  *
- * This is one shared identity for this checkout of the repository, used by `consumer_cli`,
- * `consumer_openai`, and `worker_openai_api` alike, so a task submitted or a stage completed by any
- * of them during local development lands on the same account. `--account-key-file` overrides it.
+ * This is `worker_openai_api`'s own identity for this checkout of the repository, kept separate from
+ * `consumer_cli`'s in `data/consumer_cli_config/` and `consumer_openai`'s in
+ * `data/consumer_openai_config/`, so every stage this worker completes earns credit for one
+ * consistent account without `--account-key-file` being passed by hand.
  *
- * Resolved from this file's own location rather than written as a bare `data/account_keys/…` string,
- * because a relative path resolves against the process's working directory, not this file's — and
- * `npm run dev --workspace @webai/worker-openai-api --` and `npx tsx src/cli.ts` both run with the
- * working directory somewhere other than the repository root.
+ * Resolved from this file's own location rather than written as a bare
+ * `data/worker_openai_api_config/…` string, because a relative path resolves against the process's
+ * working directory, not this file's — and `npm run dev --workspace @webai/worker-openai-api --` and
+ * `npx tsx src/cli.ts` both run with the working directory somewhere other than the repository root.
  */
-const defaultAccountKeyFilePath = Path.resolve(Path.dirname(Url.fileURLToPath(import.meta.url)), '../../../data/account_keys/default.account_key.json');
+const defaultAccountKeyFilePath = Path.resolve(Path.dirname(Url.fileURLToPath(import.meta.url)), '../../../data/worker_openai_api_config/default.account_key.json');
 
 /** The options this worker was started with. */
 type WorkerOptions = {
