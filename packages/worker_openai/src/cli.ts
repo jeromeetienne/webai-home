@@ -20,19 +20,20 @@ const defaultAuthenticationToken = 'development-token';
 const defaultGatewayUrl = 'ws://localhost:8787';
 
 /**
- * Where this worker defaults to reading its own account key pair.
+ * Where this worker defaults to reading its configuration directory, which holds its own account key
+ * pair in `default.account_key.json`.
  *
  * This is `worker_openai`'s own identity for this checkout of the repository, kept separate from
  * `consumer_cli`'s in `data/consumer_cli_config/` and `consumer_openai`'s in
  * `data/consumer_openai_config/`, so every stage this worker completes earns credit for one
- * consistent account without `--account-key-file` being passed by hand.
+ * consistent account without `--config_dir` being passed by hand.
  *
  * Resolved from this file's own location rather than written as a bare
- * `data/worker_openai_config/…` string, because a relative path resolves against the process's
+ * `data/worker_openai_config` string, because a relative path resolves against the process's
  * working directory, not this file's — and `npm run dev --workspace @webai/worker-openai --` and
  * `npx tsx src/cli.ts` both run with the working directory somewhere other than the repository root.
  */
-const defaultAccountKeyFilePath = Path.resolve(Path.dirname(Url.fileURLToPath(import.meta.url)), '../../../data/worker_openai_config/default.account_key.json');
+const defaultConfigDir = Path.resolve(Path.dirname(Url.fileURLToPath(import.meta.url)), '../../../data/worker_openai_config');
 
 /** The options this worker was started with. */
 type WorkerOptions = {
@@ -42,8 +43,8 @@ type WorkerOptions = {
 	baseUrl: string;
 	model: string;
 	stageNames?: string[];
-	/** Where this worker's own account key pair is kept. */
-	accountKeyFile: string;
+	/** The directory holding this worker's own account key pair, as `default.account_key.json`. */
+	config_dir: string;
 };
 
 /**
@@ -69,7 +70,7 @@ export class Cli {
 			.option('-b, --base-url <url>', "base URL of the local server's OpenAI-compatible API", 'http://localhost:1234/v1')
 			.option('-m, --model <model>', 'the model the local server is asked for', 'llama-3.2-3b-instruct')
 			.option('-s, --stage-names <name...>', 'restrict this worker to these stages, instead of every stage it can run')
-			.option('-k, --account-key-file <path>', 'where this worker\'s own account key pair is kept, so the stages it completes earn credits for that account. A path with no key pair there means no account', defaultAccountKeyFilePath);
+			.option('-c, --config_dir <path>', 'the directory holding this worker\'s own account key pair, as default.account_key.json, so the stages it completes earn credits for that account. A directory with no key pair in it means no account', defaultConfigDir);
 
 		program.parse(args, { from: 'user' });
 		const options = program.opts<WorkerOptions>();
@@ -85,7 +86,7 @@ export class Cli {
 	private static async connect(options: WorkerOptions): Promise<void> {
 		// Read before the connection opens, so a key file this program cannot read stops the worker with
 		// that as the reason, rather than half-way through the conversation with the gateway.
-		const accountKeyPair = await AccountKeyFile.readIfPresent(options.accountKeyFile);
+		const accountKeyPair = await AccountKeyFile.readIfPresent(AccountKeyFile.pathInConfigDir(options.config_dir));
 		const openaiApiClient = new OpenaiApiClient(options.baseUrl.replace(/\/+$/, ''));
 		const gatewayUrl = Cli.resolveGatewayUrl(options.url);
 		const socket = new WebSocket(gatewayUrl) as unknown as WorkerSocket;

@@ -32,6 +32,10 @@
     "./account_key_file": {
       "types": "./dist/accounting/account_key_file.d.ts",
       "default": "./dist/accounting/account_key_file.js"
+    },
+    "./account_identity_file": {
+      "types": "./dist/accounting/account_identity_file.d.ts",
+      "default": "./dist/accounting/account_identity_file.js"
     }
   },
   "scripts": {

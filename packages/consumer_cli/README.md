@@ -77,7 +77,7 @@ npm run dev --workspace @webai/consumer-cli -- submit "hello there" --task_type 
 `--stream` is not valid for `dev_formula`, which always returns one numeric
 result. `submit` writes gateway messages to `packages/consumer_cli/logs`.
 
-`submit` spends from this participant's account, so the stages its task runs are recorded against that account rather than against nobody. It reads the key pair from `-k, --key_file`, defaulting to `data/consumer_cli_config/default.account_key.json` in this checkout of the repository, and says which account it is submitting as:
+`submit` spends from this participant's account, so the stages its task runs are recorded against that account rather than against nobody. It reads the key pair from `default.account_key.json` inside the configuration directory given by `-c, --config_dir`, which defaults to `data/consumer_cli_config` in this checkout of the repository, and says which account it is submitting as:
 
 ```
 Submitting as account-37b98b4c860818d3396d3b4b1b04ab88.
@@ -151,8 +151,15 @@ Every one of them accepts:
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `-k, --key_file <path>` | `data/consumer_cli_config/default.account_key.json` | Where this participant's key pair is kept, relative to this checkout of the repository. |
+| `-c, --config_dir <path>` | `data/consumer_cli_config` | The directory holding this participant's configuration, relative to this checkout of the repository. |
 | `-f, --format <format>` | `text` | `text` (aligned lines, or a table for `account_history`) or `json`. |
+
+Two files live in that directory, both named exactly as written here:
+
+| File | What it holds |
+| --- | --- |
+| `default.account_key.json` | The key pair that is this participant's account, written by `account_key` and read by every other command. **The private key in it is the whole account.** |
+| `default.identity.json` | This participant's profile, as `{ "displayName": string, "emailAddress": string }`. Read by `identity_register` and edited by hand. An absent file, or a missing field, reads as empty. |
 
 All but `account_key` also accept `--timeout <ms>`, defaulting to `10000`, and the shared `--url` and `--auth-token` options.
 
@@ -180,18 +187,24 @@ The file is written readable and writable by its owner only. **The private key i
 
 ### `identity_register`
 
-Tells the central gateway about this machine's public key.
+Tells the central gateway about this machine's public key, along with the display name and the email address read from `default.identity.json` in the configuration directory.
 
 ```sh
-npm run dev --workspace @webai/consumer-cli -- identity_register --email_address volunteer@example.com --display_name "my laptop"
+npm run dev --workspace @webai/consumer-cli -- identity_register
 ```
 
-Running it twice is harmless: registering a public key the gateway already knows changes nothing and reports the profile it already holds, with `was created now` answering `no`. Registration does not prove that the sender holds the private key, so it must not be able to rewrite the email address or display name of an account somebody else owns; editing a profile is not part of Version 1 of the accounting system.
+The profile is stated in a file rather than on the command line, so it is written once and not retyped on every run:
 
-| Option | Default | Meaning |
-| --- | --- | --- |
-| `--email_address <address>` | empty | The email address for the account profile. |
-| `--display_name <name>` | empty | The display name for the account profile. |
+```json
+{
+	"displayName": "my laptop",
+	"emailAddress": "volunteer@example.com"
+}
+```
+
+A configuration directory with no `default.identity.json` in it, or a file missing either field, registers with that field empty — the same anonymous profile a worker browser tab registers with. Nothing writes this file: it is created and edited by hand.
+
+Running `identity_register` twice is harmless: registering a public key the gateway already knows changes nothing and reports the profile it already holds, with `was created now` answering `no`. Registration does not prove that the sender holds the private key, so it must not be able to rewrite the email address or display name of an account somebody else owns; editing a profile is not part of Version 1 of the accounting system. Changing `default.identity.json` after the account has been registered therefore changes nothing at the gateway.
 
 ### `account_information`
 

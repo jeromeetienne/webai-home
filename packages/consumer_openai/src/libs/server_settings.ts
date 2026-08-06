@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import Path from 'node:path';
 import Url from 'node:url';
+import { AccountKeyFile } from '@webai/protocol/account_key_file';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -9,19 +10,20 @@ import Url from 'node:url';
 ///////////////////////////////////////////////////////////////////////////////
 
 /**
- * Where this server defaults to reading its own account key pair.
+ * Where this server defaults to reading its configuration directory, which holds its own account key
+ * pair in `default.account_key.json`.
  *
  * This is `consumer_openai`'s own identity for this checkout of the repository, kept separate from
  * `consumer_cli`'s in `data/consumer_cli_config/` and `worker_openai`'s in
  * `data/worker_openai_config/`, so every task this server submits lands on one consistent account
- * without `--account-key-file` being passed by hand.
+ * without `--config_dir` being passed by hand.
  *
  * Resolved from this file's own location rather than written as a bare
- * `data/consumer_openai_config/…` string, because a relative path resolves against the process's
+ * `data/consumer_openai_config` string, because a relative path resolves against the process's
  * working directory, not this file's — and `npm run dev --workspace @webai/consumer-openai --` and
  * `npx tsx src/cli.ts` both run with the working directory somewhere other than the repository root.
  */
-const defaultAccountKeyFilePath = Path.resolve(Path.dirname(Url.fileURLToPath(import.meta.url)), '../../../../data/consumer_openai_config/default.account_key.json');
+const defaultConfigDir = Path.resolve(Path.dirname(Url.fileURLToPath(import.meta.url)), '../../../../data/consumer_openai_config');
 
 /** The command line options exactly as they arrive, before they are converted. */
 type RawOptions = {
@@ -30,7 +32,7 @@ type RawOptions = {
 	authToken: string;
 	apiKey?: string;
 	consumer_name: string;
-	accountKeyFile: string;
+	config_dir: string;
 	requestTimeoutMs: string;
 	connectionWaitMs: string;
 	maxTasksInFlight: string;
@@ -56,11 +58,12 @@ export class ServerSettings {
 	/** The consumer name this server registers under with the central gateway. */
 	readonly name: string;
 	/**
-	 * Where this server's own account key pair is kept.
+	 * Where this server's own account key pair is kept, as `default.account_key.json` inside the
+	 * configuration directory.
 	 *
-	 * One deployment of this server is one account. A path with no key pair at it means this server
-	 * runs with no account, and the stages its tasks run are recorded against the shared development
-	 * account.
+	 * One deployment of this server is one account. A directory with no key pair in it means this
+	 * server runs with no account, and the stages its tasks run are recorded against the shared
+	 * development account.
 	 */
 	readonly accountKeyFile: string;
 	/** How long one task may run before it is cancelled and the request is given up on. */
@@ -80,7 +83,7 @@ export class ServerSettings {
 			.option('-t, --auth-token <token>', 'Bearer token the central gateway requires', 'development-token')
 			.option('-k, --api-key <key>', 'Key a request must present to this server. Omit to require none')
 			.option('-n, --consumer_name <name>', 'Consumer name to register under with the central gateway', 'consumer_openai server')
-			.option('--account-key-file <path>', 'Where this server\'s own account key pair is kept, so the stages its tasks run are recorded against that account. A path with no key pair there means no account', defaultAccountKeyFilePath)
+			.option('-c, --config_dir <path>', 'The directory holding this server\'s own account key pair, as default.account_key.json, so the stages its tasks run are recorded against that account. A directory with no key pair in it means no account', defaultConfigDir)
 			.option('--request-timeout-ms <number>', 'How long one task may run before it is cancelled', '600000')
 			.option(
 				'--connection-wait-ms <number>',
@@ -104,7 +107,7 @@ export class ServerSettings {
 		this.authToken = options.authToken;
 		this.apiKey = options.apiKey;
 		this.name = options.consumer_name;
-		this.accountKeyFile = options.accountKeyFile;
+		this.accountKeyFile = AccountKeyFile.pathInConfigDir(options.config_dir);
 		this.requestTimeoutMs = Number(options.requestTimeoutMs);
 		this.connectionWaitMs = Number(options.connectionWaitMs);
 		this.maximumTasksInFlight = Number(options.maxTasksInFlight);

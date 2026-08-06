@@ -15,6 +15,8 @@ import { IdentityRegisterCommand } from './commands/identity_register_command.js
 import { AccountInformationCommand } from './commands/account_information_command.js';
 import { AccountBalanceCommand } from './commands/account_balance_command.js';
 import { AccountHistoryCommand, accountHistoryDirections } from './commands/account_history_command.js';
+import { AccountKeyFile } from '@webai/protocol/account_key_file';
+import { AccountIdentityFile } from '@webai/protocol/account_identity_file';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -32,19 +34,21 @@ const DEFAULT_AUTHENTICATION_TOKEN = 'development-token';
 const DEFAULT_GATEWAY_URL = 'ws://localhost:8787';
 
 /**
- * Where every account command defaults to keeping or reading the account key pair.
+ * Where every account command defaults to reading this participant's configuration directory, which
+ * holds the account key pair in `default.account_key.json` and the account profile in
+ * `default.identity.json`.
  *
  * This is `consumer_cli`'s own identity for this checkout of the repository, kept separate from
  * `consumer_openai`'s in `data/consumer_openai_config/` and `worker_openai`'s in
  * `data/worker_openai_config/`, so every `consumer_cli` command run here uses one consistent
- * account without `--key_file` being passed by hand.
+ * account without `--config_dir` being passed by hand.
  *
- * Resolved from this file's own location rather than written as a bare `data/consumer_cli_config/…`
+ * Resolved from this file's own location rather than written as a bare `data/consumer_cli_config`
  * string, because a relative path resolves against the process's working directory, not this file's —
  * and `npm run dev --workspace @webai/consumer-cli --` and `npx tsx src/cli.ts` both run with the
  * working directory somewhere other than the repository root.
  */
-const DEFAULT_ACCOUNT_KEY_FILE_PATH = Path.resolve(__dirname, '../../../data/consumer_cli_config/default.account_key.json');
+const DEFAULT_CONFIG_DIR = Path.resolve(__dirname, '../../../data/consumer_cli_config');
 
 /** The shared options every subcommand accepts, before each subcommand's own options. */
 type GlobalOptions = {
@@ -98,11 +102,11 @@ export class Cli {
 					+ ' it is finished',
 			)
 			.option(
-				'-k, --key_file <path>',
-				'where this participant\'s account key pair is kept, so the stages this task runs'
-					+ ' are recorded against that account. A machine with no key pair there'
-					+ ' submits with no account',
-				DEFAULT_ACCOUNT_KEY_FILE_PATH,
+				'-c, --config_dir <path>',
+				'the directory holding this participant\'s account key pair in'
+					+ ' default.account_key.json, so the stages this task runs are recorded against'
+					+ ' that account. A machine with no key pair there submits with no account',
+				DEFAULT_CONFIG_DIR,
 			)
 			.action(async (
 				input: string,
@@ -110,7 +114,7 @@ export class Cli {
 					task_type: string;
 					consumer_name: string;
 					stream?: boolean;
-					key_file: string;
+					config_dir: string;
 				},
 				command: Commander.Command,
 			): Promise<void> => {
@@ -124,7 +128,7 @@ export class Cli {
 					type: options.task_type,
 					name: options.consumer_name,
 					stream: options.stream === true,
-					keyFilePath: options.key_file,
+					keyFilePath: AccountKeyFile.pathInConfigDir(options.config_dir),
 					input,
 				});
 			});
@@ -226,20 +230,20 @@ export class Cli {
 					+ ' identifier it produces. It talks to nothing: the identifier is a digest of'
 					+ ' the public key, so it exists as soon as the key pair does',
 			)
-			.option('-k, --key_file <path>', 'where to keep the key pair', DEFAULT_ACCOUNT_KEY_FILE_PATH)
+			.option('-c, --config_dir <path>', 'the directory to keep the key pair in, as default.account_key.json', DEFAULT_CONFIG_DIR)
 			.option(
 				'--force',
 				'overwrite a key pair that is already there, losing the account it belongs to',
 			)
 			.option('-f, --format <format>', `output format: ${accountOutputFormats.join(', ')}`, 'text')
 			.action(async (
-				localOptions: { key_file: string; force?: boolean; format: string },
+				localOptions: { config_dir: string; force?: boolean; format: string },
 			): Promise<void> => {
 				if (AccountOutputFormatter.isFormat(localOptions.format) === false) {
 					throw new Error(`Format must be one of ${accountOutputFormats.join(', ')}`);
 				}
 				await AccountKeyCommand.run({
-					keyFilePath: localOptions.key_file,
+					keyFilePath: AccountKeyFile.pathInConfigDir(localOptions.config_dir),
 					isForced: localOptions.force === true,
 					format: localOptions.format,
 				});
@@ -251,16 +255,12 @@ export class Cli {
 				'tell the central gateway about this machine\'s public key, so completed and'
 					+ ' consumed stages can be recorded against the account it identifies',
 			)
-			.option('-k, --key_file <path>', 'where the key pair is kept', DEFAULT_ACCOUNT_KEY_FILE_PATH)
-			.option('--email_address <address>', 'the email address for the account profile', '')
-			.option('--display_name <name>', 'the display name for the account profile', '')
+			.option('-c, --config_dir <path>', 'the directory holding the key pair in default.account_key.json and the account profile in default.identity.json', DEFAULT_CONFIG_DIR)
 			.option('-f, --format <format>', `output format: ${accountOutputFormats.join(', ')}`, 'text')
 			.option('--timeout <ms>', 'how long to wait for the central gateway to answer', '10000')
 			.action(async (
 				localOptions: {
-					key_file: string;
-					email_address: string;
-					display_name: string;
+					config_dir: string;
 					format: string;
 					timeout: string;
 				},
@@ -274,9 +274,8 @@ export class Cli {
 					url: Cli.resolveGatewayUrl(options.url),
 					authToken: Cli.resolveAuthToken(options.authToken),
 					timeoutMs: Number(options.timeout),
-					keyFilePath: options.key_file,
-					emailAddress: options.email_address,
-					displayName: options.display_name,
+					keyFilePath: AccountKeyFile.pathInConfigDir(options.config_dir),
+					identityFilePath: AccountIdentityFile.pathInConfigDir(options.config_dir),
 					format: options.format,
 				});
 			});
@@ -288,11 +287,11 @@ export class Cli {
 					+ ' its public key, its display name, its email address, and when it was'
 					+ ' registered',
 			)
-			.option('-k, --key_file <path>', 'where the key pair is kept', DEFAULT_ACCOUNT_KEY_FILE_PATH)
+			.option('-c, --config_dir <path>', 'the directory holding the key pair in default.account_key.json', DEFAULT_CONFIG_DIR)
 			.option('-f, --format <format>', `output format: ${accountOutputFormats.join(', ')}`, 'text')
 			.option('--timeout <ms>', 'how long to wait for the central gateway to answer', '10000')
 			.action(async (
-				localOptions: { key_file: string; format: string; timeout: string },
+				localOptions: { config_dir: string; format: string; timeout: string },
 				command: Commander.Command,
 			): Promise<void> => {
 				const options = command.optsWithGlobals<GlobalOptions & typeof localOptions>();
@@ -303,7 +302,7 @@ export class Cli {
 					url: Cli.resolveGatewayUrl(options.url),
 					authToken: Cli.resolveAuthToken(options.authToken),
 					timeoutMs: Number(options.timeout),
-					keyFilePath: options.key_file,
+					keyFilePath: AccountKeyFile.pathInConfigDir(options.config_dir),
 					format: options.format,
 				});
 			});
@@ -314,11 +313,11 @@ export class Cli {
 				'print what this account holds: one credit for every stage it completed as a'
 					+ ' worker, less one for every stage it had run as a consumer',
 			)
-			.option('-k, --key_file <path>', 'where the key pair is kept', DEFAULT_ACCOUNT_KEY_FILE_PATH)
+			.option('-c, --config_dir <path>', 'the directory holding the key pair in default.account_key.json', DEFAULT_CONFIG_DIR)
 			.option('-f, --format <format>', `output format: ${accountOutputFormats.join(', ')}`, 'text')
 			.option('--timeout <ms>', 'how long to wait for the central gateway to answer', '10000')
 			.action(async (
-				localOptions: { key_file: string; format: string; timeout: string },
+				localOptions: { config_dir: string; format: string; timeout: string },
 				command: Commander.Command,
 			): Promise<void> => {
 				const options = command.optsWithGlobals<GlobalOptions & typeof localOptions>();
@@ -329,7 +328,7 @@ export class Cli {
 					url: Cli.resolveGatewayUrl(options.url),
 					authToken: Cli.resolveAuthToken(options.authToken),
 					timeoutMs: Number(options.timeout),
-					keyFilePath: options.key_file,
+					keyFilePath: AccountKeyFile.pathInConfigDir(options.config_dir),
 					format: options.format,
 				});
 			});
@@ -341,7 +340,7 @@ export class Cli {
 					+ ' the stages this account completed, and --direction spent lists the stages'
 					+ ' it had run',
 			)
-			.option('-k, --key_file <path>', 'where the key pair is kept', DEFAULT_ACCOUNT_KEY_FILE_PATH)
+			.option('-c, --config_dir <path>', 'the directory holding the key pair in default.account_key.json', DEFAULT_CONFIG_DIR)
 			.option(
 				'-d, --direction <direction>',
 				`which side of the ledger to print: ${accountHistoryDirections.join(', ')}`,
@@ -353,7 +352,7 @@ export class Cli {
 			.option('--timeout <ms>', 'how long to wait for the central gateway to answer', '10000')
 			.action(async (
 				localOptions: {
-					key_file: string;
+					config_dir: string;
 					direction: string;
 					limit: string;
 					all?: boolean;
@@ -377,7 +376,7 @@ export class Cli {
 					url: Cli.resolveGatewayUrl(options.url),
 					authToken: Cli.resolveAuthToken(options.authToken),
 					timeoutMs: Number(options.timeout),
-					keyFilePath: options.key_file,
+					keyFilePath: AccountKeyFile.pathInConfigDir(options.config_dir),
 					direction: options.direction,
 					limit,
 					isEverythingRequested: options.all === true,

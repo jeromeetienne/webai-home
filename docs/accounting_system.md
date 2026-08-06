@@ -39,11 +39,22 @@ The rules the gateway enforces around an account are these:
 | Participant | Where the private key lives | Can the holder read it out? |
 | --- | --- | --- |
 | A worker browser tab | IndexedDB in that browser, under this origin | No. It is generated as non-extractable, so the browser signs with it and no script can copy it, including the page's own. |
-| `consumer_cli` | A key file, readable and writable by its owner only, defaulting to `data/consumer_cli_config/default.account_key.json` in this checkout of the repository | Yes, necessarily. A process that ends holds nothing, so it has to be able to read the key back to be the same account on its next run. |
-| `consumer_openai` | A key file, defaulting to `data/consumer_openai_config/default.account_key.json` | Yes, for the same reason. |
-| `worker_openai` | A key file, defaulting to `data/worker_openai_config/default.account_key.json` | Yes, for the same reason. |
+| `consumer_cli` | `default.account_key.json` in a configuration directory, readable and writable by its owner only, defaulting to `data/consumer_cli_config` in this checkout of the repository | Yes, necessarily. A process that ends holds nothing, so it has to be able to read the key back to be the same account on its next run. |
+| `consumer_openai` | `default.account_key.json` in a configuration directory, defaulting to `data/consumer_openai_config` | Yes, for the same reason. |
+| `worker_openai` | `default.account_key.json` in a configuration directory, defaulting to `data/worker_openai_config` | Yes, for the same reason. |
 
-Each of the three defaults to its own key file, not a shared one: a task `consumer_cli submit` submits and a stage `worker_openai` completes are two different accounts by default, unless `--key_file` / `--account-key-file` is pointed at the same file for both. Every one of these defaults is resolved from the running program's own source location, so it lands on the same file wherever the command is invoked from, rather than depending on the working directory the command happened to be run in.
+Each of the three takes a `-c, --config_dir <path>` option naming that directory, and never the key file itself: the name inside the directory is fixed at `default.account_key.json`, so nothing can point at a differently named file the rest of the system does not expect. Each defaults to its own directory, not a shared one: a task `consumer_cli submit` submits and a stage `worker_openai` completes are two different accounts by default, unless `--config_dir` is pointed at the same directory for both. Every one of these defaults is resolved from the running program's own source location, so it lands on the same directory wherever the command is invoked from, rather than depending on the working directory the command happened to be run in.
+
+A second file sits in the same directory, `default.identity.json`, holding this participant's profile:
+
+```json
+{
+	"displayName": "my laptop",
+	"emailAddress": "volunteer@example.com"
+}
+```
+
+It holds no secret, it is created and edited by hand, and it may be absent — an absent file, or a missing field, reads as the empty string, which is the anonymous profile a worker browser tab registers with. Only `consumer_cli identity_register` reads it, and it reads it once: registering a public key the gateway already knows changes nothing, so editing this file after the account has been registered changes nothing at the gateway either.
 
 Every one of them proves its account the same way, through `AccountAuthentication` in the shared protocol package, and every one of them proves it **before** it does the thing that would otherwise be recorded against nobody: a worker registers only once its account is settled, and a consumer submits only once its own is. A participant that could not get an account carries on without one rather than refusing to work.
 
@@ -111,7 +122,7 @@ The page shows the account identifier and what it holds, and refreshes the figur
 
 ### A server or a command line program
 
-`consumer_cli`, the OpenAI-compatible server, and the Node.js worker each read a key file and prove that account as they connect. Each takes an option saying where to look — `--key_file` for `consumer_cli submit`, `--account-key-file` for the other two — and each carries on with no account when there is no key pair at that path. Each defaults to its own file under `data/` in this checkout of the repository, listed in "Where a key pair is kept" above.
+`consumer_cli`, the OpenAI-compatible server, and the Node.js worker each read a key file and prove that account as they connect. All three take the same option saying where to look, `-c, --config_dir <path>`, and read `default.account_key.json` inside it; each carries on with no account when there is no key pair in that directory. Each defaults to its own directory under `data/` in this checkout of the repository, listed in "Where a key pair is kept" above.
 
 One deployment of the OpenAI-compatible server is one account. It is that server's account and not the account of whichever program called its OpenAI-compatible endpoint, because the server is what the gateway sees.
 
@@ -132,7 +143,7 @@ Five [`consumer_cli`](../packages/consumer_cli/README.md) commands, described in
 | Command | What it does |
 | --- | --- |
 | `account_key` | Generates the key pair that is the account, and prints the account identifier. Talks to nothing. |
-| `identity_register` | Tells the central gateway about the public key. |
+| `identity_register` | Tells the central gateway about the public key, with the display name and the email address read from `default.identity.json`. |
 | `account_information` | Prints the profile the gateway holds. |
 | `account_balance` | Prints the balance, the stages completed as a worker, and the stages run as a consumer. |
 | `account_history` | Prints the entries newest first, with `--direction earned`, `spent`, or `both`. |
@@ -176,6 +187,7 @@ Every one of these is a decision, not an oversight. They are recorded in #122 an
 | The key pair in a browser, and proving it | [`packages/worker_webpage/web/src/connection/account_key_store.ts`](../packages/worker_webpage/web/src/connection/account_key_store.ts) and [`worker_account.ts`](../packages/worker_webpage/web/src/connection/worker_account.ts) |
 | The three-message conversation every participant runs | [`packages/protocol/src/accounting/account_authentication.ts`](../packages/protocol/src/accounting/account_authentication.ts) |
 | The key pair in a file | [`packages/protocol/src/accounting/account_key_file.ts`](../packages/protocol/src/accounting/account_key_file.ts), reached as `@webai/protocol/account_key_file` |
+| The profile in a file | [`packages/protocol/src/accounting/account_identity_file.ts`](../packages/protocol/src/accounting/account_identity_file.ts), reached as `@webai/protocol/account_identity_file` |
 | The five commands | [`packages/consumer_cli/src/commands`](../packages/consumer_cli/src/commands) |
 | The browser experiment that proved a tab can hold a key pair | [`packages/_account_key_experiments`](../packages/_account_key_experiments/README.md) |
 

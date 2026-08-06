@@ -29,6 +29,8 @@ import type { LogEntry } from '../src/message/message_logger.js';
 import { TaskProjection } from '../src/task/task_projection.js';
 import { Envelope } from '../src/message/envelope.js';
 import { SessionRenewal } from '../src/session_renewal.js';
+import { AccountIdentityFile } from '../src/accounting/account_identity_file.js';
+import { AccountKeyFile } from '../src/accounting/account_key_file.js';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -612,4 +614,32 @@ Test('a gateway that will not give an account releases the participant to work w
 		// doing, and is left to it.
 		Assert.equal(authentication.handleMessage({ type: 'error', code: 'ACCOUNT_REQUIRED' }), false);
 	}
+});
+
+Test('reads the account identity file, and reads an absent file as an empty profile', () => {
+	const configDir = Fs.mkdtempSync(Path.join(Os.tmpdir(), 'account-identity-'));
+	const identityFilePath = AccountIdentityFile.pathInConfigDir(configDir);
+
+	// The name inside the configuration directory is fixed, so nothing has to spell it out.
+	Assert.equal(Path.basename(identityFilePath), 'default.identity.json');
+
+	// A participant that has never written the file registers with an empty profile rather than
+	// failing, which is the same anonymous profile a worker browser tab registers with.
+	Assert.deepEqual(AccountIdentityFile.read(identityFilePath), { displayName: '', emailAddress: '' });
+
+	Fs.writeFileSync(identityFilePath, JSON.stringify({ displayName: 'my laptop', emailAddress: 'volunteer@example.com' }), 'utf8');
+	Assert.deepEqual(AccountIdentityFile.read(identityFilePath), { displayName: 'my laptop', emailAddress: 'volunteer@example.com' });
+
+	// A field that is missing, or is not text, reads as empty for that field alone.
+	Fs.writeFileSync(identityFilePath, JSON.stringify({ emailAddress: 12 }), 'utf8');
+	Assert.deepEqual(AccountIdentityFile.read(identityFilePath), { displayName: '', emailAddress: '' });
+
+	Fs.writeFileSync(identityFilePath, 'not json at all', 'utf8');
+	Assert.throws(() => AccountIdentityFile.read(identityFilePath), /is not readable as JSON/);
+
+	Fs.rmSync(configDir, { recursive: true, force: true });
+});
+
+Test('names the account key file inside a configuration directory', () => {
+	Assert.equal(AccountKeyFile.pathInConfigDir(Path.join('some', 'config')), Path.join('some', 'config', 'default.account_key.json'));
 });

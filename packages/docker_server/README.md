@@ -6,15 +6,15 @@ A Linux Docker image that runs [`packages/gateway`](../gateway) and the built br
 
 ## The OpenAI-compatible server is not in this image
 
-The OpenAI-compatible server from [`packages/consumer_openai`](../consumer_openai) used to run in this container and no longer does, because one deployment of that server is one account: the account charged for a task is the server's own, read from its `--account-key-file`, and nothing in an OpenAI-compatible HTTP request carries an account identifier. Running it in a publicly reachable container therefore debits every caller's consumption to the account of whoever operates the container, and Version 1 of the accounting system has no balance floor to stop that — see [`docs/accounting_system.md`](../../docs/accounting_system.md) and [issue #139](https://github.com/webai-at-home/webai-at-home/issues/139).
+The OpenAI-compatible server from [`packages/consumer_openai`](../consumer_openai) used to run in this container and no longer does, because one deployment of that server is one account: the account charged for a task is the server's own, read from the `default.account_key.json` file in its `--config_dir`, and nothing in an OpenAI-compatible HTTP request carries an account identifier. Running it in a publicly reachable container therefore debits every caller's consumption to the account of whoever operates the container, and Version 1 of the accounting system has no balance floor to stop that — see [`docs/accounting_system.md`](../../docs/accounting_system.md) and [issue #139](https://github.com/webai-at-home/webai-at-home/issues/139).
 
-Run `consumer_openai` yourself instead, with your own account key file, pointing it at this container's gateway:
+Run `consumer_openai` yourself instead, with your own configuration directory holding your own account key pair, pointing it at this container's gateway:
 
 ```bash
 npm run start --workspace @webai/consumer-openai -- \
   --gateway-url ws://localhost:8787 \
   --auth-token <GATEWAY_AUTH_TOKEN> \
-  --account-key-file <path to your own account key file>
+  --config_dir <path to a directory holding your own default.account_key.json>
 ```
 
 It then serves OpenAI-compatible requests on `http://localhost:8788/v1` as before, and the stages its tasks run are recorded against your account rather than the container operator's. [`packages/consumer_openai/README.md`](../consumer_openai/README.md) describes every option, and [`packages/consumer_cli`](../consumer_cli/README.md)'s `account_key` command generates the key pair that is the account.

@@ -38,6 +38,9 @@ export type LoadedAccountKey = {
 /** The version of the key file this program writes and is willing to read back. */
 const accountKeyFileSchemaVersion = 1;
 
+/** The fixed name of the account key file inside a configuration directory. */
+const accountKeyFileName = 'default.account_key.json';
+
 /**
  * Keeps this participant's account key pair in one file under the user's home directory.
  *
@@ -60,6 +63,19 @@ export class AccountKeyFile {
 	/** Where the key pair is kept when no other path is given. */
 	static defaultFilePath(): string {
 		return Path.join(Os.homedir(), '.webai-at-home', 'account_key.json');
+	}
+
+	/**
+	 * Gives the path of the account key file inside a configuration directory.
+	 *
+	 * The name inside the directory is fixed, so `consumer_cli`, `consumer_openai`, and
+	 * `worker_openai` each name only the directory and land on the same file name.
+	 *
+	 * @param configDir The configuration directory the account key file sits in.
+	 * @returns The path of the account key file.
+	 */
+	static pathInConfigDir(configDir: string): string {
+		return Path.join(configDir, accountKeyFileName);
 	}
 
 	/**
