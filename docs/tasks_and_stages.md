@@ -286,7 +286,7 @@ Being able to run a computation is not always enough to offer its stage. A tab d
 
 ## The values carried between stages
 
-Every value sent to a stage or returned by one is built by `StagePayloadFactory` in [`packages/protocol/src/stage_payload_factory.ts`](../packages/protocol/src/stage_payload_factory.ts), so the gateway and the worker browsers share one definition of each shape:
+Every value sent to a stage or returned by one is built by `StagePayloadFactory` in [`packages/protocol/src/stage/stage_payload_factory.ts`](../packages/protocol/src/stage/stage_payload_factory.ts), so the gateway and the worker browsers share one definition of each shape:
 
 - A formula stage carries a plain number, unchanged.
 - The first stage of a task is given its value by `StagePayloadFactory.initial`, which answers every task type: the submitted number for a development formula task, and the submitted prompt text for every language-model task. Nothing outside that one method decides what a first stage value looks like.
@@ -310,5 +310,5 @@ Every value sent to a stage or returned by one is built by `StagePayloadFactory`
 - The computation that uses the language model built into the browser: [`packages/worker_webpage/web/src/stages/stage_helper_llm_gemma_nano_chrome_full.ts`](../packages/worker_webpage/web/src/stages/stage_helper_llm_gemma_nano_chrome_full.ts).
 - The computation that downloads and runs the complete Qwen3.5-0.8B model: [`packages/worker_webpage/web/src/stages/stage_helper_llm_qwen3_5_0_8b_full.ts`](../packages/worker_webpage/web/src/stages/stage_helper_llm_qwen3_5_0_8b_full.ts).
 - The computation that forwards a prompt to a local server speaking the OpenAI-compatible API: [`packages/worker_openai/src/stages/stage_helper_llm_llama3_2_3b_full.ts`](../packages/worker_openai/src/stages/stage_helper_llm_llama3_2_3b_full.ts), in the one worker package that is a command line process rather than a browser page.
-- Submitting a task from the command line: [`packages/consumer_cli/src/cli.ts`](../packages/consumer_cli/src/cli.ts), [`packages/consumer_cli/src/libs/consumer_client.ts`](../packages/consumer_cli/src/libs/consumer_client.ts), and [`packages/consumer_cli/src/libs/task_input_factory.ts`](../packages/consumer_cli/src/libs/task_input_factory.ts).
+- Submitting a task from the command line: [`packages/consumer_cli/src/cli.ts`](../packages/consumer_cli/src/cli.ts), [`packages/consumer_cli/src/gateway_connection/consumer_client.ts`](../packages/consumer_cli/src/gateway_connection/consumer_client.ts), and [`packages/consumer_cli/src/libs/task_input_factory.ts`](../packages/consumer_cli/src/libs/task_input_factory.ts).
 - Submitting a task through the OpenAI completion interface, which is the second way a task can be submitted: [`packages/consumer_openai`](../packages/consumer_openai). That server turns one chat completion request into one task of one of the five task types above, chosen by the request's `model` field, and reuses the same `ConsumerClient` and `TaskInputFactory` as the command line client.

@@ -539,7 +539,7 @@ from the registry, and its unfinished assignment is retried on another worker.
 - Task state and stage sequencing: [`packages/gateway/src/task/task_store.ts`](../packages/gateway/src/task/task_store.ts)
 - Worker registration and stage execution, in a browser tab: [`packages/worker_webpage/web/src/main.ts`](../packages/worker_webpage/web/src/main.ts)
 - Worker registration and stage execution, in a command line process: [`packages/worker_openai/src/libs/gateway_worker_client.ts`](../packages/worker_openai/src/libs/gateway_worker_client.ts)
-- Consumer registration and task submission: [`packages/consumer_cli/src/libs/consumer_client.ts`](../packages/consumer_cli/src/gateway_connection/consumer_client.ts)
+- Consumer registration and task submission: [`packages/consumer_cli/src/gateway_connection/consumer_client.ts`](../packages/consumer_cli/src/gateway_connection/consumer_client.ts)
 
 ## Open protocol decisions
 
