@@ -1,11 +1,19 @@
 import { Command } from 'commander';
-import { AccountKeyFile } from '@webai/protocol/account_key_file';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 //	ServerSettings — this server's command line options, read once and typed
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
+
+/**
+ * Where this server defaults to reading its own account key pair.
+ *
+ * This is one shared identity for this checkout of the repository, used by `consumer_cli`,
+ * `consumer_openai`, and `worker_openai_api` alike, so a task submitted or a stage completed by any
+ * of them during local development lands on the same account. `--account-key-file` overrides it.
+ */
+const defaultAccountKeyFilePath = '/Users/jetienne/webwork/webai-at-home/data/account_keys/default.account_key.json';
 
 /** The command line options exactly as they arrive, before they are converted. */
 type RawOptions = {
@@ -64,7 +72,7 @@ export class ServerSettings {
 			.option('-t, --auth-token <token>', 'Bearer token the central gateway requires', 'development-token')
 			.option('-k, --api-key <key>', 'Key a request must present to this server. Omit to require none')
 			.option('-n, --consumer_name <name>', 'Consumer name to register under with the central gateway', 'consumer_openai server')
-			.option('--account-key-file <path>', 'Where this server\'s own account key pair is kept, so the stages its tasks run are recorded against that account. A path with no key pair there means no account', AccountKeyFile.defaultFilePath())
+			.option('--account-key-file <path>', 'Where this server\'s own account key pair is kept, so the stages its tasks run are recorded against that account. A path with no key pair there means no account', defaultAccountKeyFilePath)
 			.option('--request-timeout-ms <number>', 'How long one task may run before it is cancelled', '600000')
 			.option(
 				'--connection-wait-ms <number>',

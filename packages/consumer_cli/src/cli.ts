@@ -9,7 +9,6 @@ import { StatusCommand, statusFormats } from './commands/status_command.js';
 import { CapacityCommand, capacityFormats } from './commands/capacity_command.js';
 import { LogStatsCommand } from './commands/log_stats_command.js';
 import { LogStatisticsFormatter, logStatisticsFormats } from './message_log/log_statistics_formatter.js';
-import { AccountKeyFile } from '@webai/protocol/account_key_file';
 import { AccountOutputFormatter, accountOutputFormats } from './account/account_output_format.js';
 import { AccountKeyCommand } from './commands/account_key_command.js';
 import { AccountRegisterCommand } from './commands/account_register_command.js';
@@ -25,6 +24,15 @@ import { AccountHistoryCommand, accountHistoryDirections } from './commands/acco
 
 /** The default bearer token, matching the gateway's own `--auth-token` default. */
 const defaultAuthenticationToken = 'development-token';
+
+/**
+ * Where every account command defaults to keeping or reading the account key pair.
+ *
+ * This is one shared identity for this checkout of the repository, used by `consumer_cli`,
+ * `consumer_openai`, and `worker_openai_api` alike, so a task submitted or a stage completed by any
+ * of them during local development lands on the same account. `--key_file` overrides it per command.
+ */
+const defaultAccountKeyFilePath = '/Users/jetienne/webwork/webai-at-home/data/account_keys/default.account_key.json';
 
 /** The shared options every subcommand accepts, before each subcommand's own options. */
 type GlobalOptions = { url: string; authToken?: string };
@@ -59,7 +67,7 @@ export class Cli {
 			.option('-t, --task_type <type>', `task type: ${taskTypeNames.join(', ')}`, 'dev_formula')
 			.option('-n, --consumer_name <name>', 'consumer name', 'consumer')
 			.option('-s, --stream', 'ask for the answer in pieces as it is produced, rather than in one result once it is finished')
-			.option('-k, --key_file <path>', 'where this participant\'s account key pair is kept, so the stages this task runs are recorded against that account. A machine with no key pair there submits with no account', AccountKeyFile.defaultFilePath())
+			.option('-k, --key_file <path>', 'where this participant\'s account key pair is kept, so the stages this task runs are recorded against that account. A machine with no key pair there submits with no account', defaultAccountKeyFilePath)
 			.action(async (input: string, localOptions: { task_type: string; consumer_name: string; stream?: boolean; key_file: string }, command: Commander.Command) => {
 				const options = command.optsWithGlobals<GlobalOptions & typeof localOptions>();
 				if (TaskInputFactory.isTaskTypeName(options.task_type) === false) throw new Error(`Type must be one of ${taskTypeNames.join(', ')}`);
@@ -129,7 +137,7 @@ export class Cli {
 		program
 			.command('account_key')
 			.description('generate the key pair that is this participant\'s account, and print the account identifier it produces. It talks to nothing: the identifier is a digest of the public key, so it exists as soon as the key pair does')
-			.option('-k, --key_file <path>', 'where to keep the key pair', AccountKeyFile.defaultFilePath())
+			.option('-k, --key_file <path>', 'where to keep the key pair', defaultAccountKeyFilePath)
 			.option('--force', 'overwrite a key pair that is already there, losing the account it belongs to')
 			.option('-f, --format <format>', `output format: ${accountOutputFormats.join(', ')}`, 'text')
 			.action(async (localOptions: { key_file: string; force?: boolean; format: string }): Promise<void> => {
@@ -144,7 +152,7 @@ export class Cli {
 		program
 			.command('account_register')
 			.description('tell the central gateway about this machine\'s public key, so completed and consumed stages can be recorded against the account it identifies')
-			.option('-k, --key_file <path>', 'where the key pair is kept', AccountKeyFile.defaultFilePath())
+			.option('-k, --key_file <path>', 'where the key pair is kept', defaultAccountKeyFilePath)
 			.option('--email_address <address>', 'the email address for the account profile', '')
 			.option('--display_name <name>', 'the display name for the account profile', '')
 			.option('-f, --format <format>', `output format: ${accountOutputFormats.join(', ')}`, 'text')
@@ -166,7 +174,7 @@ export class Cli {
 		program
 			.command('account_information')
 			.description('print the profile the central gateway holds for this account: its identifier, its public key, its display name, its email address, and when it was registered')
-			.option('-k, --key_file <path>', 'where the key pair is kept', AccountKeyFile.defaultFilePath())
+			.option('-k, --key_file <path>', 'where the key pair is kept', defaultAccountKeyFilePath)
 			.option('-f, --format <format>', `output format: ${accountOutputFormats.join(', ')}`, 'text')
 			.option('--timeout <ms>', 'how long to wait for the central gateway to answer', '10000')
 			.action(async (localOptions: { key_file: string; format: string; timeout: string }, command: Commander.Command): Promise<void> => {
@@ -184,7 +192,7 @@ export class Cli {
 		program
 			.command('account_balance')
 			.description('print what this account holds: one credit for every stage it completed as a worker, less one for every stage it had run as a consumer')
-			.option('-k, --key_file <path>', 'where the key pair is kept', AccountKeyFile.defaultFilePath())
+			.option('-k, --key_file <path>', 'where the key pair is kept', defaultAccountKeyFilePath)
 			.option('-f, --format <format>', `output format: ${accountOutputFormats.join(', ')}`, 'text')
 			.option('--timeout <ms>', 'how long to wait for the central gateway to answer', '10000')
 			.action(async (localOptions: { key_file: string; format: string; timeout: string }, command: Commander.Command): Promise<void> => {
@@ -202,7 +210,7 @@ export class Cli {
 		program
 			.command('account_history')
 			.description('print this account\'s accounting entries, newest first. --direction earned lists the stages this account completed, and --direction spent lists the stages it had run')
-			.option('-k, --key_file <path>', 'where the key pair is kept', AccountKeyFile.defaultFilePath())
+			.option('-k, --key_file <path>', 'where the key pair is kept', defaultAccountKeyFilePath)
 			.option('-d, --direction <direction>', `which side of the ledger to print: ${accountHistoryDirections.join(', ')}`, 'both')
 			.option('-l, --limit <count>', 'how many entries to ask for at a time', '20')
 			.option('--all', 'keep asking for further pages until the whole history has been printed')

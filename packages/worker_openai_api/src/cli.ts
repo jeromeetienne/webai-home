@@ -14,6 +14,15 @@ import { OpenaiApiClient } from './libs/openai_api_client.js';
 /** The default bearer token, matching the gateway's own `--auth-token` default. */
 const defaultAuthenticationToken = 'development-token';
 
+/**
+ * Where this worker defaults to reading its own account key pair.
+ *
+ * This is one shared identity for this checkout of the repository, used by `consumer_cli`,
+ * `consumer_openai`, and `worker_openai_api` alike, so a task submitted or a stage completed by any
+ * of them during local development lands on the same account. `--account-key-file` overrides it.
+ */
+const defaultAccountKeyFilePath = '/Users/jetienne/webwork/webai-at-home/data/account_keys/default.account_key.json';
+
 /** The options this worker was started with. */
 type WorkerOptions = {
 	url: string;
@@ -49,7 +58,7 @@ export class Cli {
 			.option('-b, --base-url <url>', "base URL of the local server's OpenAI-compatible API", 'http://localhost:1234/v1')
 			.option('-m, --model <model>', 'the model the local server is asked for', 'llama-3.2-3b-instruct')
 			.option('-s, --stage-names <name...>', 'restrict this worker to these stages, instead of every stage it can run')
-			.option('-k, --account-key-file <path>', 'where this worker\'s own account key pair is kept, so the stages it completes earn credits for that account. A path with no key pair there means no account', AccountKeyFile.defaultFilePath());
+			.option('-k, --account-key-file <path>', 'where this worker\'s own account key pair is kept, so the stages it completes earn credits for that account. A path with no key pair there means no account', defaultAccountKeyFilePath);
 
 		program.parse(args, { from: 'user' });
 		const options = program.opts<WorkerOptions>();
