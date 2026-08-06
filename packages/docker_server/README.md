@@ -87,7 +87,7 @@ The `/data` volume holds the gateway's durable task state file (`gateway-state.j
 
 ## Configuration
 
-The gateway does not read environment variables directly — it only reads command line options. [`docker-entrypoint.sh`](docker/docker-entrypoint.sh) converts the environment variables below into the matching command line options when it starts each program.
+Neither the gateway nor `consumer_openai` reads environment variables directly — both read command line options only. [`docker-entrypoint.sh`](docker/docker-entrypoint.sh) converts the environment variables below into the matching command line options when it starts each program. `consumer_openai` is not started here at all, and is mentioned because a run of it outside this container is configured the same way, by command line options rather than by any of the variables below.
 
 | Variable | Default | Passed as |
 | --- | --- | --- |
