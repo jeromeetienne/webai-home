@@ -1,4 +1,4 @@
-# `@webai/worker-openai-api`
+# `@webai/worker-openai`
 
 A native worker that runs a model by forwarding its assigned stage to a locally running server
 that speaks the OpenAI-compatible Chat Completions API, such as [Ollama](https://ollama.com) or
@@ -18,27 +18,27 @@ With Ollama, pull the model first if it is not already there, then start the wor
 
 ```sh
 ollama pull llama3.2:3b
-npm run sample:ollama --workspace @webai/worker-openai-api
+npm run sample:ollama --workspace @webai/worker-openai
 ```
 
 With LM Studio, start its local server from the LM Studio application or with `lms server
 start`, then start the worker:
 
 ```sh
-npm run sample:lmstudio --workspace @webai/worker-openai-api
+npm run sample:lmstudio --workspace @webai/worker-openai
 ```
 
 To point the worker somewhere else, use `npm run dev` and give the options yourself:
 
 ```sh
-npm run dev --workspace @webai/worker-openai-api -- --base-url http://localhost:1234/v1 --model llama-3.2-3b-instruct
+npm run dev --workspace @webai/worker-openai -- --base-url http://localhost:1234/v1 --model llama-3.2-3b-instruct
 ```
 
 Or, against a built package:
 
 ```sh
-npm run build --workspace @webai/worker-openai-api
-npm run start --workspace @webai/worker-openai-api
+npm run build --workspace @webai/worker-openai
+npm run start --workspace @webai/worker-openai
 ```
 
 ## Options
@@ -47,7 +47,7 @@ npm run start --workspace @webai/worker-openai-api
 | --- | --- | --- |
 | `-u, --url <url>` | `ws://localhost:8787` | The central gateway's WebSocket URL. Falls back to the `GATEWAY_WS_URL` environment variable. |
 | `-a, --auth-token <token>` | `development-token` | The bearer token the gateway requires. Falls back to the `WEBAI_AUTH_TOKEN` environment variable. |
-| `-n, --worker_name <name>` | `openai-api-worker` | The worker name shown in the gateway's device list. |
+| `-n, --worker_name <name>` | `openai-worker` | The worker name shown in the gateway's device list. |
 | `-b, --base-url <url>` | `http://localhost:1234/v1` | The base URL of the local server's OpenAI-compatible API. That default is LM Studio's; Ollama's is `http://localhost:11434/v1`. |
 | `-m, --model <model>` | `llama-3.2-3b-instruct` | The model the local server is asked for, exactly as that server names it. LM Studio and Ollama name the same model differently, so this has to change with the base URL. |
 | `-s, --stage-names <name...>` | every stage this worker can run | Restrict this worker to particular stages. |
@@ -79,9 +79,9 @@ The two examples in `examples/` measure what a model served by LM Studio can do,
 Start LM Studio's server, load at least one chat model in the LM Studio application, then run either example:
 
 ```sh
-npm run lmstudio:server:start --workspace @webai/worker-openai-api
-npm run example:lmstudio_direct_history --workspace @webai/worker-openai-api
-npm run example:lmstudio_direct_tools --workspace @webai/worker-openai-api
+npm run lmstudio:server:start --workspace @webai/worker-openai
+npm run example:lmstudio_direct_history --workspace @webai/worker-openai
+npm run example:lmstudio_direct_tools --workspace @webai/worker-openai
 ```
 
 - `examples/lmstudio_direct_history.ts` holds a two-turn conversation: the first turn states a name and a favourite programming language, the second turn sends the whole conversation back, including the model's own first answer, and asks the model to repeat both facts.
@@ -95,7 +95,7 @@ Switching models is one option and nothing else. With no `--model` at all, both 
 
 | What to run | What it runs against |
 | --- | --- |
-| `npm run example:lmstudio_direct_history --workspace @webai/worker-openai-api` | `llama-3.2-3b-instruct` and `qwen3.5-2b-mlx`, one after the other. |
+| `npm run example:lmstudio_direct_history --workspace @webai/worker-openai` | `llama-3.2-3b-instruct` and `qwen3.5-2b-mlx`, one after the other. |
 | `… -- --model qwen3.5-2b-mlx` | That one model and no other. |
 | `… -- --model llama-3.2-3b-instruct qwen3.5-2b-mlx` | Those models, one after the other. |
 | `… -- --model all` | Every chat model LM Studio has downloaded, each loaded on demand. |
@@ -105,8 +105,8 @@ Switching models is one option and nothing else. With no `--model` at all, both 
 To run either example against Qwen3.5 2B and nothing else:
 
 ```sh
-npm run example:lmstudio_direct_history --workspace @webai/worker-openai-api -- --model qwen3.5-2b-mlx
-npm run example:lmstudio_direct_tools --workspace @webai/worker-openai-api -- --model qwen3.5-2b-mlx
+npm run example:lmstudio_direct_history --workspace @webai/worker-openai -- --model qwen3.5-2b-mlx
+npm run example:lmstudio_direct_tools --workspace @webai/worker-openai -- --model qwen3.5-2b-mlx
 ```
 
 `LMSTUDIO_MODEL` and `LMSTUDIO_BASE_URL` set the same two things from the environment. Naming a model LM Studio does not have is not refused: LM Studio answers it with whichever model it currently holds in memory, so both examples read back the model identifier LM Studio reported and say in the results row when it is not the model that was asked for.
@@ -115,7 +115,7 @@ To add a model to the comparison, download it and run the examples again:
 
 ```sh
 lms get https://huggingface.co/lmstudio-community/Qwen3.5-2B-MLX-8bit -y
-npm run example:lmstudio_direct_tools --workspace @webai/worker-openai-api -- --model all
+npm run example:lmstudio_direct_tools --workspace @webai/worker-openai -- --model all
 ```
 
 ### Results so far

@@ -22,10 +22,10 @@ import OpenAI, { APIError } from 'openai';
 // second request's `messages` array itself; this server keeps no conversation state between
 // requests, so every request still carries the whole conversation.
 //
-// It needs the gateway running and one worker process from `@webai/worker-openai-api`, started
+// It needs the gateway running and one worker process from `@webai/worker-openai`, started
 // with:
 //   lms server start
-//   npm run sample:lmstudio --workspace @webai/worker-openai-api
+//   npm run sample:lmstudio --workspace @webai/worker-openai
 
 const client = new OpenAI({
 	baseURL: process.env.WEBAI_OPENAI_BASE_URL ?? 'http://localhost:8788/v1',

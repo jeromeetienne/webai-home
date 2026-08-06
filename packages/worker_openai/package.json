@@ -1,11 +1,11 @@
 {
-  "name": "@webai/worker-openai-api",
+  "name": "@webai/worker-openai",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "main": "dist/cli.js",
   "bin": {
-    "worker_openai_api": "./dist/cli.js"
+    "worker_openai": "./dist/cli.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
@@ -18,7 +18,7 @@
     "prestart": "npm run build:dependencies",
     "start": "node dist/cli.js",
     "presample:lmstudio": "npm run build:dependencies",
-    "sample:lmstudio": "npx tsx src/cli.ts --base-url http://localhost:1234/v1 --model llama-3.2-3b-instruct --worker_name \"worker_openai_api lmstudio-llama3-2-3b\"",
+    "sample:lmstudio": "npx tsx src/cli.ts --base-url http://localhost:1234/v1 --model llama-3.2-3b-instruct --worker_name \"worker_openai lmstudio-llama3-2-3b\"",
     "lmstudio:server:start": "lms server start",
     "lmstudio:server:stop": "lms server stop",
     "lmstudio:server:status": "lms server status",

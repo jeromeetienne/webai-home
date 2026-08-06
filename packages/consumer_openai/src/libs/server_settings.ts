@@ -12,8 +12,8 @@ import Url from 'node:url';
  * Where this server defaults to reading its own account key pair.
  *
  * This is `consumer_openai`'s own identity for this checkout of the repository, kept separate from
- * `consumer_cli`'s in `data/consumer_cli_config/` and `worker_openai_api`'s in
- * `data/worker_openai_api_config/`, so every task this server submits lands on one consistent account
+ * `consumer_cli`'s in `data/consumer_cli_config/` and `worker_openai`'s in
+ * `data/worker_openai_config/`, so every task this server submits lands on one consistent account
  * without `--account-key-file` being passed by hand.
  *
  * Resolved from this file's own location rather than written as a bare

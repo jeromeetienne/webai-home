@@ -118,7 +118,7 @@ A model identifier is the cluster's task type name without the leading `task_typ
 | `llm_qwen3_0_6b_sharded` | The Qwen3-0.6B model split into three shards, one per worker browser tab. | Worker browser tabs offering all three shard stages, and the shard files generated first. |
 | `llm_gemma_nano_chrome_full` | The Gemma Nano language model built into the Chrome browser. | One worker browser tab in a recent Chrome whose own language model is ready. |
 | `llm_qwen3_5_0_8b_full` | The complete Qwen3.5-0.8B model, downloaded from Hugging Face and held by one worker browser tab. | One worker browser tab with WebGPU and 16-bit float shader support, and enough free storage for the roughly 600 MB download. |
-| `llm_llama3_2_3b_full` | The complete Llama 3.2 3B model, held and run by a server on the worker's own device that speaks the OpenAI-compatible API, such as Ollama or LM Studio. | One worker process from `@webai/worker-openai-api`, and a local server that already has the model. No browser tab, and no download by this project. |
+| `llm_llama3_2_3b_full` | The complete Llama 3.2 3B model, held and run by a server on the worker's own device that speaks the OpenAI-compatible API, such as Ollama or LM Studio. | One worker process from `@webai/worker-openai`, and a local server that already has the model. No browser tab, and no download by this project. |
 
 [`docs/tasks_and_stages.md`](../../docs/tasks_and_stages.md) describes each of these tasks in full, and [`docs/naming_scheme.md`](../../docs/naming_scheme.md) is the authoritative account of how the names are built.
 

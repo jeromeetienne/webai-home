@@ -13,7 +13,7 @@ import { RealTestHelper } from './real_test_helper.js';
 //
 // Unlike tests/index.test.ts, this test is not part of the default `npm run test --workspaces`. It builds the
 // protocol and consumer CLI packages, starts the central gateway, this package's own OpenAI-compatible server,
-// and one worker process from @webai/worker-openai-api, then submits a prompt through the `openai` package and
+// and one worker process from @webai/worker-openai, then submits a prompt through the `openai` package and
 // checks the answer mentions the expected capital.
 //
 // This is the one real test with no browser in it, and so no headed variant either: `llm_llama3_2_3b_full` is
@@ -46,8 +46,8 @@ const realTestHelper = new RealTestHelper({
 	expectedWorkerCount: 1,
 	waitTimeoutMs: 120_000,
 	nativeWorkerArgs: [
-		'--import', 'tsx', 'packages/worker_openai_api/src/cli.ts',
-		'--worker_name', 'real-test-openai-api-worker',
+		'--import', 'tsx', 'packages/worker_openai/src/cli.ts',
+		'--worker_name', 'real-test-openai-worker',
 		'--base-url', localModelBaseUrl,
 		'--model', localModelId,
 	],

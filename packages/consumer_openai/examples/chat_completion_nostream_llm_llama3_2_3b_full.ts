@@ -15,9 +15,9 @@ import OpenAI, { APIError } from 'openai';
 // run by this project.
 //
 // Unlike every other model here, its worker is not a browser tab. It needs the gateway running
-// and one worker process from `@webai/worker-openai-api`, started with:
+// and one worker process from `@webai/worker-openai`, started with:
 //   lms server start
-//   npm run sample:lmstudio --workspace @webai/worker-openai-api
+//   npm run sample:lmstudio --workspace @webai/worker-openai
 //
 // There is no model download to wait for on the first request, unlike
 // `examples/chat_completion_nostream_llm_qwen3_5_0_8b_full.ts`, but the local server does load the model

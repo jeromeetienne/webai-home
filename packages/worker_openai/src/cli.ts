@@ -22,17 +22,17 @@ const defaultGatewayUrl = 'ws://localhost:8787';
 /**
  * Where this worker defaults to reading its own account key pair.
  *
- * This is `worker_openai_api`'s own identity for this checkout of the repository, kept separate from
+ * This is `worker_openai`'s own identity for this checkout of the repository, kept separate from
  * `consumer_cli`'s in `data/consumer_cli_config/` and `consumer_openai`'s in
  * `data/consumer_openai_config/`, so every stage this worker completes earns credit for one
  * consistent account without `--account-key-file` being passed by hand.
  *
  * Resolved from this file's own location rather than written as a bare
- * `data/worker_openai_api_config/…` string, because a relative path resolves against the process's
- * working directory, not this file's — and `npm run dev --workspace @webai/worker-openai-api --` and
+ * `data/worker_openai_config/…` string, because a relative path resolves against the process's
+ * working directory, not this file's — and `npm run dev --workspace @webai/worker-openai --` and
  * `npx tsx src/cli.ts` both run with the working directory somewhere other than the repository root.
  */
-const defaultAccountKeyFilePath = Path.resolve(Path.dirname(Url.fileURLToPath(import.meta.url)), '../../../data/worker_openai_api_config/default.account_key.json');
+const defaultAccountKeyFilePath = Path.resolve(Path.dirname(Url.fileURLToPath(import.meta.url)), '../../../data/worker_openai_config/default.account_key.json');
 
 /** The options this worker was started with. */
 type WorkerOptions = {
@@ -61,11 +61,11 @@ export class Cli {
 	 * arguments this process was started with.
 	 */
 	static async run(args: string[] = process.argv.slice(2)): Promise<void> {
-		const program = new Commander.Command('worker_openai_api')
+		const program = new Commander.Command('worker_openai')
 			.description('A worker that runs its assigned stage by calling a local server speaking the OpenAI-compatible Chat Completions API, such as Ollama or LM Studio')
 			.option('-u, --url <url>', `central gateway WebSocket URL (falls back to the GATEWAY_WS_URL environment variable, then to ${defaultGatewayUrl})`)
 			.option('-a, --auth-token <token>', 'bearer token for the central gateway (falls back to the WEBAI_AUTH_TOKEN environment variable, then to a development default)')
-			.option('-n, --worker_name <name>', 'worker name, which the gateway shows in its device list', 'openai-api-worker')
+			.option('-n, --worker_name <name>', 'worker name, which the gateway shows in its device list', 'openai-worker')
 			.option('-b, --base-url <url>', "base URL of the local server's OpenAI-compatible API", 'http://localhost:1234/v1')
 			.option('-m, --model <model>', 'the model the local server is asked for', 'llama-3.2-3b-instruct')
 			.option('-s, --stage-names <name...>', 'restrict this worker to these stages, instead of every stage it can run')

@@ -101,7 +101,7 @@ export class RealTestHelper {
 	 * waiting for workers to be ready, for a debug page whose worker tab needs a step only a person would
 	 * otherwise do, such as clicking a button that starts a download
 	 * @param options.nativeWorkerArgs - the command line arguments of a worker process to start instead of a
-	 * browser, for a task whose worker is not a browser tab, such as `@webai/worker-openai-api`. Giving this
+	 * browser, for a task whose worker is not a browser tab, such as `@webai/worker-openai`. Giving this
 	 * means no browser is launched, no debug page is opened, and the worker web page is not started at all,
 	 * because none of the three has anything to do with such a worker
 	 */

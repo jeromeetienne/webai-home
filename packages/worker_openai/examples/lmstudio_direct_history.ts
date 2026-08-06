@@ -13,7 +13,7 @@ import {
 ///////////////////////////////////////////////////////////////////////////////
 
 // Run with:
-//   npm run example:lmstudio_direct_history --workspace @webai/worker-openai-api
+//   npm run example:lmstudio_direct_history --workspace @webai/worker-openai
 //
 // This example talks to LM Studio directly through the OpenAI SDK. It does not go through the
 // WebAI@Home gateway and it does not go through this package's own worker: nothing here registers
@@ -33,9 +33,9 @@ import {
 // With no `--model`, it runs against the models the package README records results for, which are
 // `llama-3.2-3b-instruct` and `qwen3.5-2b-mlx`, each loaded by LM Studio on demand. Switching to
 // other models is one option and nothing else:
-//   npm run example:lmstudio_direct_history --workspace @webai/worker-openai-api -- --model qwen3.5-2b-mlx
-//   npm run example:lmstudio_direct_history --workspace @webai/worker-openai-api -- --model all
-//   npm run example:lmstudio_direct_history --workspace @webai/worker-openai-api -- --model loaded
+//   npm run example:lmstudio_direct_history --workspace @webai/worker-openai -- --model qwen3.5-2b-mlx
+//   npm run example:lmstudio_direct_history --workspace @webai/worker-openai -- --model all
+//   npm run example:lmstudio_direct_history --workspace @webai/worker-openai -- --model loaded
 // `all` is every chat model LM Studio has downloaded, and `loaded` is the ones it currently holds
 // in memory, so that loading another model in the LM Studio application is by itself enough to
 // test it.

@@ -37,7 +37,7 @@ worker is selected. The worker computes the stage and replies with either
 
 Most workers are browser tabs running `packages/worker_webpage`, and this
 document says "worker browser tab" wherever something is true only of those. A
-worker does not have to be a browser: `packages/worker_openai_api` is a Node.js
+worker does not have to be a browser: `packages/worker_openai` is a Node.js
 command line process that carries out its stage by calling a language-model
 server running on its own device, and it speaks everything described here
 unchanged. The gateway does not distinguish the two, and nothing in this
@@ -287,7 +287,7 @@ This is what the gateway's own `/ledger` page reads. Balances only: an account's
 
 ## Diagnostics do not travel on the scheduling connection
 
-A worker browser page cannot write files, so it tells the gateway which messages it saw and the gateway appends them to that worker's log file on its behalf. This whole path exists for that one reason, so a worker that is an ordinary process, such as `packages/worker_openai_api`, does not use it at all and writes its own output instead. That reporting used to travel over the same WebSocket connection as scheduling, where it was 37 percent of all messages and 49 percent of all bytes in a measured run, was never validated against a schema, and had no limit of any kind. Diagnostic traffic therefore competed with the messages that assign stages and collect results (see [issue #50](https://github.com/webai-at-home/webai-at-home/issues/50)).
+A worker browser page cannot write files, so it tells the gateway which messages it saw and the gateway appends them to that worker's log file on its behalf. This whole path exists for that one reason, so a worker that is an ordinary process, such as `packages/worker_openai`, does not use it at all and writes its own output instead. That reporting used to travel over the same WebSocket connection as scheduling, where it was 37 percent of all messages and 49 percent of all bytes in a measured run, was never validated against a schema, and had no limit of any kind. Diagnostic traffic therefore competed with the messages that assign stages and collect results (see [issue #50](https://github.com/webai-at-home/webai-at-home/issues/50)).
 
 Reporting now travels over HTTP instead, and the scheduling connection refuses it outright.
 
@@ -538,7 +538,7 @@ from the registry, and its unfinished assignment is retried on another worker.
 - Gateway routing and scheduling: [`packages/gateway/src/cli.ts`](../packages/gateway/src/cli.ts)
 - Task state and stage sequencing: [`packages/gateway/src/task/task_store.ts`](../packages/gateway/src/task/task_store.ts)
 - Worker registration and stage execution, in a browser tab: [`packages/worker_webpage/web/src/main.ts`](../packages/worker_webpage/web/src/main.ts)
-- Worker registration and stage execution, in a command line process: [`packages/worker_openai_api/src/libs/gateway_worker_client.ts`](../packages/worker_openai_api/src/libs/gateway_worker_client.ts)
+- Worker registration and stage execution, in a command line process: [`packages/worker_openai/src/libs/gateway_worker_client.ts`](../packages/worker_openai/src/libs/gateway_worker_client.ts)
 - Consumer registration and task submission: [`packages/consumer_cli/src/libs/consumer_client.ts`](../packages/consumer_cli/src/gateway_connection/consumer_client.ts)
 
 ## Open protocol decisions

@@ -32,8 +32,8 @@ const DEFAULT_AUTHENTICATION_TOKEN = 'development-token';
  * Where every account command defaults to keeping or reading the account key pair.
  *
  * This is `consumer_cli`'s own identity for this checkout of the repository, kept separate from
- * `consumer_openai`'s in `data/consumer_openai_config/` and `worker_openai_api`'s in
- * `data/worker_openai_api_config/`, so every `consumer_cli` command run here uses one consistent
+ * `consumer_openai`'s in `data/consumer_openai_config/` and `worker_openai`'s in
+ * `data/worker_openai_config/`, so every `consumer_cli` command run here uses one consistent
  * account without `--key_file` being passed by hand.
  *
  * Resolved from this file's own location rather than written as a bare `data/consumer_cli_config/…`
