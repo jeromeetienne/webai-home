@@ -16,6 +16,9 @@ import { OpenaiApiClient } from './libs/openai_api_client.js';
 /** The default bearer token, matching the gateway's own `--auth-token` default. */
 const defaultAuthenticationToken = 'development-token';
 
+/** The default central gateway WebSocket URL, matching the gateway's own `--port` default. */
+const defaultGatewayUrl = 'ws://localhost:8787';
+
 /**
  * Where this worker defaults to reading its own account key pair.
  *
@@ -33,7 +36,7 @@ const defaultAccountKeyFilePath = Path.resolve(Path.dirname(Url.fileURLToPath(im
 
 /** The options this worker was started with. */
 type WorkerOptions = {
-	url: string;
+	url?: string;
 	authToken?: string;
 	worker_name: string;
 	baseUrl: string;
@@ -60,7 +63,7 @@ export class Cli {
 	static async run(args: string[] = process.argv.slice(2)): Promise<void> {
 		const program = new Commander.Command('worker_openai_api')
 			.description('A worker that runs its assigned stage by calling a local server speaking the OpenAI-compatible Chat Completions API, such as Ollama or LM Studio')
-			.option('-u, --url <url>', 'central gateway WebSocket URL', 'ws://localhost:8787')
+			.option('-u, --url <url>', `central gateway WebSocket URL (falls back to the WEBAI_GATEWAY_URL environment variable, then to ${defaultGatewayUrl})`)
 			.option('-a, --auth-token <token>', 'bearer token for the central gateway (falls back to the WEBAI_AUTH_TOKEN environment variable, then to a development default)')
 			.option('-n, --worker_name <name>', 'worker name, which the gateway shows in its device list', 'openai-api-worker')
 			.option('-b, --base-url <url>', "base URL of the local server's OpenAI-compatible API", 'http://localhost:1234/v1')
@@ -84,7 +87,8 @@ export class Cli {
 		// that as the reason, rather than half-way through the conversation with the gateway.
 		const accountKeyPair = await AccountKeyFile.readIfPresent(options.accountKeyFile);
 		const openaiApiClient = new OpenaiApiClient(options.baseUrl.replace(/\/+$/, ''));
-		const socket = new WebSocket(options.url) as unknown as WorkerSocket;
+		const gatewayUrl = Cli.resolveGatewayUrl(options.url);
+		const socket = new WebSocket(gatewayUrl) as unknown as WorkerSocket;
 		return new Promise<void>((resolve) => {
 			new GatewayWorkerClient(
 				socket,
@@ -118,7 +122,7 @@ export class Cli {
 						Cli.print(note);
 					},
 					onConnectionChange: (isConnected) => {
-						Cli.print(isConnected ? `connected to ${options.url}` : 'disconnected');
+						Cli.print(isConnected ? `connected to ${gatewayUrl}` : 'disconnected');
 						if (isConnected === false) {
 							resolve();
 						}
@@ -134,6 +138,23 @@ export class Cli {
 	 * @param fromCommandLine The token given on the command line, if one was given.
 	 * @returns The token to present.
 	 */
+	/**
+	 * Chooses the central gateway WebSocket URL to connect to.
+	 *
+	 * @param fromCommandLine The URL given on the command line, if one was given.
+	 * @returns The URL to connect to.
+	 */
+	private static resolveGatewayUrl(fromCommandLine: string | undefined): string {
+		if (fromCommandLine !== undefined && fromCommandLine !== '') {
+			return fromCommandLine;
+		}
+		const fromEnvironment = process.env.WEBAI_GATEWAY_URL;
+		if (fromEnvironment !== undefined && fromEnvironment !== '') {
+			return fromEnvironment;
+		}
+		return defaultGatewayUrl;
+	}
+
 	private static resolveAuthToken(fromCommandLine: string | undefined): string {
 		if (fromCommandLine !== undefined && fromCommandLine !== '') {
 			return fromCommandLine;
