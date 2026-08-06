@@ -141,14 +141,26 @@ export class MonitorPage {
 		// devices here lets every one of those messages redraw the panels, instead of the
 		// counts standing still until the page is reloaded.
 		const deviceById = new Map<string, Device>();
+		/**
+		 * Returns the label to display for one connected device, which is its name on its own
+		 * unless another connected device carries that same name.
+		 *
+		 * @param deviceId The device the label is wanted for.
+		 * @returns The label to display, or the device identifier when the device is no longer
+		 * connected.
+		 */
+		const displayLabelFor = (deviceId: string): string => {
+			return Dashboard.displayLabelByDeviceId([...deviceById.values()]).get(deviceId) ?? deviceId;
+		};
 		const renderDevices = (): void => {
 			const devices = Dashboard.splitDevices([...deviceById.values()]);
 			const workers = devices.worker;
 			const consumers = devices.consumer;
+			const displayLabelByDeviceId = Dashboard.displayLabelByDeviceId([...deviceById.values()]);
 			workerCountEl.textContent = String(workers.length);
 			consumerCountEl.textContent = String(consumers.length);
-			workersEl.innerHTML = workers.map((device: DeviceSummary) => MonitorPage.connectionMarkup(device, true)).join('') || '<p class="text-secondary mb-0">No worker browsers are connected.</p>';
-			consumersEl.innerHTML = consumers.map((device: DeviceSummary) => MonitorPage.connectionMarkup(device, false)).join('') || '<p class="text-secondary mb-0">No consumers are connected.</p>';
+			workersEl.innerHTML = workers.map((device: DeviceSummary) => MonitorPage.connectionMarkup(device, displayLabelByDeviceId.get(device.deviceId) ?? device.name, true)).join('') || '<p class="text-secondary mb-0">No worker browsers are connected.</p>';
+			consumersEl.innerHTML = consumers.map((device: DeviceSummary) => MonitorPage.connectionMarkup(device, displayLabelByDeviceId.get(device.deviceId) ?? device.name, false)).join('') || '<p class="text-secondary mb-0">No consumers are connected.</p>';
 			const statistics = Dashboard.stageStatistics(workers);
 			stageCountEl.textContent = String(statistics.total);
 			stagesEl.innerHTML = statistics.stages.map((stage) => `<div class="stage-stat"><div class="d-flex justify-content-between"><span>${MonitorPage.escapeHtml(stage.stageName)}</span><span class="text-secondary">${stage.count} worker${stage.count === 1 ? '' : 's'} · ${stage.percentage.toFixed(1)}%</span></div><div class="progress" role="progressbar" aria-label="${MonitorPage.escapeHtml(stage.stageName)} percentage" aria-valuenow="${stage.percentage}" aria-valuemin="0" aria-valuemax="100"><div class="progress-bar" style="width: ${stage.percentage}%"></div></div></div>`).join('') || '<p class="text-secondary mb-0">No worker stages are enabled.</p>';
@@ -209,7 +221,7 @@ export class MonitorPage {
 			if ((message.type === 'device.joined' || message.type === 'device.updated') && message.device !== undefined) {
 				deviceById.set(message.device.deviceId, message.device);
 				renderDevices();
-				addEvent({ type: message.type === 'device.joined' ? 'Device joined' : 'Device updated', timestamp: new Date().toISOString(), details: `${message.device.name} · ${MonitorPage.describeDeviceCount(deviceById)}` });
+				addEvent({ type: message.type === 'device.joined' ? 'Device joined' : 'Device updated', timestamp: new Date().toISOString(), details: `${displayLabelFor(message.device.deviceId)} · ${MonitorPage.describeDeviceCount(deviceById)}` });
 			}
 			// The central gateway sends how busy each device is on its own, batched over a
 			// short window, rather than re-sending whole device records every time a worker
@@ -235,10 +247,13 @@ export class MonitorPage {
 				addEvent({ type: 'Device activity', timestamp: new Date().toISOString(), details: `${message.devices.length} device${message.devices.length === 1 ? '' : 's'} · ${MonitorPage.describeDeviceCount(deviceById)}` });
 			}
 			if (message.type === 'device.left' && message.deviceId !== undefined) {
-				const departed = deviceById.get(message.deviceId);
+				// The label is read while the departing device is still in the list, so a name it
+				// shared with another connected device is still shown with the identifier that
+				// tells the two of them apart.
+				const departedLabel = displayLabelFor(message.deviceId);
 				deviceById.delete(message.deviceId);
 				renderDevices();
-				addEvent({ type: 'Device left', timestamp: new Date().toISOString(), details: `${departed?.name ?? message.deviceId} · ${MonitorPage.describeDeviceCount(deviceById)}` });
+				addEvent({ type: 'Device left', timestamp: new Date().toISOString(), details: `${departedLabel} · ${MonitorPage.describeDeviceCount(deviceById)}` });
 			}
 			if ((message.type === 'task.accepted' || message.type === 'task.snapshot') && message.task !== undefined) {
 				taskPanel.snapshot = message.task;
@@ -271,13 +286,15 @@ export class MonitorPage {
 	 * Draws one connected device.
 	 *
 	 * @param device The device to draw.
+	 * @param displayLabel The label to head the device with, which is its name on its own unless
+	 * another connected device carries that same name.
 	 * @param includeStages Whether to list the stages the device advertises, which only
 	 * worker devices have.
 	 * @returns The markup for the device.
 	 */
-	private static connectionMarkup(device: DeviceSummary, includeStages: boolean): string {
+	private static connectionMarkup(device: DeviceSummary, displayLabel: string, includeStages: boolean): string {
 		const stages = includeStages ? `<dt class="col-4 text-secondary">Stages</dt><dd class="col-8"><div class="d-flex flex-wrap gap-1">${device.stageNames.map((stageName) => `<span class="badge text-bg-light border">${MonitorPage.escapeHtml(stageName)}</span>`).join('')}</div></dd>` : '';
-		return `<article class="worker-item"><div class="d-flex justify-content-between align-items-center gap-3"><h3 class="h4 mb-1">${MonitorPage.escapeHtml(device.name)}</h3><span class="badge rounded-pill text-bg-success">Connected</span></div><dl class="row small mb-0"><dt class="col-4 text-secondary">Device ID</dt><dd class="col-8 text-break">${MonitorPage.escapeHtml(device.deviceId)}</dd>${stages}<dt class="col-4 text-secondary">Connected</dt><dd class="col-8">${MonitorPage.escapeHtml(MonitorPage.formatTime(device.connectedAt))}</dd><dt class="col-4 text-secondary">Last seen</dt><dd class="col-8">${MonitorPage.escapeHtml(MonitorPage.formatTime(device.lastSeenAt))}</dd></dl></article>`;
+		return `<article class="worker-item"><div class="d-flex justify-content-between align-items-center gap-3"><h3 class="h4 mb-1">${MonitorPage.escapeHtml(displayLabel)}</h3><span class="badge rounded-pill text-bg-success">Connected</span></div><dl class="row small mb-0"><dt class="col-4 text-secondary">Device ID</dt><dd class="col-8 text-break">${MonitorPage.escapeHtml(device.deviceId)}</dd>${stages}<dt class="col-4 text-secondary">Connected</dt><dd class="col-8">${MonitorPage.escapeHtml(MonitorPage.formatTime(device.connectedAt))}</dd><dt class="col-4 text-secondary">Last seen</dt><dd class="col-8">${MonitorPage.escapeHtml(MonitorPage.formatTime(device.lastSeenAt))}</dd></dl></article>`;
 	}
 
 	/**

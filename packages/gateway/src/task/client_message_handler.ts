@@ -203,19 +203,13 @@ export class ClientMessageHandler {
 			this.hub.sendError(socket, inReplyToMessageId, this.hub.counterpartFor(deviceId), 'VALIDATION', 'No loaded pipeline defines these stages', { retryable: false, details: { undefinedStageNames, definedStageNames: this.pipelineRegistry.stageNames() } });
 			return;
 		}
-		const existingDevice = message.role === 'worker'
-			? this.deviceRegistry.findByName(message.name, 'worker')
-			: undefined;
-		if (existingDevice !== undefined && existingDevice.deviceId !== deviceId) {
-			// The replaced device is announced as having left. Removing it quietly left every
-			// dashboard showing it next to the connection that replaced it, for as long as that
-			// page stayed open, because the removal was the only thing that would have taken it
-			// off the list (see https://github.com/webai-at-home/webai-at-home/issues/58).
-			this.announcer.publishDevice(this.deviceRegistry.remove(existingDevice.deviceId));
-			const existingSocket = this.hub.socketMap.get(existingDevice.deviceId);
-			this.hub.socketMap.delete(existingDevice.deviceId);
-			existingSocket?.close(1000, 'Replaced by a newer connection with the same worker name');
-		}
+		// A worker is identified by the deviceId this connection was given when it opened, never
+		// by the name it registers under. The name is a display label, and two connected workers
+		// are allowed to carry the same one: three worker browser tabs of one debug page and the
+		// three of a second copy of that same page register six workers under three names, and
+		// all six have to stay connected (see
+		// https://github.com/webai-at-home/webai-at-home/issues/135). A device leaves the registry
+		// only when its own connection closes.
 		const device: Device = {
 			deviceId,
 			name: message.name,

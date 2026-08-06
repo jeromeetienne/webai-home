@@ -88,17 +88,6 @@ export class DeviceRegistry {
 	currentDeviceListRevision(): number { return this.deviceListRevision; }
 
 	/**
-	 * Finds a device by its display name and role.
-	 *
-	 * @param name - The device display name to find.
-	 * @param role - The device role to match.
-	 * @returns The matching device, or `undefined` when no device matches.
-	 */
-	findByName(name: string, role: Device['deviceRole']): Device | undefined {
-		return this.list().find((device) => device.name === name && device.deviceRole === role);
-	}
-
-	/**
 	 * Finds a worker device that supports a stage and is not excluded.
 	 *
 	 * @param stage - The stage for which a worker device is needed.

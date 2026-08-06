@@ -97,6 +97,18 @@ Test('calculates enabled-stage percentages using all advertised capabilities', (
 	]);
 });
 
+Test('a display name only one device carries is shown on its own, and one two devices share carries each device identifier', () => {
+	const labels = Dashboard.displayLabelByDeviceId([
+		{ ...worker('device-1111111122222222'), name: 'llm-qwen3-0-6b-shard1of3' },
+		{ ...worker('device-3333333344444444'), name: 'llm-qwen3-0-6b-shard1of3' },
+		{ ...worker('device-5555555566666666'), name: 'llm-qwen3-0-6b-shard2of3' },
+	]);
+
+	Assert.equal(labels.get('device-1111111122222222'), 'llm-qwen3-0-6b-shard1of3 · 11111111');
+	Assert.equal(labels.get('device-3333333344444444'), 'llm-qwen3-0-6b-shard1of3 · 33333333');
+	Assert.equal(labels.get('device-5555555566666666'), 'llm-qwen3-0-6b-shard2of3');
+});
+
 Test('finds workers by capability and excludes devices', () => {
 	const registry = new DeviceRegistry();
 	registry.add(worker('one', ['stage_dev_formula_multiply']));
@@ -104,7 +116,20 @@ Test('finds workers by capability and excludes devices', () => {
 
 	Assert.equal(registry.findWorker('stage_dev_formula_multiply')?.deviceId, 'one');
 	Assert.equal(registry.findWorker('stage_dev_formula_multiply', ['one']), undefined);
-	Assert.equal(registry.findByName('worker-two', 'worker')?.deviceId, 'two');
+});
+
+Test('two workers registered under the same display name are both kept, and removing one leaves the other', () => {
+	const registry = new DeviceRegistry();
+	registry.add({ ...worker('one'), name: 'llm-qwen3-0-6b-shard1of3' });
+	registry.add({ ...worker('two'), name: 'llm-qwen3-0-6b-shard1of3' });
+
+	Assert.deepEqual(registry.list().map((device) => device.deviceId), ['one', 'two']);
+	Assert.equal(registry.findWorker('stage_dev_formula_multiply')?.deviceId, 'one');
+	Assert.equal(registry.findWorker('stage_dev_formula_multiply', ['one'])?.deviceId, 'two');
+
+	registry.remove('one');
+
+	Assert.deepEqual(registry.list().map((device) => device.deviceId), ['two']);
 });
 
 Test('selects a pinned compatible pipeline version and rejects invalid definitions', () => {
@@ -747,9 +772,10 @@ Test('browser ONNX Runtime assets allow cross-origin fetches', async () => {
 
 /**
  * A fake WebSocket good enough for `ConnectionHub.send`: it reports itself open, and records
- * every frame written to it instead of touching a real network connection.
+ * every frame written to it, and every attempt to close it, instead of touching a real network
+ * connection.
  */
-type FakeSocket = { readyState: number; OPEN: number; sent: GatewayEnvelopeLike[]; send: (data: string) => void };
+type FakeSocket = { readyState: number; OPEN: number; sent: GatewayEnvelopeLike[]; closeReasons: string[]; send: (data: string) => void; close: (code: number, reason: string) => void };
 
 /** The shape `ConnectionHub.send` writes, read back out of a fake socket's recorded frames. */
 type GatewayEnvelopeLike = { body: GatewayMessage };
@@ -758,7 +784,14 @@ type GatewayEnvelopeLike = { body: GatewayMessage };
 const devFormulaInput = (value: number): TaskInput => ({ taskType: 'task_type_dev_formula', input: value });
 
 const newFakeSocket = (): FakeSocket => {
-	const socket: FakeSocket = { readyState: 1, OPEN: 1, sent: [], send: (data: string): void => { socket.sent.push(JSON.parse(data)); } };
+	const socket: FakeSocket = {
+		readyState: 1,
+		OPEN: 1,
+		sent: [],
+		closeReasons: [],
+		send: (data: string): void => { socket.sent.push(JSON.parse(data)); },
+		close: (_code: number, reason: string): void => { socket.closeReasons.push(reason); },
+	};
 	return socket;
 };
 
@@ -833,6 +866,9 @@ const buildClientMessageHandlerHarness = (leaseMs = 15_000) => {
 	 */
 	const allSentTo = (deviceId: string): GatewayMessage[] => (sockets.get(deviceId)?.sent ?? []).map((frame) => frame.body);
 
+	/** Every reason one device's connection was closed with, which is empty while it stays open. */
+	const closeReasonsOf = (deviceId: string): string[] => sockets.get(deviceId)?.closeReasons ?? [];
+
 	/**
 	 * Sends one account message and waits for the answer it produces.
 	 *
@@ -870,7 +906,7 @@ const buildClientMessageHandlerHarness = (leaseMs = 15_000) => {
 		return accountId;
 	};
 
-	return { drive, driveAccountMessage, authenticate, authenticateAccount, registerWorker, registerConsumer, allSentTo, authToken, taskStore, deviceRegistry, sessionRegistry, accountRegistry, challengeRegistry, ledgerStore, scheduler };
+	return { drive, driveAccountMessage, authenticate, authenticateAccount, registerWorker, registerConsumer, allSentTo, closeReasonsOf, authToken, taskStore, deviceRegistry, sessionRegistry, accountRegistry, challengeRegistry, ledgerStore, scheduler };
 };
 
 Test('every message needs an active session first, before any rule specific to that message type is even reached', () => {
@@ -985,6 +1021,22 @@ Test('a principal is refused once its active tasks reach the configured limit', 
 	const [thirdReply] = drive('consumer-1', { type: 'task.submit', taskRequestId: 'request-3', input: devFormulaInput(5) });
 	Assert.equal(thirdReply?.type, 'error');
 	Assert.equal((thirdReply as { code: string }).code, 'RATE_LIMITED');
+});
+
+Test('two worker connections registering under the same name both stay connected and both take work', () => {
+	// Opening one debug page twice gives every shard two worker browser tabs registered under the
+	// one name that debug page writes into its inline frames, and all of them have to stay
+	// connected (see https://github.com/webai-at-home/webai-at-home/issues/135).
+	const { registerWorker, closeReasonsOf, deviceRegistry } = buildClientMessageHandlerHarness();
+	registerWorker('worker-1', 'llm-qwen3-0-6b-shard1of3', ['stage_dev_formula_multiply']);
+	const [secondReply] = registerWorker('worker-2', 'llm-qwen3-0-6b-shard1of3', ['stage_dev_formula_multiply']);
+
+	Assert.equal(secondReply?.type, 'deviceRegistered');
+	Assert.deepEqual(deviceRegistry.list().map((device) => device.deviceId), ['worker-1', 'worker-2']);
+	Assert.deepEqual(closeReasonsOf('worker-1'), []);
+	Assert.deepEqual(closeReasonsOf('worker-2'), []);
+	Assert.equal(deviceRegistry.findWorker('stage_dev_formula_multiply')?.deviceId, 'worker-1');
+	Assert.equal(deviceRegistry.findWorker('stage_dev_formula_multiply', ['worker-1'])?.deviceId, 'worker-2');
 });
 
 for (const message of [

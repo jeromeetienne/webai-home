@@ -84,10 +84,6 @@ The gateway replies to either registered role with:
 { "type": "deviceRegistered", "deviceId": "device-..." }
 ```
 
-The gateway replaces an existing worker connection when a newer worker uses the
-same worker name. Closing a connection removes the device from the registry
-and causes the gateway to broadcast a fresh worker list.
-
 An observer sends:
 
 ```json
@@ -95,6 +91,14 @@ An observer sends:
 ```
 
 The gateway replies with `devices` and does not send `registered`.
+
+### Worker identity and worker names
+
+- The `deviceId` the gateway creates when the connection opens is what identifies a worker. It is what the device registry is keyed by, what a task records in `stageWorkerDeviceIds` when a stage keeps state on the device that ran it, and what every assignment names.
+- The `name` a worker registers under is a display label and nothing more. Two or more connected workers are allowed to register under the same name, and the gateway does nothing about it: it never refuses such a registration, and it never closes the older connection. Opening one debug page twice therefore leaves both copies of its worker browser tabs connected, six workers under three names.
+- A device is removed from the registry only when its own connection closes. The gateway then announces `device.left` for that one `deviceId`, and no other device is touched.
+- A worker that wants to be told apart from another worker on screen should register under a name of its own. When two connected devices do share a name, the monitor page displays that name followed by the start of each device's own identifier, so the two are still distinguishable; the whole identifier is shown on every device in any case.
+- There is no intentional-replacement message. A worker that wants to take the place of an older one closes the older connection itself; the gateway offers nothing that closes somebody else's connection.
 
 ## The wrapper every message travels in
 
