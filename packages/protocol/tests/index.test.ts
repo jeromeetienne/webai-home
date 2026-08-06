@@ -4,6 +4,7 @@ import Os from 'node:os';
 import Path from 'node:path';
 import Test from 'node:test';
 import {
+	AccountAuthentication,
 	AccountIdentity,
 	AccountProfileSchema,
 	ClientEnvelopeSchema,
@@ -22,7 +23,7 @@ import {
 	maximumSnapshotEventCount,
 	protocolVersion,
 } from '../src/index.js';
-import type { Task, TaskEvent } from '../src/index.js';
+import type { ClientMessage, Task, TaskEvent } from '../src/index.js';
 import { MessageLogger } from '../src/message/message_logger.js';
 import type { LogEntry } from '../src/message/message_logger.js';
 import { TaskProjection } from '../src/task/task_projection.js';
@@ -552,4 +553,63 @@ Test('the three accounting reads are accepted, and a page larger than one page m
 	Assert.equal(ClientMessageSchema.safeParse({ type: 'account.ledger.get', limit: 0 }).success, false);
 	Assert.equal(ClientMessageSchema.safeParse({ type: 'account.ledger.get', direction: 'sideways' }).success, false);
 	Assert.equal(ClientMessageSchema.safeParse({ type: 'account.balance.get', accountId: 'account-1', includeEveryAccount: true }).success, false);
+});
+
+Test('the account conversation registers, signs the challenge it is handed, and settles with the account', async () => {
+	const keyPair = await AccountIdentity.generateKeyPair('Ed25519');
+	const publicKeySpkiBase64 = await AccountIdentity.exportPublicKeySpkiBase64(keyPair.publicKey);
+	const accountId = await AccountIdentity.accountIdFor(publicKeySpkiBase64);
+	const sent: ClientMessage[] = [];
+	let settledAccountId: string | undefined | 'not settled' = 'not settled';
+
+	const authentication = new AccountAuthentication({ signatureAlgorithmName: 'Ed25519', publicKeySpkiBase64, accountId, privateKey: keyPair.privateKey }, (message) => sent.push(message), {
+		onSettled: (settled) => { settledAccountId = settled; },
+	});
+	authentication.begin();
+	Assert.equal(sent[0]?.type, 'account.register');
+
+	Assert.equal(authentication.handleMessage({ type: 'account.registered' }), true);
+	Assert.equal(sent[1]?.type, 'account.challenge.request');
+
+	Assert.equal(authentication.handleMessage({ type: 'account.challenge', challenge: 'c0ffee' }), true);
+	// Signing goes through the Web Cryptography API, so the signature is sent once that finishes.
+	await new Promise((resolve) => setTimeout(resolve, 10));
+	const authenticate = sent[2];
+	Assert.equal(authenticate?.type, 'account.authenticate');
+	Assert.equal(settledAccountId, 'not settled');
+
+	// What it signed is a real signature over that challenge, by this key pair.
+	Assert.equal(await AccountIdentity.verifyChallengeSignature({ signatureAlgorithmName: 'Ed25519', publicKeySpkiBase64, challenge: 'c0ffee', signatureBase64: (authenticate as { signatureBase64: string }).signatureBase64 }), true);
+
+	Assert.equal(authentication.handleMessage({ type: 'account.authenticated', accountId }), true);
+	Assert.equal(settledAccountId, accountId);
+
+	// A message that is not part of this conversation is left to whoever else is listening.
+	Assert.equal(authentication.handleMessage({ type: 'task.updated' }), false);
+});
+
+Test('a gateway that will not give an account releases the participant to work without one', async () => {
+	const keyPair = await AccountIdentity.generateKeyPair('Ed25519');
+	const publicKeySpkiBase64 = await AccountIdentity.exportPublicKeySpkiBase64(keyPair.publicKey);
+	const accountId = await AccountIdentity.accountIdFor(publicKeySpkiBase64);
+
+	for (const code of ['ACCOUNT_SIGNATURE_REJECTED', 'INVALID_MESSAGE', 'UNSUPPORTED', 'VALIDATION']) {
+		let settledAccountId: string | undefined | 'not settled' = 'not settled';
+		const notes: string[] = [];
+		const authentication = new AccountAuthentication({ signatureAlgorithmName: 'Ed25519', publicKeySpkiBase64, accountId, privateKey: keyPair.privateKey }, () => undefined, {
+			onSettled: (settled) => { settledAccountId = settled; },
+			onNote: (note) => notes.push(note),
+		});
+		authentication.begin();
+
+		// A gateway built before accounts existed answers these messages with INVALID_MESSAGE or
+		// VALIDATION, which is exactly the case a participant has to survive rather than stall on.
+		Assert.equal(authentication.handleMessage({ type: 'error', code, message: 'no' }), true);
+		Assert.equal(settledAccountId, undefined, code);
+		Assert.match(notes[0] ?? '', /recorded against the shared development account/);
+
+		// Settling happens once: an error arriving later belongs to whatever else the connection is
+		// doing, and is left to it.
+		Assert.equal(authentication.handleMessage({ type: 'error', code: 'ACCOUNT_REQUIRED' }), false);
+	}
 });

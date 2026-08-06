@@ -3,6 +3,7 @@ import Path from 'node:path';
 import WebSocket from 'ws';
 import { MessageLogger } from '@webai/protocol/message_logger';
 import { ConsumerClient, type TaskSocket } from '../gateway_connection/consumer_client.js';
+import { AccountKeyFile } from '@webai/protocol/account_key_file';
 import { TaskInputFactory, type TaskTypeName } from '../libs/task_input_factory.js';
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -19,6 +20,13 @@ export type SubmitCommandOptions = {
 	name: string;
 	stream: boolean;
 	input: string | undefined;
+	/**
+	 * Where this participant's account key pair is kept.
+	 *
+	 * A submission from a machine with no key pair there carries no account, and the stages its task
+	 * runs are recorded against the shared development account.
+	 */
+	keyFilePath: string;
 };
 
 /**
@@ -35,6 +43,10 @@ export class SubmitCommand {
 		// generation settings at all rather than a settings field stating the default.
 		const generationSettings = options.stream === true ? { isStreaming: true } : undefined;
 		const taskInput = TaskInputFactory.createTaskInput(options.type, options.input, generationSettings);
+
+		// Read before the connection opens, so a key file this program cannot read stops the submission
+		// with that as the reason, rather than half-way through the conversation with the gateway.
+		const accountKeyPair = await AccountKeyFile.readIfPresent(options.keyFilePath);
 
 		const logsDirectory = Url.fileURLToPath(new URL('../../logs', import.meta.url));
 		const runTimestamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -59,7 +71,13 @@ export class SubmitCommand {
 				onConnectionChange: (isConnected) => {
 					if (isConnected === false) resolve();
 				},
-			}, options.name, options.authToken);
+				onAccountSettled: (accountId) => {
+					console.error(accountId === undefined
+						? `Submitting with no account of its own, so the stages this task runs are recorded against the shared development account. Run "consumer_cli account_key" and "consumer_cli account_register" to have them recorded against you.`
+						: `Submitting as ${accountId}.`);
+				},
+				onAccountNote: (note) => console.error(note),
+			}, options.name, options.authToken, accountKeyPair);
 		});
 	}
 }

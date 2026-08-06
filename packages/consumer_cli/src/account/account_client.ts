@@ -3,7 +3,7 @@ import { Envelope } from '@webai/protocol/envelope';
 import WebSocket from 'ws';
 import type { TaskSocket } from '../gateway_connection/consumer_client.js';
 import { CliError, type CliExitCode } from '../libs/cli_errors.js';
-import { AccountKeyFile, type LoadedAccountKey } from './account_key_file.js';
+import { AccountKeyFile, type LoadedAccountKey } from '@webai/protocol/account_key_file';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////

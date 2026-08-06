@@ -1,30 +1,26 @@
-import { AccountIdentity, type AccountLedgerSummary, type ClientMessage } from '@webai/protocol';
+import { AccountAuthentication, type AccountLedgerSummary, type ClientMessage } from '@webai/protocol';
 import { AccountKeyStore, type WorkerAccountKeyPair } from './account_key_store';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
-//	WorkerAccount — proves which account this browser is, and follows what it earns
+//	WorkerAccount — this browser's account, and what it earns
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
-/** The account messages and answers this class recognises, as this page reads them off a frame. */
+/** The messages this class reads, as this page takes them off a frame. */
 export type AccountGatewayMessage = {
 	/** The message category. */
 	type: string;
-	/** The profile, on `account.registered`. */
-	account?: { accountId: string };
-	/** Whether registering created the account, on `account.registered`. */
-	isNewAccount?: boolean;
 	/** The value to sign, on `account.challenge`. */
-	challenge?: string;
+	challenge?: string | undefined;
 	/** The account now on the connection, on `account.authenticated`. */
-	accountId?: string;
+	accountId?: string | undefined;
 	/** What this account's entries add up to, on `account.balance`. */
-	summary?: AccountLedgerSummary;
+	summary?: AccountLedgerSummary | undefined;
 	/** The error code, on `error`. */
-	code?: string;
+	code?: string | undefined;
 	/** What the gateway said, on `error`. */
-	message?: string;
+	message?: string | undefined;
 };
 
 /** What this class reports back to the page as the account conversation proceeds. */
@@ -40,23 +36,24 @@ export type WorkerAccountCallbacks = {
 };
 
 /**
- * Proves which account this browser is, and asks the gateway what that account holds.
+ * This browser's account: where its key pair comes from, and what the gateway says it holds.
  *
- * The conversation is three messages: register the public key, ask for a value to sign, and send the
- * signature. It is kept out of the page's own class because it is a sequence with its own state, and
- * because the page has one job — running assigned stages — that this must not complicate.
+ * The three-message conversation that proves the account is not written here. It is
+ * `AccountAuthentication` in the shared protocol package, which every participant uses — this page,
+ * the consumer command line program, the OpenAI-compatible server, and the Node.js worker — so none
+ * of the four can drift away from the others. What is written here is what only a browser page has:
+ * a key pair it cannot read out, and a volunteer to show the result to.
  *
- * The page waits for `onSettled` before it registers as a worker, so no stage can ever complete
- * before the gateway knows whose account earned it. `onSettled` is called with no account when the
- * gateway will not have one — an older gateway that does not know these messages, or a browser that
- * cannot hold a key pair — because a volunteer contributing anonymously is far better than a page
- * that refuses to contribute at all.
+ * The page waits for `onSettled` before it registers as a worker, so no stage can complete before the
+ * gateway knows whose account earned it. `onSettled` reports no account when the gateway will not
+ * give one, or when this browser cannot hold a key pair, because a volunteer contributing anonymously
+ * is far better than a page that refuses to contribute at all.
  */
 export class WorkerAccount {
 	/** This browser's key pair, once it has been read out of IndexedDB. */
 	private keyPair: WorkerAccountKeyPair | undefined;
-	/** Whether the account conversation has already finished, one way or the other. */
-	private isSettled = false;
+	/** The shared conversation, once the key pair it needs has been read. */
+	private authentication: AccountAuthentication | undefined;
 
 	/**
 	 * @param send How to send one message to the gateway.
@@ -64,13 +61,13 @@ export class WorkerAccount {
 	 */
 	constructor(private readonly send: (message: ClientMessage) => void, private readonly callbacks: WorkerAccountCallbacks) { }
 
-	/** The account this browser is, once it has been proved. */
+	/** The account this browser is, once its key pair has been read. */
 	get accountId(): string | undefined {
 		return this.keyPair?.accountId;
 	}
 
 	/**
-	 * Starts the conversation: read or generate the key pair, then register its public key.
+	 * Reads or generates this browser's key pair, then starts the conversation that proves it.
 	 *
 	 * @returns Nothing.
 	 */
@@ -78,55 +75,40 @@ export class WorkerAccount {
 		try {
 			this.keyPair = await AccountKeyStore.loadOrCreate();
 		} catch (error) {
-			this.callbacks.onNote(`This browser cannot hold an account: ${WorkerAccount.messageOf(error)}. It will still run stages, credited to nobody.`);
-			this.settle(undefined);
+			const reason = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+			this.callbacks.onNote(`This browser cannot hold an account: ${reason}. It will still run stages, credited to nobody.`);
+			this.callbacks.onSettled(undefined);
 			return;
 		}
 		this.callbacks.onAccountKnown(this.keyPair.accountId);
 		this.callbacks.onNote(this.keyPair.isNewlyGenerated
 			? `A new account key pair was generated in this browser and stored in it, using ${this.keyPair.signatureAlgorithmName}.`
 			: `This browser's account key pair was read back from its own storage, generated at ${this.keyPair.createdAt}.`);
-		this.send({
-			type: 'account.register',
-			signatureAlgorithmName: this.keyPair.signatureAlgorithmName,
-			publicKeySpkiBase64: this.keyPair.publicKeySpkiBase64,
+		this.authentication = new AccountAuthentication(this.keyPair, this.send, {
+			onSettled: (accountId: string | undefined): void => {
+				if (accountId !== undefined) {
+					this.callbacks.onNote('This browser is authenticated as its own account, so the stages it completes earn credits for it.');
+					this.requestBalance();
+				}
+				this.callbacks.onSettled(accountId);
+			},
+			onNote: this.callbacks.onNote,
 		});
+		this.authentication.begin();
 	}
 
 	/**
-	 * Acts on one message from the gateway, when it is one this conversation is waiting for.
+	 * Acts on one message from the gateway, when it is one this class is waiting for.
 	 *
 	 * @param message The message as this page read it off the frame.
-	 * @returns `true` when the message belonged to this conversation and has been dealt with.
+	 * @returns `true` when the message belonged here and has been dealt with.
 	 */
 	handleMessage(message: AccountGatewayMessage): boolean {
-		if (message.type === 'account.registered') {
-			this.send({ type: 'account.challenge.request' });
-			return true;
-		}
-		if (message.type === 'account.challenge') {
-			void this.signChallenge(message.challenge);
-			return true;
-		}
-		if (message.type === 'account.authenticated') {
-			this.callbacks.onNote(`This browser is authenticated as its own account, so the stages it completes earn credits for it.`);
-			this.settle(message.accountId);
-			this.requestBalance();
-			return true;
-		}
 		if (message.type === 'account.balance' && message.summary !== undefined) {
 			this.callbacks.onBalance(message.summary);
 			return true;
 		}
-		// An error while the account is still being settled is what the page is waiting on, so it is
-		// reported and the page is released to register and contribute anyway. Once the account is
-		// settled, an error belongs to whatever else the page was doing and is left to it.
-		if (message.type === 'error' && this.isSettled === false && WorkerAccount.isAccountErrorCode(message.code)) {
-			this.callbacks.onNote(`This gateway would not give this browser an account (${message.code ?? 'no code'}: ${message.message ?? 'no reason given'}). It will still run stages, credited to nobody.`);
-			this.settle(undefined);
-			return true;
-		}
-		return false;
+		return this.authentication?.handleMessage(message) === true;
 	}
 
 	/**
@@ -139,59 +121,5 @@ export class WorkerAccount {
 			return;
 		}
 		this.send({ type: 'account.balance.get' });
-	}
-
-	/**
-	 * Signs the value the gateway handed out, and sends the signature.
-	 *
-	 * @param challenge The value to sign.
-	 * @returns Nothing.
-	 */
-	private async signChallenge(challenge: string | undefined): Promise<void> {
-		const keyPair = this.keyPair;
-		if (keyPair === undefined || challenge === undefined) {
-			this.settle(undefined);
-			return;
-		}
-		try {
-			const signatureBase64 = await AccountIdentity.signChallenge(keyPair.signatureAlgorithmName, keyPair.privateKey, challenge);
-			this.send({ type: 'account.authenticate', accountId: keyPair.accountId, signatureBase64 });
-		} catch (error) {
-			this.callbacks.onNote(`This browser could not sign the gateway's challenge: ${WorkerAccount.messageOf(error)}. It will still run stages, credited to nobody.`);
-			this.settle(undefined);
-		}
-	}
-
-	/**
-	 * Reports the conversation as finished, exactly once.
-	 *
-	 * @param accountId The account that was proved, or `undefined` when none was.
-	 */
-	private settle(accountId: string | undefined): void {
-		if (this.isSettled) {
-			return;
-		}
-		this.isSettled = true;
-		this.callbacks.onSettled(accountId);
-	}
-
-	/**
-	 * Reports whether one error code belongs to the account conversation.
-	 *
-	 * @param code The code the gateway sent.
-	 * @returns `true` when this conversation is what the error is about.
-	 */
-	private static isAccountErrorCode(code: string | undefined): boolean {
-		return code === undefined || ['ACCOUNT_NOT_FOUND', 'ACCOUNT_CHALLENGE_INVALID', 'ACCOUNT_SIGNATURE_REJECTED', 'ACCOUNT_REQUIRED', 'INVALID_MESSAGE', 'VALIDATION', 'UNSUPPORTED'].includes(code);
-	}
-
-	/**
-	 * Reads the message out of something that was thrown.
-	 *
-	 * @param error Whatever was thrown.
-	 * @returns The words to show.
-	 */
-	private static messageOf(error: unknown): string {
-		return error instanceof Error ? `${error.name}: ${error.message}` : String(error);
 	}
 }

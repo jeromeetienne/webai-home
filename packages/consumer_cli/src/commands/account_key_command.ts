@@ -1,4 +1,4 @@
-import { AccountKeyFile } from '../account/account_key_file.js';
+import { AccountKeyFile } from '@webai/protocol/account_key_file';
 import { AccountOutputFormatter, type AccountOutputFormat } from '../account/account_output_format.js';
 
 ///////////////////////////////////////////////////////////////////////////////

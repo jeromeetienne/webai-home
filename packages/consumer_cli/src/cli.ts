@@ -9,7 +9,7 @@ import { StatusCommand, statusFormats } from './commands/status_command.js';
 import { CapacityCommand, capacityFormats } from './commands/capacity_command.js';
 import { LogStatsCommand } from './commands/log_stats_command.js';
 import { LogStatisticsFormatter, logStatisticsFormats } from './message_log/log_statistics_formatter.js';
-import { AccountKeyFile } from './account/account_key_file.js';
+import { AccountKeyFile } from '@webai/protocol/account_key_file';
 import { AccountOutputFormatter, accountOutputFormats } from './account/account_output_format.js';
 import { AccountKeyCommand } from './commands/account_key_command.js';
 import { AccountRegisterCommand } from './commands/account_register_command.js';
@@ -59,7 +59,8 @@ export class Cli {
 			.option('-t, --task_type <type>', `task type: ${taskTypeNames.join(', ')}`, 'dev_formula')
 			.option('-n, --consumer_name <name>', 'consumer name', 'consumer')
 			.option('-s, --stream', 'ask for the answer in pieces as it is produced, rather than in one result once it is finished')
-			.action(async (input: string, localOptions: { task_type: string; consumer_name: string; stream?: boolean }, command: Commander.Command) => {
+			.option('-k, --key_file <path>', 'where this participant\'s account key pair is kept, so the stages this task runs are recorded against that account. A machine with no key pair there submits with no account', AccountKeyFile.defaultFilePath())
+			.action(async (input: string, localOptions: { task_type: string; consumer_name: string; stream?: boolean; key_file: string }, command: Commander.Command) => {
 				const options = command.optsWithGlobals<GlobalOptions & typeof localOptions>();
 				if (TaskInputFactory.isTaskTypeName(options.task_type) === false) throw new Error(`Type must be one of ${taskTypeNames.join(', ')}`);
 				await SubmitCommand.run({
@@ -68,6 +69,7 @@ export class Cli {
 					type: options.task_type,
 					name: options.consumer_name,
 					stream: options.stream === true,
+					keyFilePath: options.key_file,
 					input,
 				});
 			});

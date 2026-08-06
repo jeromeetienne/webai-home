@@ -24,6 +24,10 @@
     "./session_renewal": {
       "types": "./dist/session_renewal.d.ts",
       "default": "./dist/session_renewal.js"
+    },
+    "./account_key_file": {
+      "types": "./dist/accounting/account_key_file.d.ts",
+      "default": "./dist/accounting/account_key_file.js"
     }
   },
   "scripts": {

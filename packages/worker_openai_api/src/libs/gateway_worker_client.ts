@@ -1,4 +1,4 @@
-import type { ClientMessage, GatewayEnvelope, GatewayMessage, LlmStagePayload, StagePayload } from '@webai/protocol';
+import { AccountAuthentication, type AccountKeyPair, type ClientMessage, type GatewayEnvelope, type GatewayMessage, type LlmStagePayload, type StagePayload } from '@webai/protocol';
 import { Envelope } from '@webai/protocol/envelope';
 import { SessionRenewal } from '@webai/protocol/session_renewal';
 import { LeaseHeartbeat } from './lease_heartbeat.js';
@@ -45,6 +45,15 @@ export type GatewayWorkerClientCallbacks = {
 	onNotice?: (text: string) => void;
 	/** Called when something went wrong, in plain words. */
 	onFailure?: (text: string) => void;
+	/**
+	 * Called once the account is proved, or once it is clear it will not be.
+	 *
+	 * The account identifier is absent when this worker holds no key pair, or when the gateway would
+	 * not give it one: in both cases the stages it completes earn credits for nobody.
+	 */
+	onAccountSettled?: (accountId: string | undefined) => void;
+	/** Called with anything about the account worth telling the person running this worker. */
+	onAccountNote?: (note: string) => void;
 	/** Called when the connection opens and when it closes. */
 	onConnectionChange?: (isConnected: boolean) => void;
 };
@@ -61,6 +70,13 @@ export type GatewayWorkerClientOptions = {
 	openaiApiClient: OpenaiApiClient;
 	/** The model this worker was told to serve, such as `llama3.2:3b`. */
 	modelId: string;
+	/**
+	 * This worker's own account key pair, when it has one.
+	 *
+	 * Left out, the stages this worker completes are recorded against the shared development account
+	 * rather than earning credits for anybody.
+	 */
+	accountKeyPair?: AccountKeyPair | undefined;
 };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -102,6 +118,8 @@ export class GatewayWorkerClient {
 	 * every time a task was cancelled normally.
 	 */
 	private readonly cancelledStageAssignmentIds = new Set<string>();
+	/** The account conversation of the current connection, when this worker holds a key pair. */
+	private accountAuthentication: AccountAuthentication | undefined;
 
 	/**
 	 * @param socket The already-built connection to the central gateway.
@@ -128,6 +146,8 @@ export class GatewayWorkerClient {
 		};
 		socket.onclose = (): void => {
 			this.isRegistered = false;
+			// The account belongs to the connection that proved it, so the next connection proves it again.
+			this.accountAuthentication = undefined;
 			// An answer being read one piece at a time stays open between runs, and only a run
 			// assigned over this connection can carry it on. With the connection gone, no run
 			// can arrive, so every open request to the local server is stopped now rather than
@@ -151,6 +171,30 @@ export class GatewayWorkerClient {
 	//	Sending And Receiving
 	///////////////////////////////////////////////////////////////////////////////
 	///////////////////////////////////////////////////////////////////////////////
+
+	/**
+	 * Builds the account conversation for this connection.
+	 *
+	 * @param accountKeyPair This worker's key pair.
+	 * @returns The conversation, not yet started.
+	 */
+	private buildAccountAuthentication(accountKeyPair: AccountKeyPair): AccountAuthentication {
+		return new AccountAuthentication(accountKeyPair, (message: ClientMessage): void => {
+			this.send(message);
+		}, {
+			onSettled: (accountId: string | undefined): void => {
+				this.callbacks.onAccountSettled?.(accountId);
+				if (this.isRegistered === false) {
+					this.send({
+						type: 'pipelines.get',
+					});
+				}
+			},
+			onNote: (note: string): void => {
+				this.callbacks.onAccountNote?.(note);
+			},
+		});
+	}
 
 	/**
 	 * Sends one message inside the wrapper every frame travels in.
@@ -191,11 +235,26 @@ export class GatewayWorkerClient {
 			// A renewal is answered with "deviceAuthenticated" too, so asking for the pipelines
 			// again each time would restart the whole registration sequence.
 			this.scheduleSessionRenewal(message.expiresAt);
-			if (this.isRegistered === false) {
+			if (this.isRegistered || this.accountAuthentication !== undefined) {
+				return;
+			}
+			// Proving which account this worker is comes before asking for the pipelines, and therefore
+			// before registering, so no stage can complete before the gateway knows whose account earned
+			// it. A worker with no key pair asks straight away and earns for nobody.
+			if (this.options.accountKeyPair === undefined) {
+				// Reported just as an account that was proved is, so whoever is running this worker is
+				// always told which of the two happened.
+				this.callbacks.onAccountSettled?.(undefined);
 				this.send({
 					type: 'pipelines.get',
 				});
+				return;
 			}
+			this.accountAuthentication = this.buildAccountAuthentication(this.options.accountKeyPair);
+			this.accountAuthentication.begin();
+			return;
+		}
+		if (this.accountAuthentication?.handleMessage(message) === true) {
 			return;
 		}
 		if (message.type === 'pipelines') {

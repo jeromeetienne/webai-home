@@ -34,6 +34,8 @@ export {
 	AccountSignatureBase64,
 } from './accounting/account_types.js';
 export type { AccountProfile } from './accounting/account_types.js';
+export { AccountAuthentication } from './accounting/account_authentication.js';
+export type { AccountAuthenticationCallbacks, AccountAuthenticationMessage, AccountKeyPair } from './accounting/account_authentication.js';
 export { AccountIdentity } from './accounting/account_identity.js';
 export type { AccountCryptoKey, AccountCryptoKeyPair, AccountKeyJsonWebKey, AccountSignatureCheck } from './accounting/account_identity.js';
 export { CreditDelta, LedgerDirection, LedgerEntrySchema, maximumLedgerPageSize } from './accounting/ledger_types.js';

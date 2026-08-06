@@ -10,7 +10,7 @@ import { CapacityCalculator } from '../src/cluster_capacity/capacity_calculator.
 import { ObserverClient } from '../src/gateway_connection/observer_client.js';
 import { AccountIdentity, protocolVersion, type ClientMessage, type Device, type GatewayMessage, type LedgerEntry, type PipelineSpecification, type ProtocolError } from '@webai/protocol';
 import { AccountClient } from '../src/account/account_client.js';
-import { AccountKeyFile } from '../src/account/account_key_file.js';
+import { AccountKeyFile } from '@webai/protocol/account_key_file';
 import { AccountOutputFormatter, accountOutputFormats } from '../src/account/account_output_format.js';
 import { AccountBalanceCommand } from '../src/commands/account_balance_command.js';
 import { AccountHistoryCommand, accountHistoryDirections } from '../src/commands/account_history_command.js';
@@ -547,4 +547,75 @@ Test('an account with no entries is told so plainly, rather than shown an empty 
 
 	const text = await captureConsoleOutput(async () => AccountHistoryCommand.run({ url: 'ws://gateway.test', authToken: 'test-token', timeoutMs: 1_000, keyFilePath, direction: 'spent', limit: 20, isEverythingRequested: false, format: 'text', socketFactory: (): TaskSocket => newAnsweringSocket(answerFor).socket }));
 	Assert.equal(text, `${stored.accountId} has no spent accounting entries yet.`);
+});
+
+Test('a consumer holding a key pair proves its account before it registers, so nothing is submitted anonymously', async () => {
+	const keyFilePath = newKeyFilePath();
+	const stored = await AccountKeyFile.create(keyFilePath, false);
+	const accountKeyPair = await AccountKeyFile.readIfPresent(keyFilePath);
+	const sent: ClientMessage[] = [];
+	let settledAccountId: string | undefined | 'not settled' = 'not settled';
+
+	const socket: TaskSocket = {
+		readyState: 1,
+		OPEN: 1,
+		send: (data: string): void => {
+			const message = (JSON.parse(data) as { body: ClientMessage }).body;
+			sent.push(message);
+			const answer = message.type === 'deviceAuthenticate' ? { type: 'deviceAuthenticated', authIdentity: 'authIdentity-test', expiresAt: new Date(Date.now() + 3_600_000).toISOString() }
+				: message.type === 'account.register' ? { type: 'account.registered', account: { accountId: stored.accountId, signatureAlgorithmName: 'Ed25519', publicKeySpkiBase64: stored.publicKeySpkiBase64, emailAddress: '', displayName: '', createdAt: stored.createdAt }, isNewAccount: true }
+				: message.type === 'account.challenge.request' ? { type: 'account.challenge', challenge: 'c0ffee', expiresAt: new Date(Date.now() + 60_000).toISOString() }
+				: message.type === 'account.authenticate' ? { type: 'account.authenticated', accountId: stored.accountId, expiresAt: new Date(Date.now() + 3_600_000).toISOString() }
+				: message.type === 'deviceRegister' ? { type: 'deviceRegistered', deviceId: 'device-test' }
+				: undefined;
+			if (answer === undefined) return;
+			setImmediate(() => socket.onmessage?.({ data: JSON.stringify({ v: protocolVersion, id: 'message-answer', ts: new Date().toISOString(), body: answer }) }));
+		},
+		close: (): void => undefined,
+		onopen: null,
+		onmessage: null,
+		onerror: null,
+		onclose: null,
+	};
+
+	const client = new ConsumerClient(socket, { onAccountSettled: (accountId) => { settledAccountId = accountId; } }, 'consumer-one', 'test-token', accountKeyPair);
+	socket.onopen?.();
+	for (let attempt = 0; attempt < 100 && settledAccountId === 'not settled'; attempt += 1) {
+		await new Promise((resolve) => setTimeout(resolve, 5));
+	}
+
+	// Registration is what lets a task be submitted, so proving the account has to come first: a task
+	// submitted before it would have its stages recorded against the shared development account.
+	Assert.deepEqual(sent.map((message) => message.type), ['deviceAuthenticate', 'account.register', 'account.challenge.request', 'account.authenticate', 'deviceRegister']);
+	Assert.equal(settledAccountId, stored.accountId);
+	Assert.equal(client instanceof ConsumerClient, true);
+});
+
+Test('a consumer holding no key pair registers straight away, and says its work is recorded against nobody', async () => {
+	const keyFilePath = newKeyFilePath();
+	Assert.equal(await AccountKeyFile.readIfPresent(keyFilePath), undefined);
+	const sent: ClientMessage[] = [];
+
+	const { socket } = newAnsweringSocket((message) => {
+		sent.push(message);
+		if (message.type === 'deviceAuthenticate') return { type: 'deviceAuthenticated', authIdentity: 'authIdentity-test', expiresAt: new Date(Date.now() + 3_600_000).toISOString() };
+		if (message.type === 'deviceRegister') return { type: 'deviceRegistered', deviceId: 'device-test' };
+		return undefined;
+	});
+	let registeredDeviceId: string | undefined;
+	let isAccountSettledWithNone = false;
+	new ConsumerClient(socket, {
+		onRegistered: (deviceId) => { registeredDeviceId = deviceId; },
+		onAccountSettled: (accountId) => { isAccountSettledWithNone = accountId === undefined; },
+	}, 'consumer-one', 'test-token', undefined);
+	for (let attempt = 0; attempt < 100 && registeredDeviceId === undefined; attempt += 1) {
+		await new Promise((resolve) => setTimeout(resolve, 5));
+	}
+
+	// Nobody is stopped from contributing or consuming for want of an account.
+	Assert.deepEqual(sent.map((message) => message.type), ['deviceAuthenticate', 'deviceRegister']);
+	Assert.equal(registeredDeviceId, 'device-test');
+
+	// The caller is told which of the two happened, rather than only hearing when there is an account.
+	Assert.equal(isAccountSettledWithNone, true);
 });

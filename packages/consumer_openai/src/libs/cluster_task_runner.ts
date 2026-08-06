@@ -5,7 +5,7 @@ import Crypto from 'node:crypto';
 import WebSocket from 'ws';
 import { ConsumerClient, type TaskSocket } from '@webai/consumer-cli';
 import type { MessageLogger } from '@webai/protocol/message_logger';
-import type { ProtocolError, StagePayload, TaskInput, TaskSnapshot, TaskState, TaskUpdate } from '@webai/protocol';
+import type { AccountKeyPair, ProtocolError, StagePayload, TaskInput, TaskSnapshot, TaskState, TaskUpdate } from '@webai/protocol';
 
 // local imports
 import { OpenaiError } from '../api/openai_error.js';
@@ -30,6 +30,15 @@ export type ClusterTaskRunnerOptions = {
 	authToken: string;
 	/** The consumer name this runner registers under. */
 	name: string;
+	/**
+	 * This server's own account key pair, when it has one.
+	 *
+	 * One deployment of this server is one account, and it is this server's account rather than the
+	 * account of whichever program called its OpenAI-compatible endpoint: this server is what the
+	 * gateway sees. Left out, the stages its tasks run are recorded against the shared development
+	 * account.
+	 */
+	accountKeyPair?: AccountKeyPair | undefined;
 	/** How long one task may run before it is cancelled and the request is given up on. */
 	requestTimeoutMs: number;
 	/** How long a request waits for a registered connection before it is refused. */
@@ -265,6 +274,12 @@ export class ClusterTaskRunner {
 						message,
 					),
 				onRegistered: () => this._onRegistered(),
+				onAccountSettled: (accountId) => {
+					console.log(accountId === undefined
+						? 'Connected to the central gateway with no account of its own, so the stages this server\'s tasks run are recorded against the shared development account.'
+						: `Connected to the central gateway as ${accountId}.`);
+				},
+				onAccountNote: (note) => console.error(note),
 				onTaskAccepted: (task) => this._onTaskAccepted(task),
 				onTaskUpdated: (update) => this._onTaskUpdated(update),
 				onError: (error) => this._onGatewayError(error),
@@ -276,6 +291,7 @@ export class ClusterTaskRunner {
 			},
 			this.options.name,
 			this.options.authToken,
+			this.options.accountKeyPair,
 		);
 	}
 

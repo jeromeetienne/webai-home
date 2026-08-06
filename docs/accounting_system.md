@@ -39,7 +39,9 @@ The rules the gateway enforces around an account are these:
 | Participant | Where the private key lives | Can the holder read it out? |
 | --- | --- | --- |
 | A worker browser tab | IndexedDB in that browser, under this origin | No. It is generated as non-extractable, so the browser signs with it and no script can copy it, including the page's own. |
-| `consumer_cli` | `~/.webai-at-home/account_key.json`, readable and writable by its owner only | Yes, necessarily. A process that ends holds nothing, so it has to be able to read the key back to be the same account on its next run. |
+| `consumer_cli`, `consumer_openai`, and `worker_openai_api` | A key file, `~/.webai-at-home/account_key.json` by default, readable and writable by its owner only | Yes, necessarily. A process that ends holds nothing, so it has to be able to read the key back to be the same account on its next run. |
+
+Every one of them proves its account the same way, through `AccountAuthentication` in the shared protocol package, and every one of them proves it **before** it does the thing that would otherwise be recorded against nobody: a worker registers only once its account is settled, and a consumer submits only once its own is. A participant that could not get an account carries on without one rather than refusing to work.
 
 Both arrangements have the same two consequences, and they are worth stating plainly because they decide what a participant can expect:
 
@@ -50,7 +52,7 @@ Both arrangements have the same two consequences, and they are worth stating pla
 
 A participant that has authenticated no account of its own is recorded against one shared development account, `account-shared-development`. The gateway's shared bearer token says nothing about who presented it, so that work cannot be attributed to anybody; recording it keeps the gateway's own development runs producing a readable ledger. The identifier is deliberately not shaped like a real one — those hold nothing but hexadecimal — so nobody can mistake it for a participant.
 
-Today this is where `consumer_cli submit`, `consumer_openai`, and `worker_openai_api` still land, because none of them authenticates an account yet. [Issue #132](https://github.com/webai-at-home/webai-at-home/issues/132) is about closing that.
+Every participant can now hold an account of its own, so this is where only a participant that has not been given one lands: a worker browser tab in a browser that cannot hold a key pair, and a command line program or server started with no key pair at the path it was told to look in. Nobody is stopped from contributing or consuming for want of an account.
 
 ## The ledger
 
@@ -103,9 +105,17 @@ The page proves its account **before** it registers as a worker, so no stage can
 
 The page shows the account identifier and what it holds, and refreshes the figure every time a stage result is accepted — the moment the balance actually changed.
 
+### A server or a command line program
+
+`consumer_cli`, the OpenAI-compatible server, and the Node.js worker each read a key file and prove that account as they connect. Each takes an option saying where to look — `--key_file` for `consumer_cli submit`, `--account-key-file` for the other two — defaulting to `~/.webai-at-home/account_key.json`, and each carries on with no account when there is no key pair there.
+
+One deployment of the OpenAI-compatible server is one account. It is that server's account and not the account of whichever program called its OpenAI-compatible endpoint, because the server is what the gateway sees.
+
 ### A person at a terminal
 
 Five [`consumer_cli`](../packages/consumer_cli/README.md) commands, described in full in that package's README:
+
+`submit` spends from the account in that key file too, and says which account it is submitting as, or that it is submitting as nobody.
 
 | Command | What it does |
 | --- | --- |
@@ -152,7 +162,9 @@ Every one of these is a decision, not an oversight. They are recorded in #122 an
 | The two accounting rules | [`packages/gateway/src/accounting/accounting_recorder.ts`](../packages/gateway/src/accounting/accounting_recorder.ts) |
 | Answering the three accounting reads | [`packages/gateway/src/accounting/accounting_query_handler.ts`](../packages/gateway/src/accounting/accounting_query_handler.ts) |
 | The key pair in a browser, and proving it | [`packages/worker_webpage/web/src/connection/account_key_store.ts`](../packages/worker_webpage/web/src/connection/account_key_store.ts) and [`worker_account.ts`](../packages/worker_webpage/web/src/connection/worker_account.ts) |
-| The key pair in a file, and the five commands | [`packages/consumer_cli/src/account`](../packages/consumer_cli/src/account) and [`packages/consumer_cli/src/commands`](../packages/consumer_cli/src/commands) |
+| The three-message conversation every participant runs | [`packages/protocol/src/accounting/account_authentication.ts`](../packages/protocol/src/accounting/account_authentication.ts) |
+| The key pair in a file | [`packages/protocol/src/accounting/account_key_file.ts`](../packages/protocol/src/accounting/account_key_file.ts), reached as `@webai/protocol/account_key_file` |
+| The five commands | [`packages/consumer_cli/src/commands`](../packages/consumer_cli/src/commands) |
 | The browser experiment that proved a tab can hold a key pair | [`packages/_account_key_experiments`](../packages/_account_key_experiments/README.md) |
 
 ## Open questions

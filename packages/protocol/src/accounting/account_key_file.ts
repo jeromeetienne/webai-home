@@ -1,7 +1,9 @@
 import Fs from 'node:fs';
 import Os from 'node:os';
 import Path from 'node:path';
-import { AccountIdentity, type AccountCryptoKey, type AccountKeyJsonWebKey, type AccountSignatureAlgorithmName } from '@webai/protocol';
+import type { AccountKeyPair } from './account_authentication.js';
+import { AccountIdentity, type AccountCryptoKey, type AccountKeyJsonWebKey } from './account_identity.js';
+import type { AccountSignatureAlgorithmName } from './account_types.js';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -45,8 +47,14 @@ const accountKeyFileSchemaVersion = 1;
  * is why the file is written readable and writable by its owner only, and why generating a key pair
  * refuses to overwrite an existing one unless it is explicitly told to.
  *
- * A browser page keeps a private key it cannot export, which is stronger. A command line program
- * cannot: it has to be the same account on its next run, and a process that ends holds nothing.
+ * A browser page keeps a private key it cannot export, which is stronger. A program that ends and
+ * starts again cannot: it has to be the same account on its next run, and a process that has ended
+ * holds nothing.
+ *
+ * This is the one definition of that file, used by `consumer_cli`, by the OpenAI-compatible server,
+ * and by the Node.js worker. It reads and writes files, so unlike everything else in this package it
+ * cannot run in a browser, which is why it is reached through the `@webai/protocol/account_key_file`
+ * subpath and is not exported from this package's main entry point.
  */
 export class AccountKeyFile {
 	/** Where the key pair is kept when no other path is given. */
@@ -84,6 +92,30 @@ export class AccountKeyFile {
 		// change, so they are set here as well.
 		Fs.chmodSync(filePath, 0o600);
 		return stored;
+	}
+
+	/**
+	 * Reads the key pair back when there is one, and reports that there is none when there is not.
+	 *
+	 * This is what a command that works with or without an account uses. `submit` is the example: a
+	 * volunteer who has never run `account_key` still submits tasks, and the stages those tasks run
+	 * are recorded against the shared development account rather than the command failing.
+	 *
+	 * @param filePath Where the key pair would be kept.
+	 * @returns The key pair as the account conversation needs it, or `undefined` when there is no key
+	 * pair at that path.
+	 */
+	static async readIfPresent(filePath: string): Promise<AccountKeyPair | undefined> {
+		if (Fs.existsSync(filePath) === false) {
+			return undefined;
+		}
+		const loaded = await AccountKeyFile.read(filePath);
+		return {
+			signatureAlgorithmName: loaded.stored.signatureAlgorithmName,
+			publicKeySpkiBase64: loaded.stored.publicKeySpkiBase64,
+			accountId: loaded.stored.accountId,
+			privateKey: loaded.privateKey,
+		};
 	}
 
 	/**

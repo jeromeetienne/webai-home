@@ -1,4 +1,5 @@
 import { Command } from 'commander';
+import { AccountKeyFile } from '@webai/protocol/account_key_file';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -13,6 +14,7 @@ type RawOptions = {
 	authToken: string;
 	apiKey?: string;
 	consumer_name: string;
+	accountKeyFile: string;
 	requestTimeoutMs: string;
 	connectionWaitMs: string;
 	maxTasksInFlight: string;
@@ -37,6 +39,14 @@ export class ServerSettings {
 	readonly apiKey: string | undefined;
 	/** The consumer name this server registers under with the central gateway. */
 	readonly name: string;
+	/**
+	 * Where this server's own account key pair is kept.
+	 *
+	 * One deployment of this server is one account. A path with no key pair at it means this server
+	 * runs with no account, and the stages its tasks run are recorded against the shared development
+	 * account.
+	 */
+	readonly accountKeyFile: string;
 	/** How long one task may run before it is cancelled and the request is given up on. */
 	readonly requestTimeoutMs: number;
 	/** How long a request waits for a registered gateway connection before it is refused. */
@@ -54,6 +64,7 @@ export class ServerSettings {
 			.option('-t, --auth-token <token>', 'Bearer token the central gateway requires', 'development-token')
 			.option('-k, --api-key <key>', 'Key a request must present to this server. Omit to require none')
 			.option('-n, --consumer_name <name>', 'Consumer name to register under with the central gateway', 'consumer_openai server')
+			.option('--account-key-file <path>', 'Where this server\'s own account key pair is kept, so the stages its tasks run are recorded against that account. A path with no key pair there means no account', AccountKeyFile.defaultFilePath())
 			.option('--request-timeout-ms <number>', 'How long one task may run before it is cancelled', '600000')
 			.option(
 				'--connection-wait-ms <number>',
@@ -77,6 +88,7 @@ export class ServerSettings {
 		this.authToken = options.authToken;
 		this.apiKey = options.apiKey;
 		this.name = options.consumer_name;
+		this.accountKeyFile = options.accountKeyFile;
 		this.requestTimeoutMs = Number(options.requestTimeoutMs);
 		this.connectionWaitMs = Number(options.connectionWaitMs);
 		this.maximumTasksInFlight = Number(options.maxTasksInFlight);

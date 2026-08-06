@@ -7,6 +7,7 @@ import Express from 'express';
 import { MessageLogger } from '@webai/protocol/message_logger';
 
 // local imports
+import { AccountKeyFile } from '@webai/protocol/account_key_file';
 import { ClusterTaskRunner } from '../libs/cluster_task_runner.js';
 import { ServerSettings } from '../libs/server_settings.js';
 import { CurlStyleTransactionLogger } from '../http/curl_style_transaction_logger.js';
@@ -42,10 +43,11 @@ export class ServerCommand {
 	/**
 	 * Builds the server and starts listening.
 	 *
+	 * @returns Once the server is listening. It keeps listening after this resolves.
 	 * @param args The command line arguments, without the program name and the `server`
 	 * subcommand name. Defaults to this process's own, for a caller that runs this file directly.
 	 */
-	static run(args: string[] = process.argv.slice(2)): void {
+	static async run(args: string[] = process.argv.slice(2)): Promise<void> {
 		const settings = new ServerSettings(args);
 
 		// This server's own message traffic with the central gateway, one file per run, the way
@@ -66,10 +68,14 @@ export class ServerCommand {
 			Path.join(logsDirectory, `consumer_openai-${runTimestamp}.log_http.txt`),
 		);
 
+		// Read before the server starts serving, so a key file this program cannot read stops it here
+		// rather than once requests are already arriving.
+		const accountKeyPair = await AccountKeyFile.readIfPresent(settings.accountKeyFile);
 		const runner = new ClusterTaskRunner({
 			gatewayUrl: settings.gatewayUrl,
 			authToken: settings.authToken,
 			name: settings.name,
+			accountKeyPair,
 			requestTimeoutMs: settings.requestTimeoutMs,
 			connectionWaitMs: settings.connectionWaitMs,
 			maximumTasksInFlight: settings.maximumTasksInFlight,

@@ -1,4 +1,4 @@
-import type { ClientMessage, GatewayEnvelope, GatewayMessage, ProtocolError, TaskInput, TaskSnapshot, TaskUpdate } from '@webai/protocol';
+import { AccountAuthentication, type AccountKeyPair, type ClientMessage, type GatewayEnvelope, type GatewayMessage, type ProtocolError, type TaskInput, type TaskSnapshot, type TaskUpdate } from '@webai/protocol';
 import { Envelope } from '@webai/protocol/envelope';
 import { SessionRenewal } from '@webai/protocol/session_renewal';
 
@@ -35,6 +35,16 @@ export type TaskSocket = {
 export type ConsumerClientCallbacks = {
 	onMessage?: (direction: 'sent' | 'received', message: ClientMessage | GatewayMessage) => void;
 	onRegistered?: (deviceId: string) => void;
+	/**
+	 * Called once the account is proved, or once it is clear it will not be.
+	 *
+	 * The account identifier is absent when this consumer holds no key pair, or when the gateway
+	 * would not give it an account: in both cases the stages its tasks run are recorded against the
+	 * shared development account rather than against this consumer.
+	 */
+	onAccountSettled?: (accountId: string | undefined) => void;
+	/** Called with anything about the account worth logging or showing. */
+	onAccountNote?: (note: string) => void;
 	onTaskAccepted?: (task: TaskSnapshot) => void;
 	/** Called with the full task state, in reply to a `task.get`, `task.resync`, or `task.observe`. */
 	onTaskSnapshot?: (task: TaskSnapshot) => void;
@@ -62,27 +72,34 @@ export type ConsumerClientCallbacks = {
 /**
  * Speaks the consumer side of the gateway protocol over one connection.
  *
- * The client authenticates as soon as the connection opens, registers itself as a consumer,
- * submits tasks on request, and authenticates again on its own before the session the
- * gateway granted runs out. Everything it observes is reported through the callbacks it was
- * built with, so the same client serves the command line program and a browser page.
+ * The client authenticates as soon as the connection opens, proves which account it is when it was
+ * given a key pair, registers itself as a consumer, submits tasks on request, and authenticates
+ * again on its own before the session the gateway granted runs out. Everything it observes is
+ * reported through the callbacks it was built with, so the same client serves the command line
+ * program and a browser page.
  */
 export class ConsumerClient {
 	private isRegistered = false;
 	/** The pending timer that authenticates again before the current session expires. */
 	private sessionRenewalTimer: ReturnType<typeof setTimeout> | undefined;
+	/** The account conversation of the current connection, when this consumer holds a key pair. */
+	private accountAuthentication: AccountAuthentication | undefined;
 
 	/**
 	 * @param socket The already-built connection to the central gateway.
 	 * @param callbacks The functions to call as the conversation proceeds.
 	 * @param name The consumer name to register under.
 	 * @param authenticationToken The bearer token the gateway requires.
+	 * @param accountKeyPair This consumer's own account key pair. Left out, the consumer submits with
+	 * no account of its own and the stages its tasks run are recorded against the shared development
+	 * account.
 	 */
 	constructor(
 		private readonly socket: TaskSocket,
 		private readonly callbacks: ConsumerClientCallbacks = {},
 		private readonly name = 'consumer',
 		private readonly authenticationToken = 'development-token',
+		private readonly accountKeyPair?: AccountKeyPair,
 	) {
 		socket.onopen = (): void => {
 			this.callbacks.onConnectionChange?.(true);
@@ -96,9 +113,31 @@ export class ConsumerClient {
 		};
 		socket.onclose = (): void => {
 			this.isRegistered = false;
+			// The account belongs to the connection that proved it, so the next connection proves it again.
+			this.accountAuthentication = undefined;
 			this.clearSessionRenewal();
 			this.callbacks.onConnectionChange?.(false);
 		};
+	}
+
+	/**
+	 * Builds the account conversation for this connection.
+	 *
+	 * @param accountKeyPair This consumer's key pair.
+	 * @returns The conversation, not yet started.
+	 */
+	private buildAccountAuthentication(accountKeyPair: AccountKeyPair): AccountAuthentication {
+		return new AccountAuthentication(accountKeyPair, (message: ClientMessage): void => {
+			this.send(message);
+		}, {
+			onSettled: (accountId: string | undefined): void => {
+				this.callbacks.onAccountSettled?.(accountId);
+				if (this.isRegistered === false) this.send({ type: 'deviceRegister', role: 'consumer', name: this.name });
+			},
+			onNote: (note: string): void => {
+				this.callbacks.onAccountNote?.(note);
+			},
+		});
 	}
 
 	/**
@@ -179,9 +218,22 @@ export class ConsumerClient {
 			// for longer than one session has to authenticate again to keep its connection
 			// usable. Registration only happens on the first one; a renewal must not repeat it.
 			this.scheduleSessionRenewal(message.expiresAt);
-			if (this.isRegistered === false) this.send({ type: 'deviceRegister', role: 'consumer', name: this.name });
+			if (this.isRegistered || this.accountAuthentication !== undefined) return;
+			// Proving which account this consumer is comes before registering, and therefore before any
+			// task can be submitted, so no stage is ever run before the gateway knows whose credit it
+			// spends. A consumer with no key pair registers straight away and spends nobody's.
+			if (this.accountKeyPair === undefined) {
+				// Reported just as an account that was proved is, so a caller is always told which of the
+				// two happened rather than only hearing when there is an account.
+				this.callbacks.onAccountSettled?.(undefined);
+				this.send({ type: 'deviceRegister', role: 'consumer', name: this.name });
+				return;
+			}
+			this.accountAuthentication = this.buildAccountAuthentication(this.accountKeyPair);
+			this.accountAuthentication.begin();
 			return;
 		}
+		if (this.accountAuthentication?.handleMessage(message) === true) return;
 		if (message.type === 'deviceRegistered') {
 			this.isRegistered = true;
 			this.callbacks.onRegistered?.(message.deviceId);

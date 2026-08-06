@@ -51,6 +51,7 @@ npm run start --workspace @webai/worker-openai-api
 | `-b, --base-url <url>` | `http://localhost:1234/v1` | The base URL of the local server's OpenAI-compatible API. That default is LM Studio's; Ollama's is `http://localhost:11434/v1`. |
 | `-m, --model <model>` | `llama-3.2-3b-instruct` | The model the local server is asked for, exactly as that server names it. LM Studio and Ollama name the same model differently, so this has to change with the base URL. |
 | `-s, --stage-names <name...>` | every stage this worker can run | Restrict this worker to particular stages. |
+| `-k, --account-key-file <path>` | `~/.webai-at-home/account_key.json` | Where this worker's own account key pair is kept, so the stages it completes earn credits for that account. A path with no key pair at it means no account, and the stages it completes earn credits for nobody. See [`docs/accounting_system.md`](../../docs/accounting_system.md). |
 
 ## How an answer is generated
 

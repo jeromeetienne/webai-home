@@ -31,7 +31,7 @@ export class Cli {
 	static async run(args: string[] = process.argv.slice(2)): Promise<void> {
 		const [subcommand, ...rest] = args;
 		if (subcommand === 'server') {
-			ServerCommand.run(rest);
+			await ServerCommand.run(rest);
 			return;
 		}
 		if (subcommand === undefined || subcommand === '-h' || subcommand === '--help') {

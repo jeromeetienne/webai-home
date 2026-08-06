@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import * as Commander from 'commander';
 import WebSocket from 'ws';
+import { AccountKeyFile } from '@webai/protocol/account_key_file';
 import { GatewayWorkerClient, type WorkerSocket } from './libs/gateway_worker_client.js';
 import { OpenaiApiClient } from './libs/openai_api_client.js';
 
@@ -21,6 +22,8 @@ type WorkerOptions = {
 	baseUrl: string;
 	model: string;
 	stageNames?: string[];
+	/** Where this worker's own account key pair is kept. */
+	accountKeyFile: string;
 };
 
 /**
@@ -45,7 +48,8 @@ export class Cli {
 			.option('-n, --worker_name <name>', 'worker name, which the gateway shows in its device list', 'openai-api-worker')
 			.option('-b, --base-url <url>', "base URL of the local server's OpenAI-compatible API", 'http://localhost:1234/v1')
 			.option('-m, --model <model>', 'the model the local server is asked for', 'llama-3.2-3b-instruct')
-			.option('-s, --stage-names <name...>', 'restrict this worker to these stages, instead of every stage it can run');
+			.option('-s, --stage-names <name...>', 'restrict this worker to these stages, instead of every stage it can run')
+			.option('-k, --account-key-file <path>', 'where this worker\'s own account key pair is kept, so the stages it completes earn credits for that account. A path with no key pair there means no account', AccountKeyFile.defaultFilePath());
 
 		program.parse(args, { from: 'user' });
 		const options = program.opts<WorkerOptions>();
@@ -58,7 +62,10 @@ export class Cli {
 	 * @param options The options this worker was started with.
 	 * @returns A promise that resolves once the connection has closed.
 	 */
-	private static connect(options: WorkerOptions): Promise<void> {
+	private static async connect(options: WorkerOptions): Promise<void> {
+		// Read before the connection opens, so a key file this program cannot read stops the worker with
+		// that as the reason, rather than half-way through the conversation with the gateway.
+		const accountKeyPair = await AccountKeyFile.readIfPresent(options.accountKeyFile);
 		const openaiApiClient = new OpenaiApiClient(options.baseUrl.replace(/\/+$/, ''));
 		const socket = new WebSocket(options.url) as unknown as WorkerSocket;
 		return new Promise<void>((resolve) => {
@@ -70,6 +77,7 @@ export class Cli {
 					requestedStageNames: options.stageNames ?? [],
 					openaiApiClient,
 					modelId: options.model,
+					accountKeyPair,
 				},
 				{
 					onMessage: (direction, message) => {
@@ -83,6 +91,14 @@ export class Cli {
 					},
 					onFailure: (text) => {
 						Cli.print(`failure: ${text}`);
+					},
+					onAccountSettled: (accountId) => {
+						Cli.print(accountId === undefined
+							? 'running with no account of its own, so the stages it completes are recorded against the shared development account'
+							: `earning credits for ${accountId}`);
+					},
+					onAccountNote: (note) => {
+						Cli.print(note);
 					},
 					onConnectionChange: (isConnected) => {
 						Cli.print(isConnected ? `connected to ${options.url}` : 'disconnected');

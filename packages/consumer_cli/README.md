@@ -75,6 +75,18 @@ npm run dev --workspace @webai/consumer-cli -- submit "hello there" --task_type 
 `--stream` is not valid for `dev_formula`, which always returns one numeric
 result. `submit` writes gateway messages to `packages/consumer_cli/logs`.
 
+`submit` spends from this participant's account, so the stages its task runs are recorded against that account rather than against nobody. It reads the key pair from `-k, --key_file`, defaulting to `~/.webai-at-home/account_key.json`, and says which account it is submitting as:
+
+```
+Submitting as account-37b98b4c860818d3396d3b4b1b04ab88.
+```
+
+A machine with no key pair at that path submits anyway, and says so:
+
+```
+Submitting with no account of its own, so the stages this task runs are recorded against the shared development account. Run "consumer_cli account_key" and "consumer_cli account_register" to have them recorded against you.
+```
+
 ## `status`
 
 Connects as an observer and prints the current worker cluster state: how many workers are connected, how much of their advertised capacity is free, and one row per worker.
