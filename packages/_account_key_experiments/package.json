@@ -8,6 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.json",
+    "test": "npm run typecheck",
     "verify_account_key_signature": "node tools/verify_account_key_signature.js"
   },
   "dependencies": {
