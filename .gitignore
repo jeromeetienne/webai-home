@@ -29,3 +29,4 @@ gateway-ledger.jsonl
 # Account key pairs. Each one carries a private key that authenticates as the account it
 # belongs to, so none of them may ever be committed, wherever under data/ they are kept.
 data/**/*.account_key.json
+data/**/*.identity.json
