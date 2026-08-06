@@ -25,3 +25,7 @@ gateway-accounts.json
 # from the gateway's --ledger-file option, which defaults to gateway-ledger.jsonl in the
 # working directory, so the file can appear at the repository root or inside a package.
 gateway-ledger.jsonl
+
+# Account key pairs. Each one carries a private key that authenticates as the account it
+# belongs to, so none of them may ever be committed.
+data/account_keys/
