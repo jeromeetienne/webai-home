@@ -63,6 +63,7 @@ The central research questions are still open, especially result verification, b
 - [`docs/tasks_and_stages.md`](docs/tasks_and_stages.md) — every kind of task the cluster can run and every stage each one needs.
 - [`docs/protocol_by_role.md`](docs/protocol_by_role.md) — the messages the gateway, the consumers, and the workers exchange.
 - [`docs/naming_scheme.md`](docs/naming_scheme.md) — how every task, task type, pipeline, and stage name is built.
+- [`docs/environment_variables.md`](docs/environment_variables.md) — which environment variables exist, which program reads each one, and which programs read command line options only.
 - [`docs/accounting_system.md`](docs/accounting_system.md) — how contributed and consumed computation are recorded: what an account is, what a credit is, and what the ledger holds.
 - [`docs/readme-audit-89.md`](docs/readme-audit-89.md) — the README audit checklist and validation record for issue #89.
 

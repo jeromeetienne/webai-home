@@ -25,7 +25,9 @@ Every subcommand accepts:
 | Option | Default | Meaning |
 | --- | --- | --- |
 | `-u, --url <url>` | `GATEWAY_WS_URL` environment variable, then `ws://localhost:8787` | The central gateway's WebSocket URL. |
-| `-a, --auth-token <token>` | `WEBAI_AUTH_TOKEN` environment variable, then `development-token` | Bearer token for the central gateway. |
+| `-a, --auth-token <token>` | `GATEWAY_AUTH_TOKEN` environment variable, then `development-token` | Bearer token for the central gateway. |
+
+`GATEWAY_WS_URL` and `GATEWAY_AUTH_TOKEN` are the same two names `packages/worker_openai` and `packages/docker_server` use for the same two settings, so one pair of exported variables points every program on this machine at the same gateway. See [`docs/environment_variables.md`](../../docs/environment_variables.md) for every variable this project reads and which programs read none.
 
 ## `submit`
 

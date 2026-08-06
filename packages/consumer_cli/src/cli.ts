@@ -83,7 +83,7 @@ export class Cli {
 			)
 			.option(
 				'-a, --auth-token <token>',
-				'bearer token for the central gateway (falls back to the WEBAI_AUTH_TOKEN'
+				'bearer token for the central gateway (falls back to the GATEWAY_AUTH_TOKEN'
 					+ ' environment variable, then to a development default)',
 			);
 
@@ -439,13 +439,17 @@ export class Cli {
 
 	/**
 	 * Resolves the bearer token to authenticate with, in priority order: the `-a/--auth-token`
-	 * option, the `WEBAI_AUTH_TOKEN` environment variable, then the development default.
+	 * option, the `GATEWAY_AUTH_TOKEN` environment variable, then the development default.
+	 *
+	 * `GATEWAY_AUTH_TOKEN` is the same name `worker_openai` and `packages/docker_server` use for
+	 * this setting, so one exported variable gives every program on a machine the token the gateway
+	 * requires. See issue #138.
 	 *
 	 * @param optionValue The `-a/--auth-token` option, when given.
 	 * @returns The bearer token to authenticate with.
 	 */
 	private static resolveAuthToken(optionValue: string | undefined): string {
-		return optionValue ?? process.env.WEBAI_AUTH_TOKEN ?? DEFAULT_AUTHENTICATION_TOKEN;
+		return optionValue ?? process.env.GATEWAY_AUTH_TOKEN ?? DEFAULT_AUTHENTICATION_TOKEN;
 	}
 }
 

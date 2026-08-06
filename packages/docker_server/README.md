@@ -96,6 +96,8 @@ The gateway does not read environment variables directly — it only reads comma
 | `GATEWAY_STATE_FILE` | `/data/gateway-state.json` | the gateway's `--state-file` |
 | `WORKER_PORT` | `8789` | the port the built worker page is served on |
 
+[`docs/environment_variables.md`](../../docs/environment_variables.md) lists these variables alongside the ones `worker_openai` and `consumer_cli` read on a host machine, and says which programs read no environment variables at all.
+
 **Set `GATEWAY_AUTH_TOKEN` to a real value in anything but local testing.** The default `development-token` is the same default the gateway, `consumer_openai`, and the worker browser page all fall back to on their own, so leaving it unset only works because every part agrees on the same well-known placeholder.
 
 ## Send an OpenAI-compatible request

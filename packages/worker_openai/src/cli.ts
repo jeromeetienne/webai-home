@@ -64,7 +64,7 @@ export class Cli {
 		const program = new Commander.Command('worker_openai')
 			.description('A worker that runs its assigned stage by calling a local server speaking the OpenAI-compatible Chat Completions API, such as Ollama or LM Studio')
 			.option('-u, --url <url>', `central gateway WebSocket URL (falls back to the GATEWAY_WS_URL environment variable, then to ${defaultGatewayUrl})`)
-			.option('-a, --auth-token <token>', 'bearer token for the central gateway (falls back to the WEBAI_AUTH_TOKEN environment variable, then to a development default)')
+			.option('-a, --auth-token <token>', 'bearer token for the central gateway (falls back to the GATEWAY_AUTH_TOKEN environment variable, then to a development default)')
 			.option('-n, --worker_name <name>', 'worker name, which the gateway shows in its device list', 'openai-worker')
 			.option('-b, --base-url <url>', "base URL of the local server's OpenAI-compatible API", 'http://localhost:1234/v1')
 			.option('-m, --model <model>', 'the model the local server is asked for', 'llama-3.2-3b-instruct')
@@ -159,7 +159,7 @@ export class Cli {
 		if (fromCommandLine !== undefined && fromCommandLine !== '') {
 			return fromCommandLine;
 		}
-		const fromEnvironment = process.env.WEBAI_AUTH_TOKEN;
+		const fromEnvironment = process.env.GATEWAY_AUTH_TOKEN;
 		if (fromEnvironment !== undefined && fromEnvironment !== '') {
 			return fromEnvironment;
 		}
