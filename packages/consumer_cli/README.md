@@ -75,7 +75,7 @@ npm run dev --workspace @webai/consumer-cli -- submit "hello there" --task_type 
 `--stream` is not valid for `dev_formula`, which always returns one numeric
 result. `submit` writes gateway messages to `packages/consumer_cli/logs`.
 
-`submit` spends from this participant's account, so the stages its task runs are recorded against that account rather than against nobody. It reads the key pair from `-k, --key_file`, defaulting to `~/.webai-at-home/account_key.json`, and says which account it is submitting as:
+`submit` spends from this participant's account, so the stages its task runs are recorded against that account rather than against nobody. It reads the key pair from `-k, --key_file`, defaulting to `data/consumer_cli_config/default.account_key.json` in this checkout of the repository, and says which account it is submitting as:
 
 ```
 Submitting as account-37b98b4c860818d3396d3b4b1b04ab88.
@@ -149,7 +149,7 @@ Every one of them accepts:
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `-k, --key_file <path>` | `~/.webai-at-home/account_key.json` | Where this participant's key pair is kept. |
+| `-k, --key_file <path>` | `data/consumer_cli_config/default.account_key.json` | Where this participant's key pair is kept, relative to this checkout of the repository. |
 | `-f, --format <format>` | `text` | `text` (aligned lines, or a table for `account_history`) or `json`. |
 
 All but `account_key` also accept `--timeout <ms>`, defaulting to `10000`, and the shared `--url` and `--auth-token` options.
@@ -166,7 +166,7 @@ npm run dev --workspace @webai/consumer-cli -- account_key
 account identifier   account-54e3b80f7c9facc7c3accd89266f238e
 signature algorithm  Ed25519
 public key           MCowBQYDK2VwAyEAj8SYEGeNC7G+Zx9WD5yW4d63oL6DCEWS3abJ7h8KQbU=
-kept in              /Users/someone/.webai-at-home/account_key.json
+kept in              /Users/someone/webai-at-home/data/consumer_cli_config/default.account_key.json
 generated at         2026-08-05T19:56:14.250Z
 ```
 
