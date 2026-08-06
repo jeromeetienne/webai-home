@@ -1,3 +1,12 @@
+html {
+    overflow-y: scroll;
+}
+
+.navbar-brand {
+    display: inline-block;
+    min-width: 15rem;
+}
+
 html[data-theme="dark"] body {
     background: #18202b !important;
     color: #e9eef7;

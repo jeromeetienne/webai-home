@@ -10,14 +10,21 @@
     <link rel="stylesheet" href="/home/css/main.css">
 </head>
 <body class="bg-light">
-    <nav class="navbar navbar-dark bg-primary shadow-sm">
-        <div class="container d-flex justify-content-between align-items-center gap-3">
-            <a class="navbar-brand fw-semibold" href="/home">WebAI@Home / <span class="text-white-50">Gateway</span></a>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm">
+        <div class="container-fluid d-flex justify-content-between align-items-center gap-3">
+            <div class="d-flex align-items-center gap-4">
+                <a class="navbar-brand fw-semibold mb-0" href="/home">WebAI@Home / <span class="text-white-50">Gateway</span></a>
+                <ul class="navbar-nav flex-row gap-3 mb-0">
+                    <li class="nav-item"><a class="nav-link" href="/monitor">Monitor</a></li>
+                    <li class="nav-item"><a class="nav-link" href="/ledger">Ledger</a></li>
+                    <li class="nav-item"><a class="nav-link" href="/debug">Debug</a></li>
+                </ul>
+            </div>
             <div class="d-flex align-items-center gap-2">
-                <a class="btn btn-outline-light btn-sm" href="https://github.com/webai-at-home/webai-at-home" target="_blank" rel="noreferrer">
-                    <i class="bi bi-github me-1" aria-hidden="true"></i>GitHub
+                <a class="btn btn-outline-light border-0 btn-sm" href="https://github.com/webai-at-home/webai-at-home" target="_blank" rel="noreferrer" aria-label="GitHub" title="GitHub">
+                    <i class="bi bi-github" aria-hidden="true"></i>
                 </a>
-                <button class="btn btn-outline-light btn-sm" type="button" id="theme-toggle">Use dark theme</button>
+                <button class="btn btn-outline-light border-0 btn-sm" type="button" id="theme-toggle">Use dark theme</button>
             </div>
         </div>
     </nav>
@@ -28,11 +35,6 @@
                 <p class="text-primary fw-semibold text-uppercase small mb-2">WebAI@Home</p>
                 <h1 class="display-5 fw-bold">Gateway</h1>
                 <p class="lead text-secondary">Coordinate browser workers and follow distributed tasks from one place.</p>
-                <div class="d-flex flex-wrap gap-2">
-                    <a class="btn btn-primary" href="/monitor">Open monitor</a>
-                    <a class="btn btn-outline-primary" href="/ledger">Open ledger</a>
-                    <a class="btn btn-outline-primary" href="/debug">Open debug pages</a>
-                </div>
             </div>
         </section>
 

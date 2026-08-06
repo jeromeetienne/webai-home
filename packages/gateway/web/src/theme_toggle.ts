@@ -130,7 +130,7 @@ export class ThemeToggle {
 	private static updateButton(button: HTMLButtonElement, theme: Theme): void {
 		const nextTheme: Theme = theme === 'dark' ? 'light' : 'dark';
 		const iconName: string = nextTheme === 'dark' ? 'moon-stars-fill' : 'sun-fill';
-		button.innerHTML = `<i class="bi bi-${iconName} me-1" aria-hidden="true"></i>Use ${nextTheme} theme`;
+		button.innerHTML = `<i class="bi bi-${iconName}" aria-hidden="true"></i>`;
 		button.setAttribute('aria-label', `Use ${nextTheme} theme`);
 		button.setAttribute('title', `Use ${nextTheme} theme`);
 	}
