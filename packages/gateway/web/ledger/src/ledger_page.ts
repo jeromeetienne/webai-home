@@ -1,7 +1,7 @@
 import type { AccountSummaryRow } from '@webai/protocol';
 import { Envelope } from '@webai/protocol/envelope';
 import { SessionRenewal } from '@webai/protocol/session_renewal';
-import { ThemeToggle } from '../../src/theme_toggle.js';
+import { ThemeToggle } from '../../_shared/theme_toggle.js';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////

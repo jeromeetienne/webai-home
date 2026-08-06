@@ -20,7 +20,7 @@
         "noEmit": true
     },
     "include": [
-        "src/**/*.ts",
+        "_shared/**/*.ts",
         "*/src/**/*.ts"
     ]
 }

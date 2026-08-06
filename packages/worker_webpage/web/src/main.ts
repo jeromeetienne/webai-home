@@ -1,5 +1,6 @@
 import type { StageName, StagePayload, ClientMessage, GenerationSettings, AccountLedgerSummary } from '@webai/protocol';
 import { SessionRenewal } from '@webai/protocol/session_renewal';
+import { RandomUuid } from '@webai/protocol/random_uuid';
 import { StageHelperDevFormula } from './stages/stage_helper_dev_formula';
 import { StageHelperLlmQwen3_0_6bSharded } from './stages/stage_helper_llm_qwen3_0_6b_sharded';
 import { StageHelperLlmGemmaNanoChromeFull } from './stages/stage_helper_llm_gemma_nano_chrome_full';
@@ -176,7 +177,7 @@ export class WorkerPage {
 		const workerNameFromUrl: string | null = new URLSearchParams(location.search).get('workerName');
 		const trimmedWorkerName = workerNameFromUrl?.trim() ?? '';
 		this.nameInputEl.value = trimmedWorkerName === ''
-			? `browser-worker-${crypto.randomUUID().slice(0, 8)}`
+			? `browser-worker-${RandomUuid.generate().slice(0, 8)}`
 			: (workerNameFromUrl ?? '');
 		this.workerNameEl.textContent = this.nameInputEl.value;
 		this.renderStages();

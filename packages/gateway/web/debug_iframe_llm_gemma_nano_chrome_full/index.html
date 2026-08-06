@@ -16,10 +16,12 @@
              that permission to, and a frame holding a page from a different address is not given
              it by default. This worker page is served from another port, so without allow the
              model reports itself unavailable inside the frame even though the browser has it. -->
-        <iframe allow="language-model"
-            src="http://localhost:8789/?gatewayUrl=http%3A%2F%2Flocalhost%3A8787&workerName=llm-gemma-nano-chrome-full&enabledStages=stage_llm_gemma_nano_chrome_full"
+        <iframe allow="language-model" data-worker-name="llm-gemma-nano-chrome-full"
+            data-enabled-stages="stage_llm_gemma_nano_chrome_full"
             title="WebAI Chrome built-in language-model worker page"></iframe>
     </div>
+
+    <script type="module" src="/_shared/debug_iframe_worker_frames.ts"></script>
 </body>
 
 </html>

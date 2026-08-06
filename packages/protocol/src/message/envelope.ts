@@ -1,6 +1,7 @@
 import type { ClientMessage } from './client_message.js';
 import { protocolVersion, supportedProtocolVersions, type GatewayEnvelope } from './envelope_types.js';
 import type { GatewayMessage } from './gateway_message.js';
+import { RandomUuid } from '../random_uuid.js';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -76,6 +77,6 @@ export class Envelope {
 
 	/** Generates one frame identifier. */
 	private static newId(): string {
-		return `message-${crypto.randomUUID()}`;
+		return `message-${RandomUuid.generate()}`;
 	}
 }

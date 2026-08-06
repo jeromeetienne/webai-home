@@ -21,6 +21,10 @@
       "types": "./dist/message/envelope.d.ts",
       "default": "./dist/message/envelope.js"
     },
+    "./random_uuid": {
+      "types": "./dist/random_uuid.d.ts",
+      "default": "./dist/random_uuid.js"
+    },
     "./session_renewal": {
       "types": "./dist/session_renewal.d.ts",
       "default": "./dist/session_renewal.js"
