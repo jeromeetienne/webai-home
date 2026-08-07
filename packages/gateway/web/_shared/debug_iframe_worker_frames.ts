@@ -18,7 +18,10 @@ const defaultWorkerPort = '8789';
  * are only reachable at `localhost` when the whole cluster runs on the reader's own machine. A
  * debug page opened from a deployed server, at `http://135.125.8.186:8787` for one, has to point
  * its frames at that same server instead, or the reader's own browser looks for a worker page and
- * a gateway on the reader's own machine and finds neither.
+ * a gateway on the reader's own machine and finds neither. A debug page opened from
+ * `https://webai-gateway.dash-menu.com` is a further exception: there, the worker page is not the
+ * same host on a different port, but a different host entirely, `https://webai-worker.dash-menu.com`,
+ * on the default HTTPS port.
  *
  * Each frame states only which worker it is and which stages that worker is restricted to, as the
  * `data-worker-name` and `data-enabled-stages` attributes, and this class builds the rest.
@@ -28,7 +31,10 @@ export class DebugIframeWorkerFrames {
 	static setup(): void {
 		const pageParameters = new URLSearchParams(location.search);
 		const workerPort: string = pageParameters.get('workerPort') ?? defaultWorkerPort;
-		const workerPageOrigin = `${location.protocol}//${location.hostname}:${workerPort}`;
+		const workerPageOrigin =
+			location.hostname === 'webai-gateway.dash-menu.com'
+				? 'https://webai-worker.dash-menu.com'
+				: `${location.protocol}//${location.hostname}:${workerPort}`;
 
 		const frames = document.querySelectorAll<HTMLIFrameElement>('iframe[data-worker-name]');
 		for (const frame of frames) {
