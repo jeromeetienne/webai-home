@@ -65,6 +65,15 @@ export class AudioKeepalive {
 		AudioKeepalive.audioContext = audioContext;
 	}
 
+	/** Stops the tone and releases the audio resources it was using. */
+	static stop(): void {
+		if (AudioKeepalive.audioContext === undefined) {
+			return;
+		}
+		void AudioKeepalive.audioContext.close();
+		AudioKeepalive.audioContext = undefined;
+	}
+
 	/** Reports the tone's current state. */
 	static state(): AudioKeepaliveState {
 		if (AudioKeepalive.audioContext === undefined) {

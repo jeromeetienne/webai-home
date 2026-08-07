@@ -11,9 +11,14 @@
 </head>
 <body>
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm">
-        <div class="container-fluid d-flex justify-content-between align-items-center gap-3">
+        <div class="container-fluid d-flex justify-content-between align-items-center gap-3 flex-wrap">
             <a class="navbar-brand fw-semibold" href="/">WebAI@Home / <span class="text-white-50">Worker Webpage</span></a>
-            <button class="btn btn-outline-light border-0 btn-sm" type="button" id="theme-toggle">Use dark theme</button>
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+                <button class="btn btn-light btn-sm" id="connect" type="button" title="Connect this browser to WebAI so it can be assigned stages to run">Connect</button>
+                <button class="btn btn-outline-light btn-sm d-none" id="disconnect" type="button">Disconnect</button>
+                <button class="btn btn-outline-light btn-sm" id="quiet-tone" type="button">Start quiet tone</button>
+                <button class="btn btn-outline-light border-0 btn-sm" type="button" id="theme-toggle">Use dark theme</button>
+            </div>
         </div>
     </nav>
 
@@ -26,22 +31,14 @@
                             <h2 class="h5 mb-0">Connect this browser</h2>
                             <span class="badge rounded-pill text-bg-secondary" id="status">Not connected</span>
                         </div>
-                        <p class="text-secondary">Give this browser a name, then connect it so WebAI can assign stages to the browser.</p>
+                        <p class="text-secondary">Give this browser a name, then connect it so WebAI can assign stages to the browser. Use the controls in the navbar above to connect, disconnect, and start the quiet tone.</p>
                         <label class="form-label" for="name">Worker name</label>
                         <input class="form-control mb-3" id="name" value="browser-worker">
-                        <div class="d-grid gap-2">
-                            <button class="btn btn-primary" id="connect" type="button">Connect worker</button>
-                            <button class="btn btn-outline-danger d-none" id="disconnect" type="button">Disconnect</button>
-                        </div>
                         <div class="alert alert-warning d-none mt-3 mb-0" id="built-in-model-notice">
                             <p class="mb-2 small" id="built-in-model-message"></p>
                             <button class="btn btn-warning btn-sm d-none" id="built-in-model-download" type="button">Download the browser's built-in language model</button>
                         </div>
                         <hr>
-                        <p class="text-secondary small mb-2">A hidden browser tab runs the language model several times slower unless it is playing audio. Start the quiet tone below to keep this browser's full generation speed while its tab is in the background.</p>
-                        <div class="d-grid mb-3">
-                            <button class="btn btn-outline-secondary" id="quiet-tone" type="button">Start quiet tone</button>
-                        </div>
                         <dl class="row small mb-0">
                             <dt class="col-sm-4 text-secondary">Worker</dt><dd class="col-sm-8" id="worker-name">Not connected</dd>
                             <dt class="col-sm-4 text-secondary">Device ID</dt><dd class="col-sm-8 text-break" id="device-id">Not assigned</dd>

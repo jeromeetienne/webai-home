@@ -196,14 +196,18 @@ export class WorkerPage {
 			this.downloadBuiltInModel();
 		});
 
-		// Starting the tone must be the first statement of the click handler, not something that
-		// runs after an await, or the browser may create the AudioContext already suspended and
+		// Starting the tone must be the first statement of this branch, not something that runs
+		// after an await, or the browser may create the AudioContext already suspended and
 		// silently defeat the whole trick (see AudioKeepalive.start).
 		this.quietToneButtonEl.addEventListener('click', (): void => {
-			AudioKeepalive.start();
-			this.quietToneButtonEl.disabled = true;
-			this.quietToneButtonEl.textContent = 'Quiet tone running';
-			this.pollQuietToneState();
+			if (AudioKeepalive.state() === 'stopped') {
+				AudioKeepalive.start();
+				this.quietToneButtonEl.textContent = 'Stop quiet tone';
+				this.pollQuietToneState();
+				return;
+			}
+			AudioKeepalive.stop();
+			this.quietToneButtonEl.textContent = 'Start quiet tone';
 		});
 
 		/** Closes the WebSocket connection when the disconnect button is clicked. */
