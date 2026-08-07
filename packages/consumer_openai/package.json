@@ -30,6 +30,8 @@
 		"test:real:llm_qwen3_5_0_8b_full:headed": "REAL_TEST_HEADED=true npx tsx --test tests/real_llm_qwen3_5_0_8b_full.test.ts",
 		"test:real:llm_llama3_2_3b_full": "npx tsx --test tests/real_llm_llama3_2_3b_full.test.ts",
 		"example:list_models": "tsx examples/list_models.ts",
+		"preexample:chat_completion": "npm run build:dependencies",
+		"example:chat_completion": "tsx examples/chat_completion.ts",
 		"example:chat_completion_dev_formula": "tsx examples/chat_completion_dev_formula.ts",
 		"example:chat_completion_system_message": "tsx examples/chat_completion_system_message.ts",
 		"example:chat_completion_nostream_llm_gemma_nano_chrome_full": "tsx examples/chat_completion_nostream_llm_gemma_nano_chrome_full.ts",

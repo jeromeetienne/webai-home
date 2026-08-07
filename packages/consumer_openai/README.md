@@ -134,6 +134,30 @@ The others are `example:list_models`, `example:chat_completion_system_message`, 
 
 The two `history` examples are the ones to run to see a real conversation reach a worker: `llm_qwen3_5_0_8b_full` and `llm_llama3_2_3b_full` are the only two models whose task type accepts a whole conversation rather than only one prompt, so each sends a fact in one request and asks for it back in a second request that carries the first request's own answer along with it.
 
+[`examples/chat_completion.ts`](./examples/chat_completion.ts) is a different kind of example: rather than one model in one mode, it sweeps across many models and both modes in one run, prints one line per pair followed by a summary table, and sets the process exit code to `1` when any pair failed, so a single command answers whether the cluster still works. It is executable on its own, with the shebang `#!/usr/bin/env -S npx tsx`, and has two subcommands.
+
+Its `text_completion` subcommand sweeps across every model `ModelCatalog.modelIds` offers, sending one prompt per model:
+
+```sh
+./examples/chat_completion.ts text_completion --streamed --model llm_qwen3_0_6b_sharded
+```
+
+or through the workspace, the same way as the other examples:
+
+```sh
+npm run example:chat_completion --workspace @webai/consumer-openai -- text_completion --model all
+```
+
+Its `conversation_history` subcommand sweeps across `llm_qwen3_5_0_8b_full` and `llm_llama3_2_3b_full`, the only two models whose task type accepts a whole conversation rather than only one prompt, sending the same two-turn fact-and-recall conversation the two `history` examples above send by hand, and checking that the second turn's answer recalls what the first turn said:
+
+```sh
+./examples/chat_completion.ts conversation_history --model llm_llama3_2_3b_full
+```
+
+Both subcommands take `-m/--model` (one model identifier, a comma-separated list of identifiers, a pattern such as `llm_*`, `all` — the default — or `list` to print the model identifiers and test nothing), `-s/--streamed` or `--nostream` to restrict the run to one mode (giving neither, or both, tests both), `-u/--base_url`, and `--timeout_ms`; `text_completion` additionally takes `-p/--prompt` to override each model's own default prompt.
+
+The other examples above remain the ones to read first: each is a short, single-purpose file explaining one model in one mode. This one is a test runner rather than a model to learn from.
+
 Without the `openai` package, the same two endpoints with `curl`:
 
 ```sh
