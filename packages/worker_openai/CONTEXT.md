@@ -1,0 +1,21 @@
+# Directory Context: `/packages/worker_openai`
+
+## Purpose
+
+A worker that runs a model by forwarding its assigned stage to a locally running server that speaks the OpenAI-compatible Chat Completions API, such as Ollama or LM Studio. Unlike `@webai/worker-webpage`, this worker is a Node.js command line process rather than a browser tab: it never downloads or runs a model itself.
+
+## Key Exports & Entry Points
+
+- `src/cli.ts`: the command line program. `npm run dev --workspace @webai/worker-openai` runs it with `tsx`; `npm run sample:lmstudio --workspace @webai/worker-openai` runs it against LM Studio with the base address and model name already filled in.
+- `src/libs/gateway_worker_client.ts`: the WebSocket connection to the central gateway and the worker side of the protocol.
+- `src/libs/openai_api_client.ts`: the calls to the local OpenAI-compatible server.
+- `src/libs/worker_stage_offer.ts` and `src/libs/lease_heartbeat.ts`: advertising the stages this worker can run and keeping a stage assignment alive.
+- `src/stages/stage_helper_llm_llama3_2_3b_full.ts`: the one stage this worker runs today.
+- `examples/lmstudio_direct_history.ts` and `examples/lmstudio_direct_tools.ts`: calls straight to LM Studio, with no gateway involved.
+
+## Local Rules & Boundaries
+
+- Which local server runs the model — Ollama, LM Studio, or another — is a command line option of this process, never part of a stage or task type name. The stage is named `full` because the model is held complete on one device, following [`docs/naming_scheme.md`](../../docs/naming_scheme.md).
+- Adding a stage means adding one `src/stages/stage_helper_<stage name>.ts` file named after the stage.
+- Message shapes come from `@webai/protocol`. Do not restate a wire shape here.
+- The worker side of the protocol is implemented twice, here and in [`packages/worker_webpage`](../worker_webpage), because one runs in Node.js and the other in a browser tab. Keep the two in step when the protocol changes.
