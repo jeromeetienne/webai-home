@@ -44,6 +44,8 @@ These two variables say which central gateway to connect to and how to authentic
 | `GATEWAY_PORT` | the gateway's `--port` | `8787` |
 | `GATEWAY_AUTH_TOKEN` | the gateway's `--auth-token` | `development-token` |
 | `GATEWAY_STATE_FILE` | the gateway's `--state-file` | `/data/gateway-state.json` |
+| `GATEWAY_ACCOUNT_FILE` | the gateway's `--account-file` | `/data/gateway-accounts.json` |
+| `GATEWAY_LEDGER_FILE` | the gateway's `--ledger-file` | `/data/gateway-ledger.jsonl` |
 | `WORKER_PORT` | the port the built worker page is served on | `8789` |
 
 `GATEWAY_WS_URL` is not in this table, and is not read by the container. It was, while `packages/consumer_openai` ran inside the container and needed to be told which gateway to use; `packages/consumer_openai` was removed from the image in [commit c26a9b1](https://github.com/webai-at-home/webai-at-home/commit/c26a9b1) for the reasons given in [issue #139](https://github.com/webai-at-home/webai-at-home/issues/139), and nothing in the container has needed the variable since.

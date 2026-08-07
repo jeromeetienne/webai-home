@@ -83,7 +83,7 @@ docker compose -f packages/docker_server/docker/docker-compose.yml --project-dir
 
 Or with the npm scripts: `npm run start --workspace @webai/docker-server`.
 
-The `/data` volume holds the gateway's durable task state file (`gateway-state.json` by default), so queued and in-flight tasks survive a container restart.
+The `/data` volume holds the gateway's durable task state file (`gateway-state.json` by default), its account profile file (`gateway-accounts.json` by default), and its accounting ledger file (`gateway-ledger.jsonl` by default), so queued and in-flight tasks, registered accounts, and every accounting entry survive a container restart.
 
 ## Configuration
 
@@ -94,6 +94,8 @@ Neither the gateway nor `consumer_openai` reads environment variables directly â
 | `GATEWAY_PORT` | `8787` | the gateway's `--port` |
 | `GATEWAY_AUTH_TOKEN` | `development-token` | the gateway's `--auth-token` â€” the bearer token every connection (workers, the home page, a `consumer_openai` run outside this container) must present |
 | `GATEWAY_STATE_FILE` | `/data/gateway-state.json` | the gateway's `--state-file` |
+| `GATEWAY_ACCOUNT_FILE` | `/data/gateway-accounts.json` | the gateway's `--account-file` |
+| `GATEWAY_LEDGER_FILE` | `/data/gateway-ledger.jsonl` | the gateway's `--ledger-file` |
 | `WORKER_PORT` | `8789` | the port the built worker page is served on |
 
 [`docs/environment_variables.md`](../../docs/environment_variables.md) lists these variables alongside the ones `worker_openai` and `consumer_cli` read on a host machine, and says which programs read no environment variables at all.

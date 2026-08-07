@@ -15,6 +15,8 @@ set -euo pipefail
 GATEWAY_PORT="${GATEWAY_PORT:-8787}"
 GATEWAY_AUTH_TOKEN="${GATEWAY_AUTH_TOKEN:-development-token}"
 GATEWAY_STATE_FILE="${GATEWAY_STATE_FILE:-/data/gateway-state.json}"
+GATEWAY_ACCOUNT_FILE="${GATEWAY_ACCOUNT_FILE:-/data/gateway-accounts.json}"
+GATEWAY_LEDGER_FILE="${GATEWAY_LEDGER_FILE:-/data/gateway-ledger.jsonl}"
 
 WORKER_PORT="${WORKER_PORT:-8789}"
 
@@ -40,6 +42,8 @@ node packages/gateway/dist/cli.js \
 	--port "$GATEWAY_PORT" \
 	--auth-token "$GATEWAY_AUTH_TOKEN" \
 	--state-file "$GATEWAY_STATE_FILE" \
+	--account-file "$GATEWAY_ACCOUNT_FILE" \
+	--ledger-file "$GATEWAY_LEDGER_FILE" \
 	--commit-sha "$COMMIT_SHA" &
 gateway_pid=$!
 

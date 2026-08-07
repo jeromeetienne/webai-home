@@ -18,6 +18,8 @@ services:
       GATEWAY_PORT: "8787"
       GATEWAY_AUTH_TOKEN: "development-token"
       GATEWAY_STATE_FILE: "/data/gateway-state.json"
+      GATEWAY_ACCOUNT_FILE: "/data/gateway-accounts.json"
+      GATEWAY_LEDGER_FILE: "/data/gateway-ledger.jsonl"
       WORKER_PORT: "8789"
     volumes:
       - webai-at-home-data:/data
