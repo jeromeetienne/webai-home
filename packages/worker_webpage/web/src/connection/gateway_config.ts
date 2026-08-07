@@ -4,9 +4,19 @@
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
-/** The central gateway URL, supplied as `?gatewayUrl=` or defaulting to the local gateway. */
+/** The gateway URL used when this page itself is loaded from `localhost` during local development. */
+const localGatewayUrl = 'http://localhost:8787';
+
+/** The gateway URL used when this page is loaded from anywhere other than `localhost` (the deployed page). */
+const deployedGatewayUrl = 'https://webai-gateway.dash-menu.com';
+
+/**
+ * The central gateway URL, supplied as `?gatewayUrl=` or, failing that, chosen from this page's own hostname:
+ * the local gateway when this page is itself running on `localhost`, otherwise the deployed gateway.
+ */
 const centralGatewayUrl = new URL(
-	new URLSearchParams(location.search).get('gatewayUrl') ?? 'http://localhost:8787',
+	new URLSearchParams(location.search).get('gatewayUrl') ??
+		(location.hostname === 'localhost' ? localGatewayUrl : deployedGatewayUrl),
 );
 
 /**
