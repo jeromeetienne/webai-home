@@ -16,6 +16,7 @@ import { WorkerStageOffer } from './connection/worker_stage_offer';
 import { WorkerAccount } from './connection/worker_account';
 import { ThemeToggle } from './page/theme_toggle.js';
 import { AudioKeepalive, type AudioKeepaliveState } from './page/audio_keepalive.js';
+import { ScreenWakeLock, type ScreenWakeLockState } from './page/screen_wake_lock.js';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -77,6 +78,8 @@ type OfferedStages = { stageNames: string[]; llmShardIndexes: number[]; builtInM
 
 /** How often the quiet tone's own state is checked for a change worth reflecting in the page. */
 const AUDIO_STATE_POLL_INTERVAL_MS = 2000;
+/** How often the screen wake lock's own state is checked for a change worth reflecting in the page. */
+const SCREEN_WAKE_LOCK_STATE_POLL_INTERVAL_MS = 2000;
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -114,6 +117,10 @@ export class WorkerPage {
 	private readonly quietToneButtonEl: HTMLButtonElement;
 	/** Shows the quiet tone's current state. */
 	private readonly quietToneStateEl: HTMLElement;
+	/** The button that asks the system to keep the screen on while this tab is visible. */
+	private readonly screenWakeLockButtonEl: HTMLButtonElement;
+	/** Shows the screen wake lock's current state. */
+	private readonly screenWakeLockStateEl: HTMLElement;
 	/** Shows the git commit this build was made from. */
 	private readonly commitShaEl: HTMLElement;
 
@@ -167,6 +174,8 @@ export class WorkerPage {
 		this.builtInModelDownloadButtonEl = PageElements.getButton('#built-in-model-download');
 		this.quietToneButtonEl = PageElements.getButton('#quiet-tone');
 		this.quietToneStateEl = PageElements.getElement('#quiet-tone-state');
+		this.screenWakeLockButtonEl = PageElements.getButton('#screen-wake-lock');
+		this.screenWakeLockStateEl = PageElements.getElement('#screen-wake-lock-state');
 		this.commitShaEl = PageElements.getElement('#commit-sha');
 		this.requestedStageNames = WorkerStageOffer.requestedStageNamesFromUrl(location.search);
 	}
@@ -213,6 +222,25 @@ export class WorkerPage {
 			AudioKeepalive.stop();
 			this.quietToneButtonEl.textContent = 'Start quiet tone';
 		});
+
+		// A browser without the Screen Wake Lock interface, or one whose origin is not secure,
+		// cannot hold a lock at all, so the button is disabled rather than left to fail silently
+		// on every click.
+		if (ScreenWakeLock.state() === 'unsupported') {
+			this.screenWakeLockButtonEl.disabled = true;
+			this.screenWakeLockStateEl.textContent = 'Not supported by this browser';
+		} else {
+			this.screenWakeLockButtonEl.addEventListener('click', (): void => {
+				if (ScreenWakeLock.isEnabled() === false) {
+					ScreenWakeLock.start();
+					this.screenWakeLockButtonEl.textContent = 'Stop keeping screen awake';
+					this.pollScreenWakeLockState();
+					return;
+				}
+				ScreenWakeLock.stop();
+				this.screenWakeLockButtonEl.textContent = 'Keep screen awake';
+			});
+		}
 
 		/** Closes the WebSocket connection when the disconnect button is clicked. */
 		this.disconnectButtonEl.addEventListener('click', (): void => {
@@ -854,6 +882,21 @@ export class WorkerPage {
 		window.setTimeout((): void => {
 			this.pollQuietToneState();
 		}, AUDIO_STATE_POLL_INTERVAL_MS);
+	}
+
+	/**
+	 * Reflects the screen wake lock's current state in the page, and checks again after a delay.
+	 *
+	 * Runs for as long as the page is open once started by the screen wake lock button, so a
+	 * state the system changes on its own — such as releasing the lock while the tab is
+	 * hidden — still reaches the page once the lock is re-acquired or given up on.
+	 */
+	private pollScreenWakeLockState(): void {
+		const state: ScreenWakeLockState = ScreenWakeLock.state();
+		this.screenWakeLockStateEl.textContent = state.charAt(0).toUpperCase() + state.slice(1);
+		window.setTimeout((): void => {
+			this.pollScreenWakeLockState();
+		}, SCREEN_WAKE_LOCK_STATE_POLL_INTERVAL_MS);
 	}
 
 	/**

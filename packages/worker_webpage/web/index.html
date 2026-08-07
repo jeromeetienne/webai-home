@@ -17,6 +17,7 @@
                 <button class="btn btn-light btn-sm" id="connect" type="button" title="Connect this browser to WebAI so it can be assigned stages to run">Connect</button>
                 <button class="btn btn-outline-light btn-sm d-none" id="disconnect" type="button">Disconnect</button>
                 <button class="btn btn-outline-light btn-sm" id="quiet-tone" type="button">Start quiet tone</button>
+                <button class="btn btn-outline-light btn-sm" id="screen-wake-lock" type="button">Keep screen awake</button>
                 <button class="btn btn-outline-light border-0 btn-sm" type="button" id="theme-toggle">Use dark theme</button>
             </div>
         </div>
@@ -46,6 +47,7 @@
                             <dt class="col-sm-4 text-secondary">Credits <i class="bi bi-question-circle help-icon" tabindex="0" title="One credit for every stage this account has completed, less one for every stage it has had run as a consumer. Contribute computation now, consume computation later." aria-label="What the credits are"></i></dt><dd class="col-sm-8" id="account-credits">Not yet known</dd>
                             <dt class="col-sm-4 text-secondary">Stages</dt><dd class="col-sm-8"><div class="d-flex flex-wrap gap-1" id="stages"></div></dd>
                             <dt class="col-sm-4 text-secondary">Quiet tone <i class="bi bi-question-circle help-icon" tabindex="0" title="A hidden browser tab runs the language model several times slower unless it is playing audio. This quiet tone keeps the tab classified as playing audio, so it keeps its full generation speed while hidden." aria-label="Why the quiet tone is needed"></i></dt><dd class="col-sm-8" id="quiet-tone-state">Stopped</dd>
+                            <dt class="col-sm-4 text-secondary">Screen wake lock <i class="bi bi-question-circle help-icon" tabindex="0" title="On a phone, the screen dims and then blanks after the system timeout even while this page is open. Keeping the screen awake asks the system to hold the screen on for as long as this page stays visible, so a phone left running this page as a worker does not lock itself." aria-label="Why the screen wake lock is needed"></i></dt><dd class="col-sm-8" id="screen-wake-lock-state">Stopped</dd>
                             <dt class="col-sm-4 text-secondary">Version</dt><dd class="col-sm-8 text-break" id="commit-sha"></dd>
                         </dl>
                     </div>
