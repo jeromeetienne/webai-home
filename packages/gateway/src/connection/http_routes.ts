@@ -34,6 +34,7 @@ const pageRoutes: Record<string, string> = {
 	'/ledger': 'ledger/index.html',
 	'/debug': 'debug/index.html',
 	'/debug_iframe': 'debug_iframe/index.html',
+	'/debug_iframe_all_stages': 'debug_iframe_all_stages/index.html',
 	'/debug_iframe_dev_formula': 'debug_iframe_dev_formula/index.html',
 	'/debug_iframe_llm_qwen3_0_6b_sharded': 'debug_iframe_llm_qwen3_0_6b_sharded/index.html',
 	'/debug_iframe_llm_gemma_nano_chrome_full': 'debug_iframe_llm_gemma_nano_chrome_full/index.html',

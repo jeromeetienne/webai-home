@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>WebAI every stage iframe debug</title>
+    <link rel="stylesheet" href="/debug_iframe_all_stages/css/main.css">
+</head>
+
+<body>
+    <iframe class="home-frame" src="/monitor" title="WebAI gateway monitor page"></iframe>
+
+    <!-- No data-enabled-stages attribute is set, so this one worker browser frame offers every
+         stage whose computation it implements: the development formula stages, all three
+         Qwen3-0.6B shard stages, Chrome's built-in Gemma Nano language-model stage, and the
+         complete Qwen3.5-0.8B language-model stage. The allow="language-model" permission is what
+         lets the Gemma Nano stage run inside this frame at all; see debug_iframe_llm_gemma_nano_chrome_full/index.html. -->
+    <div class="worker-column">
+        <iframe allow="language-model" data-worker-name="worker-all-stages"
+            title="WebAI worker page offering every stage it can run"></iframe>
+    </div>
+
+    <script type="module" src="/_shared/debug_iframe_worker_frames.ts"></script>
+</body>
+
+</html>
