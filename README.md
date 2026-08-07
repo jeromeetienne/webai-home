@@ -51,6 +51,7 @@ The central research questions are still open, especially result verification, b
 - [`packages/protocol`](packages/protocol/README.md) — shared message and task definitions with validation.
 - [`packages/consumer_cli`](packages/consumer_cli/README.md) — command-line client for submitting test tasks.
 - [`packages/consumer_openai`](packages/consumer_openai/README.md) — OpenAI-compatible server, so a program that already talks to OpenAI can use the cluster by changing its base address.
+- [`packages/openai_api_tool`](packages/openai_api_tool/README.md) — command-line tool that exercises and measures any server speaking the OpenAI-compatible API, this project's own and another machine's alike.
 - [`packages/flow_viewer`](packages/flow_viewer/README.md) — flow viewer for inspecting recorded message traffic.
 - [`packages/_onnx_experiments`](packages/_onnx_experiments/README.md) — browser experiments for ONNX Runtime Web.
 - [`packages/_account_key_experiments`](packages/_account_key_experiments/README.md) — browser experiments about the signing key pair a participant's account is, and whether a real browser tab can hold one it cannot leak.

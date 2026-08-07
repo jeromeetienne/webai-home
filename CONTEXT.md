@@ -6,11 +6,12 @@
 
 ## Key Exports & Entry Points
 
-- `package.json`: the npm workspaces root. `npm run build` builds `@webai/protocol`, `@webai/gateway`, `@webai/consumer-cli`, and `@webai/consumer-openai`, in that order. `npm test` runs the documentation link test and then the tests of every workspace.
+- `package.json`: the npm workspaces root. `npm run build` builds `@webai/protocol`, `@webai/gateway`, `@webai/consumer-cli`, `@webai/consumer-openai`, and `@webai/openai-api-tool`, in that order. `npm test` runs the documentation link test and then the tests of every workspace.
 - [`packages/protocol`](packages/protocol/): shared message, task type, and pipeline definitions with Zod validation. Every other package depends on this one.
 - [`packages/gateway`](packages/gateway/): the coordinator HTTP and WebSocket gateway, the scheduling, and the home page.
 - [`packages/worker_webpage`](packages/worker_webpage/): the browser page that connects a worker browser tab to the gateway.
 - [`packages/consumer_cli`](packages/consumer_cli/) and [`packages/consumer_openai`](packages/consumer_openai/): the two ways to submit a task, a command-line client and an OpenAI-compatible server.
+- [`packages/openai_api_tool`](packages/openai_api_tool/): the command-line tool that exercises and measures any server speaking the OpenAI-compatible API, this project's own and another machine's alike.
 - [`packages/worker_openai`](packages/worker_openai/): a worker that forwards a prompt to a local server that speaks the OpenAI-compatible API.
 - [`packages/docker_server`](packages/docker_server/): the Linux Docker image that runs the gateway and serves the built worker browser page.
 - [`packages/flow_viewer`](packages/flow_viewer/): the flow viewer for inspecting recorded message traffic.

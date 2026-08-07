@@ -12,7 +12,7 @@ An OpenAI-compatible server in front of the `webai-at-home` cluster. It accepts 
 - `src/libs/cluster_task_runner.ts`: submits the task and follows it, on top of `ConsumerClient` from `@webai/consumer-cli`.
 - `src/libs/server_settings.ts`: every command line option and environment variable this server reads.
 - `examples/`: one runnable example per task type and per calling style, named `chat_completion_<style>_<task type>.ts`.
-- `scripts/benchmark_openai_api.ts`: a standalone latency benchmark, not a subcommand of `consumer_openai`.
+- The sweep across every model and the latency benchmark live in [`packages/openai_api_tool`](../openai_api_tool/), not here.
 
 ## Local Rules & Boundaries
 

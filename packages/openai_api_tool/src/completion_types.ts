@@ -1,0 +1,171 @@
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+//	completion_types — every data shape the three subcommands share
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+//	Sending One Request
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+/** One mode a chat completion request can be sent in. */
+export type CompletionMode = 'nostream' | 'streamed';
+
+/** Every mode a subcommand can sweep through, in the order they run for one model. */
+export const completionModes: readonly CompletionMode[] = ['nostream', 'streamed'];
+
+/** The endpoint one request is sent to. */
+export type CompletionTarget = {
+	/** The base URL of the OpenAI-compatible API, without `/chat/completions`. */
+	readonly baseUrl: string;
+	/** The bearer token sent to the endpoint. */
+	readonly apiKey: string;
+	/** How long one request may take before it is given up on, in milliseconds. */
+	readonly timeoutMs: number;
+};
+
+/** What sending one request, given a full list of messages, produced. */
+export type CompletionResult = {
+	/** The complete assistant answer, concatenated from every streamed piece in the streamed mode. */
+	readonly answer: string;
+	/**
+	 * Elapsed time, in milliseconds, from the request being sent until the first character
+	 * arrived. Equal to `timeToLastCharacterMs` in the nostream mode, and equal to it as well
+	 * when the endpoint ignored the streaming request and answered in one piece.
+	 */
+	readonly timeToFirstCharacterMs: number;
+	/** Elapsed time, in milliseconds, from the request being sent until the final character arrived. */
+	readonly timeToLastCharacterMs: number;
+};
+
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+//	Sweeping Across Models
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+/** How one swept model and mode pair turned out. */
+export type SweepStatus = 'ok' | 'failed' | 'skipped';
+
+/** What sweeping one model and one mode produced, for `text_completion` and `conversation_history`. */
+export type SweepOutcome = {
+	/** The model identifier swept. */
+	readonly modelId: string;
+	/** The mode swept. */
+	readonly mode: CompletionMode;
+	/**
+	 * `ok` once the model answered with usable text, `failed` once it did not, and `skipped`
+	 * for a pairing known ahead of the request not to work, such as `dev_formula` asked to
+	 * stream, so that a permanent, documented restriction of the cluster does not read as a
+	 * failure of this run.
+	 */
+	readonly status: SweepStatus;
+	/**
+	 * Elapsed time, in milliseconds, from the request being sent until the first character
+	 * arrived. Equal to `timeToLastCharacterMs` in the nostream mode. `0` when skipped.
+	 */
+	readonly timeToFirstCharacterMs: number;
+	/** Elapsed time, in milliseconds, from the request being sent until the final character arrived. `0` when skipped. */
+	readonly timeToLastCharacterMs: number;
+	/** The number of characters of the answer, `0` when not `ok`. */
+	readonly characterCount: number;
+	/** The raw answer text, already printed as it was produced. Empty when not `ok`. */
+	readonly answer: string;
+	/** Why the pair failed or was skipped, `undefined` on success. */
+	readonly failureMessage: string | undefined;
+};
+
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+//	Measuring Latency
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+/** One statistic computed over a set of measured samples. */
+export type MetricStatistics = {
+	/** The arithmetic mean of the measured values. */
+	readonly average: number;
+	/** The middle measured value, or the mean of the two middle values. */
+	readonly median: number;
+	/** The smallest measured value. */
+	readonly minimum: number;
+	/** The largest measured value. */
+	readonly maximum: number;
+};
+
+/**
+ * The result of one measured request.
+ *
+ * These five figures are all directly observable from the client side: none of them needs
+ * knowledge of the model or its tokenizer, which is what keeps them comparable across
+ * different providers and APIs.
+ */
+export type BenchmarkSample = {
+	/** The one-based measured request number. */
+	readonly run: number;
+	/**
+	 * Time to First Character: elapsed time, in milliseconds, from the request being sent until
+	 * the first streamed character arrived. Measures perceived responsiveness.
+	 */
+	readonly timeToFirstCharacterMs: number;
+	/**
+	 * Time to Last Character: elapsed time, in milliseconds, from the request being sent until
+	 * the final character arrived. Measures end-to-end request latency.
+	 */
+	readonly timeToLastCharacterMs: number;
+	/**
+	 * Output Characters per Second: the speed at which the endpoint streamed the answer after
+	 * its first character, computed as `outputCharacters / (the Time to Last Character minus
+	 * the Time to First Character, in seconds)`.
+	 */
+	readonly outputCharactersPerSecond: number;
+	/** Input Characters: the number of characters sent in the request prompt. */
+	readonly inputCharacters: number;
+	/** Output Characters: the number of characters generated in the response. */
+	readonly outputCharacters: number;
+};
+
+/** The aggregate measurements for one measured model on one endpoint. */
+export type BenchmarkSummary = {
+	/** The base URL of the endpoint measured. */
+	readonly baseUrl: string;
+	/** The model identifier measured on that endpoint. */
+	readonly modelId: string;
+	/** The measured samples, in request order. */
+	readonly samples: readonly BenchmarkSample[];
+	/** Time to First Character, across the measured samples. */
+	readonly timeToFirstCharacterMs: MetricStatistics;
+	/** Time to Last Character, across the measured samples. */
+	readonly timeToLastCharacterMs: MetricStatistics;
+	/** Output Characters per Second, across the measured samples. */
+	readonly outputCharactersPerSecond: MetricStatistics;
+	/** Input Characters sent in the prompt, the same for every sample since one prompt is sent every time. */
+	readonly inputCharacters: number;
+	/** Output Characters generated in the response, across the measured samples. */
+	readonly outputCharacters: MetricStatistics;
+};
+
+/** The full benchmark report, holding one summary per measured model. */
+export type BenchmarkReport = {
+	/** The benchmark settings that affect comparability with another run. */
+	readonly settings: {
+		/** The one prompt sent to the endpoint. */
+		readonly prompt: string;
+		/** The number of measured requests per model. */
+		readonly runs: number;
+		/** The number of unreported warm-up requests per model. */
+		readonly warmupRuns: number;
+		/** The number of requests in flight at any moment, always one. */
+		readonly parallelism: 1;
+	};
+	/** The aggregate measurements, one entry per measured model, in the order they were measured. */
+	readonly summaries: readonly BenchmarkSummary[];
+};
+
+/** The ways a benchmark report can be written out. */
+export type BenchmarkReportFormat = 'text' | 'markdown' | 'json';
+
+/** Every format the benchmark subcommand accepts, in the order the help text lists them. */
+export const benchmarkReportFormats: readonly BenchmarkReportFormat[] = ['text', 'markdown', 'json'];

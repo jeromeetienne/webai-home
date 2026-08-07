@@ -9,8 +9,7 @@ It is a consumer of the cluster in exactly the same sense as [`@webai/consumer-c
 ## Run
 
 This package's command line program is `consumer_openai`, with one subcommand: `server` starts
-the OpenAI-compatible server. The latency benchmark described below is a separate standalone
-script, not a subcommand of `consumer_openai`. Once this package has been built (`npm run build
+the OpenAI-compatible server. Once this package has been built (`npm run build
 --workspace @webai/consumer-openai`), the binary is linked into the repository's own
 `node_modules/.bin`, so `npx` runs it from anywhere inside the project:
 
@@ -35,56 +34,7 @@ The server listens on port 8788, and an OpenAI client is pointed at `http://loca
 
 ## Benchmarking an OpenAI-compatible endpoint
 
-[`scripts/benchmark_openai_api.ts`](./scripts/benchmark_openai_api.ts) is a small, standalone
-OpenAI API benchmark for one endpoint at a time. It imports nothing from the rest of this
-package and nothing from any other workspace package, so it needs no build step — only
-`commander` and the platform's own `fetch`. It sends the same streamed prompt to the endpoint
-repeatedly, one request at a time.
-
-Each request measures five figures, all directly observable from the client side without any
-knowledge of the model or its tokenizer, which keeps them comparable across different providers:
-
-| Metric | Brief |
-| --- | --- |
-| Time to First Character | Elapsed time from sending the request until the first streamed character arrives. Measures perceived responsiveness. |
-| Time to Last Character | Elapsed time from sending the request until the final character arrives. Measures end-to-end request latency. |
-| Output Characters per Second | The speed at which the endpoint streams the answer after the first character, computed as `outputCharacters / (the Time to Last Character minus the Time to First Character)`. |
-| Input Characters | The number of characters sent in the request prompt. |
-| Output Characters | The number of characters generated in the response. |
-
-An endpoint that ignores the streaming request and answers as one JSON object instead is still
-measurable: its first and last character then arrive at the same moment, so the Time to First
-Character equals the Time to Last Character.
-
-`-u/--base_url` and `-m/--model_name` are required, with no default — every run names its own
-endpoint and model explicitly:
-
-```sh
-npm run benchmark --workspace @webai/consumer-openai -- --base_url http://localhost:1234/v1 --model_name llama-3.2-3b-instruct
-```
-
-Convenience scripts run it against the endpoints this project most often benchmarks — LM
-Studio directly, and this `consumer_openai` server backed by webai-at-home for two of its
-models — start LM Studio, the webai-at-home gateway, the `consumer_openai` server, and the
-worker processes each model needs first:
-
-```sh
-npm run benchmark:lm_studio:llama-3.2-3b-instruct --workspace @webai/consumer-openai
-npm run benchmark:webai_at_home:llm_llama3_2_3b_full --workspace @webai/consumer-openai
-npm run benchmark:webai_at_home:llm_qwen3_0_6b_sharded --workspace @webai/consumer-openai
-```
-
-Use `-f/--format` to choose the output format: `text` (default), `markdown` (pipe tables, for
-pasting into an issue or a notes file), or `json` (a machine-readable report):
-
-```sh
-npm run benchmark --workspace @webai/consumer-openai -- --base_url http://localhost:1234/v1 --model_name llama-3.2-3b-instruct --runs 10 --format json
-```
-
-The report measures wall-clock latency and response size for that one endpoint; it does not
-calculate a monetary price because these OpenAI-compatible endpoints do not provide token
-pricing or usage data. To compare two endpoints, run the script once against each and read the
-two reports side by side.
+The latency benchmark moved out of this package into [`@webai/openai-api-tool`](../openai_api_tool/), where it is the `benchmark` subcommand. It measures any server that speaks the OpenAI-compatible API, including this one and LM Studio, so it is not specific to this package. See [that package's README](../openai_api_tool/README.md) for what it measures and how to run it.
 
 ## Command line options
 
@@ -134,29 +84,7 @@ The others are `example:list_models`, `example:chat_completion_system_message`, 
 
 The two `history` examples are the ones to run to see a real conversation reach a worker: `llm_qwen3_5_0_8b_full` and `llm_llama3_2_3b_full` are the only two models whose task type accepts a whole conversation rather than only one prompt, so each sends a fact in one request and asks for it back in a second request that carries the first request's own answer along with it.
 
-[`examples/chat_completion.ts`](./examples/chat_completion.ts) is a different kind of example: rather than one model in one mode, it sweeps across many models and both modes in one run, prints one line per pair followed by a summary table, and sets the process exit code to `1` when any pair failed, so a single command answers whether the cluster still works. It is executable on its own, with the shebang `#!/usr/bin/env -S npx tsx`, and has two subcommands.
-
-Its `text_completion` subcommand sweeps across every model `ModelCatalog.modelIds` offers, sending one prompt per model:
-
-```sh
-./examples/chat_completion.ts text_completion --streamed --model llm_qwen3_0_6b_sharded
-```
-
-or through the workspace, the same way as the other examples:
-
-```sh
-npm run example:chat_completion --workspace @webai/consumer-openai -- text_completion --model all
-```
-
-Its `conversation_history` subcommand sweeps across `llm_qwen3_5_0_8b_full` and `llm_llama3_2_3b_full`, the only two models whose task type accepts a whole conversation rather than only one prompt, sending the same two-turn fact-and-recall conversation the two `history` examples above send by hand, and checking that the second turn's answer recalls what the first turn said:
-
-```sh
-./examples/chat_completion.ts conversation_history --model llm_llama3_2_3b_full
-```
-
-Both subcommands take `-m/--model` (one model identifier, a comma-separated list of identifiers, a pattern such as `llm_*`, `all` — the default — or `list` to print the model identifiers and test nothing), `-s/--streamed` or `--nostream` to restrict the run to one mode (giving neither, or both, tests both), `-u/--base_url`, and `--timeout_ms`; `text_completion` additionally takes `-p/--prompt` to override each model's own default prompt.
-
-The other examples above remain the ones to read first: each is a short, single-purpose file explaining one model in one mode. This one is a test runner rather than a model to learn from.
+The sweep that sends one prompt to every model in one run, and the one that checks a two-turn conversation across the models accepting a conversation, moved out of this package into [`@webai/openai-api-tool`](../openai_api_tool/), where they are the `text_completion` and `conversation_history` subcommands. The examples above remain the ones to read first: each is a short, single-purpose file explaining one model in one mode.
 
 Without the `openai` package, the same two endpoints with `curl`:
 
@@ -307,7 +235,6 @@ The tests cover reading a request, the models on offer, the failure mapping, the
 
 - [`src/cli.ts`](./src/cli.ts) — the `consumer_openai` command line program: dispatches to the `server` subcommand.
 - [`src/commands/server_command.ts`](./src/commands/server_command.ts) — the `server` subcommand: builds every part and starts serving.
-- [`scripts/benchmark_openai_api.ts`](./scripts/benchmark_openai_api.ts) — the standalone OpenAI API latency benchmark for one endpoint.
 - [`src/libs/server_settings.ts`](./src/libs/server_settings.ts) — the `server` subcommand's own command line options, read once and typed.
 - [`src/http/openai_routes.ts`](./src/http/openai_routes.ts) — the endpoints, including reading and checking a request.
 - [`src/libs/cluster_task_runner.ts`](./src/libs/cluster_task_runner.ts) — the one gateway connection, and one promise per submitted task.

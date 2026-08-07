@@ -1,0 +1,32 @@
+{
+	"name": "@webai/openai-api-tool",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"bin": {
+		"openai_api_tool": "./dist/cli.js"
+	},
+	"scripts": {
+		"build": "tsc -p tsconfig.build.json",
+		"typecheck": "tsc -p tsconfig.json",
+		"test": "npx tsx --test tests/index.test.ts",
+		"build:dependencies": "npm run build --workspace @webai/protocol && npm run build --workspace @webai/consumer-cli",
+		"pretext_completion": "npm run build:dependencies",
+		"text_completion": "tsx src/cli.ts text_completion",
+		"preconversation_history": "npm run build:dependencies",
+		"conversation_history": "tsx src/cli.ts conversation_history",
+		"prebenchmark": "npm run build:dependencies",
+		"benchmark": "tsx src/cli.ts benchmark",
+		"benchmark:lm_studio:llama-3.2-3b-instruct": "tsx src/cli.ts benchmark --base_url http://localhost:1234/v1 --model llama-3.2-3b-instruct",
+		"benchmark:webai_at_home:llm_llama3_2_3b_full": "tsx src/cli.ts benchmark --base_url http://localhost:8788/v1 --model llm_llama3_2_3b_full",
+		"benchmark:webai_at_home:llm_qwen3_0_6b_sharded": "tsx src/cli.ts benchmark --base_url http://localhost:8788/v1 --model llm_qwen3_0_6b_sharded"
+	},
+	"dependencies": {
+		"@webai/consumer-cli": "0.1.0",
+		"commander": "^12.1.0",
+		"openai": "^4.77.0"
+	},
+	"devDependencies": {
+		"@types/node": "^22.10.2"
+	}
+}

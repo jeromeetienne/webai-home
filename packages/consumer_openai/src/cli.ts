@@ -17,8 +17,9 @@ const subcommandNames = ['server'] as const;
 /**
  * The command line program of `@webai/consumer-openai`: `server` serves the OpenAI-compatible
  * completion interface in front of the cluster. The latency benchmark against another
- * OpenAI-compatible endpoint lives outside this dispatcher, as the standalone script
- * `scripts/benchmark_openai_api.ts`, since it needs none of this package's own build output to run.
+ * OpenAI-compatible endpoint lives outside this package altogether, as the `benchmark`
+ * subcommand of `@webai/openai-api-tool`, since it measures any server that speaks the
+ * OpenAI-compatible API rather than this one in particular.
  */
 export class Cli {
 	/**
@@ -73,7 +74,7 @@ export class Cli {
 		console.log(`  ${subcommandNames[0]}      serve the OpenAI-compatible completion interface in front of the webai-at-home cluster`);
 		console.log();
 		console.log('Run "consumer_openai <command> --help" for the command\'s own options.');
-		console.log('The latency benchmark is a separate standalone script: see scripts/benchmark_openai_api.ts.');
+		console.log('The latency benchmark is the benchmark subcommand of the openai_api_tool command line program.');
 	}
 }
 
