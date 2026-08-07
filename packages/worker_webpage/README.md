@@ -30,7 +30,7 @@ When no enabled stages are provided, the worker advertises all available formula
 
 The three Qwen3-0.6B ONNX model shards are stored in the public [Hugging Face model repository](https://huggingface.co/jerome-etienne/webai-at-home-qwen3-0.6b-shards), rather than in the Worker web build or the central gateway. The Worker downloads only the shard assigned to its stage and stores downloaded shard bytes in the browser's IndexedDB cache.
 
-The Worker uses the immutable Hugging Face revision [`8ba2b869c4dbb96de8b72e448e79b4ec5825ae47`](https://huggingface.co/jerome-etienne/webai-at-home-qwen3-0.6b-shards/tree/8ba2b869c4dbb96de8b72e448e79b4ec5825ae47). Upload a new model revision and update the revision in `web/src/stages/stage_helper_llm_qwen3_0_6b_sharded.ts` when the shard files change. The GitHub Pages Worker deployment therefore publishes the small application and runtime assets, not the roughly 860 megabytes of model shards.
+The Worker uses the immutable Hugging Face revision [`8ba2b869c4dbb96de8b72e448e79b4ec5825ae47`](https://huggingface.co/jerome-etienne/webai-at-home-qwen3-0.6b-shards/tree/8ba2b869c4dbb96de8b72e448e79b4ec5825ae47). Upload a new model revision and update the revision in `web/src/stages/stage_helper_llm_qwen3_0_6b_sharded.ts` when the shard files change. The deployed Worker therefore publishes the small application and runtime assets, not the roughly 860 megabytes of model shards.
 
 ## Qwen3.5-0.8B complete model
 
@@ -44,7 +44,7 @@ Running the model needs a WebGPU adapter with 16-bit floating point shader suppo
 
 ## Chrome Apps on device permission
 
-The deployed Worker page is served from GitHub Pages, but it connects to the central gateway running on the local computer at `http://localhost:8787` by default. Chrome calls this connection an **Apps on device** request because the page is contacting software running on the computer.
+The deployed Worker page is served from a Docker container at `https://webai-worker.dash-menu.com`, and connects to the deployed central gateway at `https://webai-gateway.dash-menu.com` by default. Passing `?gatewayUrl=http://localhost:8787` points the deployed Worker page at a gateway running on the local computer instead. Chrome calls that connection an **Apps on device** request because the page is contacting software running on the computer.
 
 Chrome asks for this permission to protect local services from unexpected requests made by websites. Allow the permission when using the deployed Worker with a local gateway. The permission is not needed for downloading model shards from Hugging Face or for using the graphics processor. Select **Reset permission** in Chrome's site information panel to remove the permission; Chrome will ask again the next time the Worker connects to the local gateway.
 
