@@ -30,8 +30,10 @@ import { TaskScheduler } from '../src/task/task_scheduler.js';
 import { ClientMessageHandler } from '../src/task/client_message_handler.js';
 import { WorkerPlacement } from '../src/device/worker_placement.js';
 import { Dashboard } from '../src/dashboard.js';
+import { WebsocketHeartbeat } from '../src/connection/websocket_heartbeat.js';
 import { AccountIdentity } from '@webai/protocol';
 import type { AccountCryptoKeyPair, AccountProfile, ClientMessage, GatewayMessage, LedgerEntry, StageName, TaskInput } from '@webai/protocol';
+import type { WebSocketServer } from 'ws';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -780,6 +782,49 @@ type FakeSocket = { readyState: number; OPEN: number; sent: GatewayEnvelopeLike[
 
 /** The shape `ConnectionHub.send` writes, read back out of a fake socket's recorded frames. */
 type GatewayEnvelopeLike = { body: GatewayMessage };
+
+/**
+ * A fake WebSocket good enough for `WebsocketHeartbeat`: it counts how many times it was
+ * pinged, records whether it was terminated, and lets a test answer with a `pong` on demand,
+ * instead of touching a real network connection.
+ */
+type FakeHeartbeatSocket = { pingCount: number; terminated: boolean; ping: () => void; terminate: () => void; on: (event: string, listener: () => void) => void; answerWithPong: () => void };
+
+const newFakeHeartbeatSocket = (): FakeHeartbeatSocket => {
+	let pongListener: (() => void) | undefined;
+	const socket: FakeHeartbeatSocket = {
+		pingCount: 0,
+		terminated: false,
+		ping: (): void => { socket.pingCount++; },
+		terminate: (): void => { socket.terminated = true; },
+		on: (event, listener): void => { if (event === 'pong') pongListener = listener; },
+		answerWithPong: (): void => pongListener?.(),
+	};
+	return socket;
+};
+
+/**
+ * A fake WebSocket server good enough for `WebsocketHeartbeat`: it tracks the connections
+ * handed to it and lets a test announce a new one, instead of accepting real network
+ * connections.
+ */
+type FakeHeartbeatServer = { clients: Set<FakeHeartbeatSocket>; on: (event: string, listener: (socket: FakeHeartbeatSocket) => void) => void; announceConnection: (socket: FakeHeartbeatSocket) => void };
+
+const newFakeHeartbeatServer = (): FakeHeartbeatServer => {
+	let connectionListener: ((socket: FakeHeartbeatSocket) => void) | undefined;
+	const server: FakeHeartbeatServer = {
+		clients: new Set(),
+		on: (event, listener): void => { if (event === 'connection') connectionListener = listener; },
+		announceConnection: (socket): void => {
+			server.clients.add(socket);
+			connectionListener?.(socket);
+		},
+	};
+	return server;
+};
+
+/** Waits for real time to pass, so a `WebsocketHeartbeat` built on a real timer can be observed. */
+const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Builds the `task.submit` input for the two-stage `dev_formula` pipeline these tests drive. */
 const devFormulaInput = (value: number): TaskInput => ({ taskType: 'task_type_dev_formula', input: value });
@@ -2048,4 +2093,37 @@ Test('the accounting summary lists the shared development account too, though it
 	const summaries = (answered as { summaries: { accountId: string; displayName: string; createdAt?: string; balance: number; earnedStageCount: number; spentStageCount: number }[] }).summaries;
 
 	Assert.deepEqual(summaries, [{ accountId: 'account-shared-development', displayName: '', balance: 0, earnedStageCount: 2, spentStageCount: 2 }]);
+});
+
+Test('the websocket heartbeat pings a connection that keeps answering, and terminates one that stops answering', async () => {
+	const intervalMs = 50;
+	const server = newFakeHeartbeatServer();
+	const heartbeat = new WebsocketHeartbeat(server as unknown as WebSocketServer, intervalMs);
+	try {
+		const responsive = newFakeHeartbeatSocket();
+		const silent = newFakeHeartbeatSocket();
+		server.announceConnection(responsive);
+		server.announceConnection(silent);
+
+		// After the first sweep (comfortably past one interval, comfortably before two): both
+		// connections were still assumed alive from when they connected, so both were pinged and
+		// marked as not yet having answered.
+		await delay(intervalMs * 1.5);
+		Assert.equal(responsive.pingCount, 1);
+		Assert.equal(silent.pingCount, 1);
+		Assert.equal(responsive.terminated, false);
+		Assert.equal(silent.terminated, false);
+
+		responsive.answerWithPong();
+
+		// After the second sweep (comfortably past two intervals, comfortably before three): the
+		// responsive connection answered, so it was pinged again; the silent one did not, so it was
+		// terminated instead of being pinged a second time.
+		await delay(intervalMs);
+		Assert.equal(responsive.pingCount, 2);
+		Assert.equal(responsive.terminated, false);
+		Assert.equal(silent.terminated, true);
+	} finally {
+		heartbeat.stop();
+	}
 });

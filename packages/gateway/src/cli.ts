@@ -29,6 +29,7 @@ import { SessionRegistry } from './task/session_registry.js';
 import { StagePolicyResolver } from './task/stage_policy_resolver.js';
 import { TaskScheduler } from './task/task_scheduler.js';
 import { TaskStore } from './task/task_store.js';
+import { WebsocketHeartbeat } from './connection/websocket_heartbeat.js';
 import { WebsocketRouter } from './connection/websocket_router.js';
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -49,6 +50,8 @@ export class Cli {
 	/** The running HTTP server, which the WebSocket server shares. */
 	private static httpServer: Http.Server | undefined;
 	private static websocketServer: WebSocketServer | undefined;
+	/** Pings every open connection, so a reverse proxy's own idle timeout does not close it. */
+	private static websocketHeartbeat: WebsocketHeartbeat | undefined;
 	/** The repeating sweep that retries expired leases and places queued tasks. */
 	private static recoveryTimer: NodeJS.Timeout | undefined;
 	/** The announcer, whose pending activity message is cancelled on shutdown. */
@@ -142,6 +145,7 @@ export class Cli {
 		});
 		const websocketServer = new WebSocketServer({ server: httpServer });
 		websocketServer.on('connection', (socket) => websocketRouter.acceptConnection(socket));
+		const websocketHeartbeat = new WebsocketHeartbeat(websocketServer, settings.heartbeatIntervalMs);
 
 		// A stage may declare a lease shorter than the gateway's --lease-ms default, so the sweep
 		// that notices an expired lease runs at least as often as the shortest lease any registered
@@ -159,6 +163,7 @@ export class Cli {
 		Cli.hub = hub;
 		Cli.httpServer = httpServer;
 		Cli.websocketServer = websocketServer;
+		Cli.websocketHeartbeat = websocketHeartbeat;
 		Cli.recoveryTimer = recoveryTimer;
 		Cli.announcer = announcer;
 		Cli.pageDevServer = pageDevServer;
@@ -175,6 +180,7 @@ export class Cli {
 	private static async shutdown(): Promise<void> {
 		console.log('\nShutting down...');
 		if (Cli.hub !== undefined) for (const socket of Cli.hub.socketMap.values()) socket.close();
+		Cli.websocketHeartbeat?.stop();
 		Cli.websocketServer?.close();
 		Cli.httpServer?.close();
 		if (Cli.recoveryTimer !== undefined) clearInterval(Cli.recoveryTimer);

@@ -73,6 +73,14 @@ against that account rather than against the shared development account. A worke
 [`@webai/worker-webpage`](../worker_webpage); the gateway does not provide the
 worker page itself.
 
+Every open WebSocket connection is pinged every `--heartbeat-interval-ms`
+(default `30000`), and a connection that does not answer the previous ping is
+closed. This keeps an idle connection — a worker with no assignment, a
+consumer waiting on a task, a dashboard page that is only watching — alive
+through a reverse proxy placed in front of the gateway, since a reverse proxy
+commonly closes a WebSocket connection that carries no traffic for as little
+as sixty seconds.
+
 ## Build and test
 
 ```sh
