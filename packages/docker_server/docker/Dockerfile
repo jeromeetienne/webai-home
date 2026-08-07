@@ -50,10 +50,17 @@ RUN npm run build --workspace @webai/protocol \
 # Drops every devDependency (Vite, TypeScript, esbuild, and the rest) the finished build no
 # longer needs, so the runtime stage below copies over a `node_modules` this same install
 # already has, instead of installing twice. This reinstalls from the lockfile the first `npm
-# install` above wrote, rather than using `npm prune --omit=dev`: with this workspace layout,
-# `npm prune` incorrectly deletes some packages nested under a workspace's own `node_modules`
-# (e.g. `packages/gateway/node_modules/commander`) even though they are production
-# dependencies, leaving the built gateway unable to find `commander` at runtime.
+# install` above wrote, rather than using `npm prune --omit=dev`, to avoid a known bug where
+# `npm prune` incorrectly deletes some packages this workspace layout nests under a package's
+# own `node_modules` even though they are production dependencies.
+#
+# Only `packages/protocol`, `packages/gateway`, and `packages/worker_webpage` are present in this
+# build context (see the manifests copied above), so every dependency the two runtime programs
+# need — including `commander` and `onnxruntime-web` — hoists to this one root `node_modules`
+# with nothing left nested under an individual package's own `node_modules`. A workspace with
+# more packages copied into its build context could see npm nest a conflicting version under a
+# package's own `node_modules` instead, so this is re-checked with `find packages -maxdepth 2
+# -name node_modules` after any change here.
 RUN rm -rf node_modules packages/*/node_modules && npm ci --omit=dev
 
 ###############################################################################
@@ -71,12 +78,7 @@ COPY --from=build /repo/package.json ./
 COPY --from=build /repo/packages/protocol/package.json packages/protocol/package.json
 COPY --from=build /repo/packages/protocol/dist packages/protocol/dist
 
-# The gateway also gets its own `node_modules`, not just the root one: `commander`'s two
-# conflicting version requirements in this workspace (`^12.1.0` here, `^13.0.0` pulled in
-# elsewhere as a devDependency) mean npm nests a `commander` copy under this package instead
-# of hoisting a single copy to the root `node_modules`.
 COPY --from=build /repo/packages/gateway/package.json packages/gateway/package.json
-COPY --from=build /repo/packages/gateway/node_modules packages/gateway/node_modules
 COPY --from=build /repo/packages/gateway/dist packages/gateway/dist
 COPY --from=build /repo/packages/gateway/web/dist packages/gateway/web/dist
 
