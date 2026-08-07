@@ -1,10 +1,20 @@
 import { createHash } from 'node:crypto';
+import { execSync } from 'node:child_process';
 import Fs from 'node:fs';
 import Path from 'node:path';
 import { createRequire } from 'node:module';
 import { defineConfig } from 'vite';
 
 const require = createRequire(import.meta.url);
+
+/**
+ * The git commit this build was made from, baked into the browser bundle as `__COMMIT_SHA__`
+ * (see `web/src/global.d.ts`) so a deployed page can show which commit it was built from (see
+ * issue #142). `COMMIT_SHA` is set by `packages/docker_server/docker/docker-entrypoint.sh` inside
+ * the Docker image, from the `SOURCE_COMMIT` build argument; outside that image (a local `npm run
+ * build` or `npm run dev`), it falls back to reading the checkout's own current commit directly.
+ */
+const commitSha = process.env.COMMIT_SHA ?? execSync('git rev-parse --short HEAD').toString().trim();
 
 /**
  * `stage_helper_llm_qwen3_0_6b_sharded.ts` sets `env.wasm.wasmPaths = "/assets/"`, a literal string prefix.
@@ -37,6 +47,9 @@ const gatewayFaviconPath = Path.resolve(import.meta.dirname, '../gateway/web/ima
 export default defineConfig({
 	root: Path.resolve(import.meta.dirname, 'web'),
 	base: process.env.WORKER_BASE_PATH ?? '/',
+	define: {
+		__COMMIT_SHA__: JSON.stringify(commitSha),
+	},
 	plugins: [
 		{
 			name: 'serve-gateway-favicon',

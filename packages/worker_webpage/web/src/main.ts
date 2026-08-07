@@ -114,6 +114,8 @@ export class WorkerPage {
 	private readonly quietToneButtonEl: HTMLButtonElement;
 	/** Shows the quiet tone's current state. */
 	private readonly quietToneStateEl: HTMLElement;
+	/** Shows the git commit this build was made from. */
+	private readonly commitShaEl: HTMLElement;
 
 	private readonly eventLog = new WorkerEventLog();
 	/** The stages the page URL restricts this worker browser to, if it names any. */
@@ -165,6 +167,7 @@ export class WorkerPage {
 		this.builtInModelDownloadButtonEl = PageElements.getButton('#built-in-model-download');
 		this.quietToneButtonEl = PageElements.getButton('#quiet-tone');
 		this.quietToneStateEl = PageElements.getElement('#quiet-tone-state');
+		this.commitShaEl = PageElements.getElement('#commit-sha');
 		this.requestedStageNames = WorkerStageOffer.requestedStageNamesFromUrl(location.search);
 	}
 
@@ -180,6 +183,7 @@ export class WorkerPage {
 			? `browser-worker-${RandomUuid.generate().slice(0, 8)}`
 			: (workerNameFromUrl ?? '');
 		this.workerNameEl.textContent = this.nameInputEl.value;
+		this.commitShaEl.textContent = __COMMIT_SHA__;
 		this.renderStages();
 		this.eventLog.render();
 

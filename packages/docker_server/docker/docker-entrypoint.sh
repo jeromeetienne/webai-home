@@ -18,6 +18,11 @@ GATEWAY_STATE_FILE="${GATEWAY_STATE_FILE:-/data/gateway-state.json}"
 
 WORKER_PORT="${WORKER_PORT:-8789}"
 
+# Baked into the image at build time as the ENV COMMIT_SHA instruction in the Dockerfile, from
+# the SOURCE_COMMIT build argument. Falls back to "unknown" only for an image built without
+# that argument.
+COMMIT_SHA="${COMMIT_SHA:-unknown}"
+
 gateway_pid=""
 worker_pid=""
 
@@ -34,7 +39,8 @@ trap shutdown TERM INT
 node packages/gateway/dist/cli.js \
 	--port "$GATEWAY_PORT" \
 	--auth-token "$GATEWAY_AUTH_TOKEN" \
-	--state-file "$GATEWAY_STATE_FILE" &
+	--state-file "$GATEWAY_STATE_FILE" \
+	--commit-sha "$COMMIT_SHA" &
 gateway_pid=$!
 
 node packages/docker_server/src/static_server.mjs packages/worker_webpage/dist "$WORKER_PORT" &

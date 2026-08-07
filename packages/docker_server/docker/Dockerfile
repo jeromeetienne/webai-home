@@ -32,6 +32,15 @@ COPY packages/protocol packages/protocol
 COPY packages/gateway packages/gateway
 COPY packages/worker_webpage packages/worker_webpage
 
+# The git commit this image was built from, so a running server can report exactly which
+# version it is (see issue #142). `.git` is never copied into this build stage, so the commit
+# has to be handed in from outside rather than read with `git rev-parse` here. Coolify can
+# supply this build argument itself: enable "Include Source Commit in Build" in the
+# application's Advanced settings to have it inject `SOURCE_COMMIT` automatically. Building by
+# hand instead needs `--build-arg SOURCE_COMMIT=$(git rev-parse --short HEAD)`.
+ARG SOURCE_COMMIT=unknown
+ENV COMMIT_SHA=$SOURCE_COMMIT
+
 # `@webai/worker-webpage` is a browser page built with Vite, served as static files by
 # src/static_server.mjs below, not run as a Node program.
 RUN npm run build --workspace @webai/protocol \
@@ -51,7 +60,9 @@ RUN rm -rf node_modules packages/*/node_modules && npm ci --omit=dev
 # Runtime stage — only what the gateway and the worker page need
 ###############################################################################
 FROM node:24-bookworm-slim AS runtime
+ARG SOURCE_COMMIT=unknown
 ENV NODE_ENV=production
+ENV COMMIT_SHA=$SOURCE_COMMIT
 WORKDIR /repo
 
 COPY --from=build /repo/node_modules node_modules

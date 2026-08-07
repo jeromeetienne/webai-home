@@ -411,7 +411,7 @@ const listeningServer = async (overrides: Partial<ClusterTaskRunnerOptions> = {}
 	const logDirectoryPath = Fs.mkdtempSync(Path.join(Os.tmpdir(), 'http-transaction-'));
 	const logFilePath = Path.join(logDirectoryPath, 'transactions.log_http.txt');
 	const transactionLogger = new CurlStyleTransactionLogger(logFilePath);
-	const routes = new OpenaiRoutes(cluster.runner, apiKey, Math.floor(Date.now() / 1000), transactionLogger);
+	const routes = new OpenaiRoutes(cluster.runner, apiKey, Math.floor(Date.now() / 1000), transactionLogger, 'test-commit-sha');
 	const app = Express();
 	app.use(routes.router());
 	const httpServer = app.listen(0);

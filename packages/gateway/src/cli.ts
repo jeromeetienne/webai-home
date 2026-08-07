@@ -132,7 +132,7 @@ export class Cli {
 				server: { middlewareMode: true },
 				appType: 'custom',
 			});
-		const httpRoutes = new HttpRoutes(hub, announcer, sessionRegistry, diagnosticsRateLimiter, settings.authToken, pageDevServer);
+		const httpRoutes = new HttpRoutes(hub, announcer, sessionRegistry, diagnosticsRateLimiter, settings.authToken, pageDevServer, settings.commitSha);
 
 		const app = Express();
 		app.disable('x-powered-by');

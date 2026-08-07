@@ -75,6 +75,7 @@ export class HttpRoutes {
 	 * @param diagnosticsRateLimiter The cap on how much one device may report.
 	 * @param authToken The bearer token a diagnostics report must present.
 	 * @param pageDevServer The Vite development server, when the gateway is not in production.
+	 * @param commitSha The git commit this build was made from, published on the `/health` route.
 	 */
 	constructor(
 		private readonly hub: ConnectionHub,
@@ -83,6 +84,7 @@ export class HttpRoutes {
 		private readonly diagnosticsRateLimiter: DiagnosticsRateLimiter,
 		private readonly authToken: string,
 		private readonly pageDevServer: PageDevServer | undefined,
+		private readonly commitSha: string,
 	) {
 		this.webDirectory = Path.join(Path.dirname(Url.fileURLToPath(import.meta.url)), '../../web');
 		this.buildDirectory = Path.join(this.webDirectory, 'dist');
@@ -146,7 +148,7 @@ export class HttpRoutes {
 		}
 		if (pathname === '/health') {
 			response.setHeader('content-type', 'application/json');
-			response.end(JSON.stringify({ ok: true, devices: this.announcer.workerDevices().length }));
+			response.end(JSON.stringify({ ok: true, devices: this.announcer.workerDevices().length, commitSha: this.commitSha }));
 			return;
 		}
 		if (this.pageDevServer !== undefined) {

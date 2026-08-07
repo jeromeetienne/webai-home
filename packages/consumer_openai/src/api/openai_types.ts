@@ -137,4 +137,6 @@ export type HealthResponse = {
 	isGatewayConnected: boolean;
 	/** How many requests are waiting for a cluster task to finish. */
 	tasksInFlight: number;
+	/** The git commit this server was built from. */
+	commitSha: string;
 };

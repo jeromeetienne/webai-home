@@ -21,6 +21,7 @@ type RawOptions = {
 	sessionMs: string;
 	pipelineFile?: string;
 	deviceActivityCoalesceMs: string;
+	commitSha: string;
 };
 
 /**
@@ -57,6 +58,8 @@ export class GatewaySettings {
 	readonly pipelineFile: string | undefined;
 	/** How long device activity changes are batched before one combined update is sent. */
 	readonly deviceActivityCoalesceMs: number;
+	/** The git commit this build was made from, published on the `/health` route. */
+	readonly commitSha: string;
 
 	/**
 	 * @param argv The command line arguments. Defaults to this process's own.
@@ -75,7 +78,8 @@ export class GatewaySettings {
 			.option('--max-tasks-per-principal <number>', 'Maximum non-terminal tasks per principal', '20')
 			.option('--session-ms <number>', 'How long an authenticated session lasts before the client must authenticate again', '3600000')
 			.option('--pipeline-file <path>', 'JSON file containing additional pipeline specifications')
-			.option('--device-activity-coalesce-ms <number>', 'How long device activity changes are batched before one combined update is sent', '250');
+			.option('--device-activity-coalesce-ms <number>', 'How long device activity changes are batched before one combined update is sent', '250')
+			.option('--commit-sha <sha>', 'Git commit this build was made from', 'unknown');
 		const options = (argv === undefined ? command.parse() : command.parse(argv, { from: 'user' })).opts<RawOptions>();
 
 		this.port = Number(options.port);
@@ -91,5 +95,6 @@ export class GatewaySettings {
 		this.sessionMs = Number(options.sessionMs);
 		this.pipelineFile = options.pipelineFile;
 		this.deviceActivityCoalesceMs = Number(options.deviceActivityCoalesceMs);
+		this.commitSha = options.commitSha;
 	}
 }

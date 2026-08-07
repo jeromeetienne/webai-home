@@ -88,12 +88,14 @@ export class OpenaiRoutes {
 	 * @param startedAtSeconds When this server started, as a whole number of seconds since the
 	 * start of 1970, which is the creation date it states for every model.
 	 * @param transactionLogger Where every chat completion request is recorded as one transaction.
+	 * @param commitSha The git commit this server was built from, published on the `/health` route.
 	 */
 	constructor(
 		private readonly runner: ClusterTaskRunner,
 		private readonly apiKey: string | undefined,
 		private readonly startedAtSeconds: number,
 		private readonly transactionLogger: CurlStyleTransactionLogger,
+		private readonly commitSha: string,
 	) {}
 
 	/**
@@ -116,6 +118,7 @@ export class OpenaiRoutes {
 				isHealthy: this.runner.isGatewayConnected,
 				isGatewayConnected: this.runner.isGatewayConnected,
 				tasksInFlight: this.runner.tasksInFlight,
+				commitSha: this.commitSha,
 			};
 			response.status(health.isHealthy ? 200 : 503).json(health);
 		});

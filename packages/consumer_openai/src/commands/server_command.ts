@@ -81,7 +81,7 @@ export class ServerCommand {
 			maximumTasksInFlight: settings.maximumTasksInFlight,
 			messageLogger,
 		});
-		const routes = new OpenaiRoutes(runner, settings.apiKey, Math.floor(Date.now() / 1000), transactionLogger);
+		const routes = new OpenaiRoutes(runner, settings.apiKey, Math.floor(Date.now() / 1000), transactionLogger, settings.commitSha);
 
 		const app = Express();
 		app.disable('x-powered-by');

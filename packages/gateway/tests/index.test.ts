@@ -689,6 +689,7 @@ const withHttpRoutesServer = async (
 		new DiagnosticsRateLimiter(),
 		'development-token',
 		pageDevServer,
+		'test-commit-sha',
 	);
 	const httpServer = Http.createServer((request, response) => routes.handleRequest(request, response));
 	await new Promise<void>((resolve) => httpServer.listen(0, '127.0.0.1', () => resolve()));

@@ -36,6 +36,7 @@ type RawOptions = {
 	requestTimeoutMs: string;
 	connectionWaitMs: string;
 	maxTasksInFlight: string;
+	commitSha: string;
 };
 
 /**
@@ -72,6 +73,8 @@ export class ServerSettings {
 	readonly connectionWaitMs: number;
 	/** How many cluster tasks this server will have in flight at once. */
 	readonly maximumTasksInFlight: number;
+	/** The git commit this build was made from, published on the `/health` route. */
+	readonly commitSha: string;
 
 	/**
 	 * @param argv The command line arguments. Defaults to this process's own.
@@ -93,7 +96,8 @@ export class ServerSettings {
 			// The central gateway's own --max-tasks-per-principal defaults to 20, and it refuses a
 			// submission beyond that, so this server holds no more than that in flight either and
 			// answers the caller itself rather than passing on a refusal it could have foreseen.
-			.option('--max-tasks-in-flight <number>', 'How many cluster tasks to have in flight at once', '20');
+			.option('--max-tasks-in-flight <number>', 'How many cluster tasks to have in flight at once', '20')
+			.option('--commit-sha <sha>', 'Git commit this build was made from', 'unknown');
 		const options = (
 			argv === undefined
 				? command.parse()
@@ -111,5 +115,6 @@ export class ServerSettings {
 		this.requestTimeoutMs = Number(options.requestTimeoutMs);
 		this.connectionWaitMs = Number(options.connectionWaitMs);
 		this.maximumTasksInFlight = Number(options.maxTasksInFlight);
+		this.commitSha = options.commitSha;
 	}
 }
