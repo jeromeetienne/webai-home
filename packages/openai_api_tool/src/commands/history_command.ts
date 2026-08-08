@@ -171,6 +171,8 @@ export class HistoryCommand {
 				answer: secondTurn.answer,
 				failureMessage: undefined,
 				turns,
+				clusterGenerationTimeMs: secondTurn.clusterGenerationTimeMs,
+				clusterTimeToFirstPieceMs: secondTurn.clusterTimeToFirstPieceMs,
 			};
 		} catch (error: unknown) {
 			if (isText === true) {

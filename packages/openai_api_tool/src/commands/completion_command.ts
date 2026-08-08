@@ -162,6 +162,8 @@ export class CompletionCommand {
 				characterCount: result.answer.length,
 				answer: result.answer,
 				failureMessage: undefined,
+				clusterGenerationTimeMs: result.clusterGenerationTimeMs,
+				clusterTimeToFirstPieceMs: result.clusterTimeToFirstPieceMs,
 			};
 		} catch (error: unknown) {
 			if (isText === true) {

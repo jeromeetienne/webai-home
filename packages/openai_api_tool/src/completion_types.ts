@@ -38,6 +38,21 @@ export type CompletionResult = {
 	readonly timeToFirstCharacterMs: number;
 	/** Elapsed time, in milliseconds, from the request being sent until the final character arrived. */
 	readonly timeToLastCharacterMs: number;
+	/**
+	 * How much of `timeToLastCharacterMs` was spent generating the whole answer inside the
+	 * cluster, read from the `X-Webai-Generation-Time-Ms` response header, rather than measured
+	 * by this tool's own stopwatch. Set only in the nostream mode, since only a whole-answer
+	 * response can carry it — a streamed response sends its headers before the cluster has
+	 * finished generating the rest of the answer. `undefined` when the endpoint sent no such
+	 * header, which every endpoint other than this project's own `consumer_openai` server does.
+	 */
+	readonly clusterGenerationTimeMs: number | undefined;
+	/**
+	 * How much of `timeToFirstCharacterMs` was spent inside the cluster before its first piece
+	 * was ready, read from the `X-Webai-Time-To-First-Piece-Ms` response header. Set only in the
+	 * streamed mode. `undefined` when the endpoint sent no such header.
+	 */
+	readonly clusterTimeToFirstPieceMs: number | undefined;
 };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -81,6 +96,19 @@ export type SweepOutcome = {
 	readonly characterCount: number;
 	/** The raw answer text, already printed as it was produced. Empty when not `ok`. */
 	readonly answer: string;
+	/**
+	 * How much of `timeToLastCharacterMs` the cluster reported spending on generation, carried
+	 * over from `CompletionResult.clusterGenerationTimeMs`. Set only for an `ok` pairing in the
+	 * nostream mode, against an endpoint that sent the header. `undefined` otherwise.
+	 */
+	readonly clusterGenerationTimeMs?: number | undefined;
+	/**
+	 * How much of `timeToFirstCharacterMs` the cluster reported spending before its first piece
+	 * was ready, carried over from `CompletionResult.clusterTimeToFirstPieceMs`. Set only for an
+	 * `ok` pairing in the streamed mode, against an endpoint that sent the header. `undefined`
+	 * otherwise.
+	 */
+	readonly clusterTimeToFirstPieceMs?: number | undefined;
 	/** Why the pair failed or was skipped, `undefined` on success. */
 	readonly failureMessage: string | undefined;
 	/**

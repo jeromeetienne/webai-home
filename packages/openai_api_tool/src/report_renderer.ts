@@ -34,6 +34,8 @@ export class ReportRenderer {
 			`first character in ${Math.round(outcome.timeToFirstCharacterMs)} ms`,
 			`last character in ${Math.round(outcome.timeToLastCharacterMs)} ms`,
 			`${outcome.characterCount} characters`,
+			...(outcome.clusterGenerationTimeMs !== undefined ? [`${Math.round(outcome.clusterGenerationTimeMs)} ms of it spent generating inside the cluster`] : []),
+			...(outcome.clusterTimeToFirstPieceMs !== undefined ? [`${Math.round(outcome.clusterTimeToFirstPieceMs)} ms of it spent inside the cluster before the first piece`] : []),
 		].join(', ');
 		const line = `${outcome.modelId} (${outcome.mode}): ${outcome.status} — ${timings}`;
 		if (outcome.status === 'failed') {
@@ -212,14 +214,15 @@ export class ReportRenderer {
 			`| ${ReportRenderer._rounded(outcome.timeToFirstCharacterMs)} ms`,
 			`| ${ReportRenderer._rounded(outcome.timeToLastCharacterMs)} ms`,
 			`| ${outcome.characterCount}`,
+			`| ${ReportRenderer._clusterTimeCell(outcome)}`,
 			`| ${outcome.failureMessage ?? ''} |`,
 		].join(' '));
 		const counts = ReportRenderer._sweepCounts(outcomes);
 		const blocks: string[] = [
 			'# OpenAI API sweep',
 			[
-				'| Model | Mode | Status | Time to First Character | Time to Last Character | Characters | Failure |',
-				'| --- | --- | --- | ---: | ---: | ---: | --- |',
+				'| Model | Mode | Status | Time to First Character | Time to Last Character | Characters | Cluster Generation Time | Failure |',
+				'| --- | --- | --- | ---: | ---: | ---: | ---: | --- |',
 				...rows,
 			].join('\n'),
 			`${counts.passed}/${counts.total} passed, ${counts.skipped} skipped, ${counts.failed} failed`,
@@ -248,6 +251,25 @@ export class ReportRenderer {
 			return [`### ${outcome.modelId} (${outcome.mode})`, ...turnLines].join('\n');
 		});
 		return ['## Turns', ...subsections].join('\n\n');
+	}
+
+	/**
+	 * Renders one sweep outcome's cluster-reported generation time for the markdown table, from
+	 * whichever of the two, mode-dependent figures the outcome carries.
+	 *
+	 * @param outcome The outcome to describe.
+	 * @returns The cell text: the figure and which one it is, or an em dash when the endpoint
+	 * reported neither, which every endpoint other than this project's own `consumer_openai`
+	 * server does.
+	 */
+	private static _clusterTimeCell(outcome: SweepOutcome): string {
+		if (outcome.clusterGenerationTimeMs !== undefined) {
+			return `${ReportRenderer._rounded(outcome.clusterGenerationTimeMs)} ms (generation)`;
+		}
+		if (outcome.clusterTimeToFirstPieceMs !== undefined) {
+			return `${ReportRenderer._rounded(outcome.clusterTimeToFirstPieceMs)} ms (to first piece)`;
+		}
+		return '—';
 	}
 
 	/**

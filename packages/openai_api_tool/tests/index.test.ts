@@ -45,6 +45,8 @@ function completionResult(answer: string, timeToFirstCharacterMs: number, timeTo
 		answer,
 		timeToFirstCharacterMs,
 		timeToLastCharacterMs,
+		clusterGenerationTimeMs: undefined,
+		clusterTimeToFirstPieceMs: undefined,
 	};
 }
 
@@ -310,7 +312,7 @@ const sweepOutcomes = [
 Test('gives every swept pair its own markdown row, with the passed/skipped/failed counts below the table', () => {
 	const markdown = ReportRenderer.formatSweepReport(sweepOutcomes, 'markdown');
 	Assert.match(markdown, /^# OpenAI API sweep/);
-	Assert.match(markdown, /\| Model \| Mode \| Status \| Time to First Character \| Time to Last Character \| Characters \| Failure \|/);
+	Assert.match(markdown, /\| Model \| Mode \| Status \| Time to First Character \| Time to Last Character \| Characters \| Cluster Generation Time \| Failure \|/);
 	Assert.match(markdown, /\| a \| nostream \| ok \|/);
 	Assert.match(markdown, /\| a \| streamed \| skipped \|/);
 	Assert.match(markdown, /\| b \| nostream \| failed \|/);
@@ -416,6 +418,89 @@ Test('reads Time to First and Time to Last Character from a real server-sent eve
 			result.timeToLastCharacterMs >= result.timeToFirstCharacterMs + 50,
 			`expected the Time to Last Character to be at least ~60 ms after the Time to First Character, got Time to First Character ${result.timeToFirstCharacterMs} ms and Time to Last Character ${result.timeToLastCharacterMs} ms`,
 		);
+	} finally {
+		await server.stop();
+	}
+});
+
+Test('reads the cluster generation-time header the streamed mode names, and leaves the whole-answer one unset', async () => {
+	const server = await startTestServer((request, response) => {
+		response.writeHead(200, {
+			'Content-Type': 'text/event-stream; charset=utf-8',
+			'X-Webai-Time-To-First-Piece-Ms': '42',
+		});
+		response.write(`data: ${JSON.stringify({ choices: [{ delta: { role: 'assistant', content: 'hi' } }] })}\n\n`);
+		response.write(`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }] })}\n\n`);
+		response.write('data: [DONE]\n\n');
+		response.end();
+	});
+	try {
+		const client = CompletionSender.createClient({
+			baseUrl: server.baseUrl,
+			apiKey: 'insecure-benchmark-key',
+			timeoutMs: 5_000,
+		});
+		const result = await CompletionSender.send({
+			client,
+			modelId: 'irrelevant-to-this-test',
+			messages: [{ role: 'user', content: 'say hi' }],
+			mode: 'streamed',
+		});
+		Assert.equal(result.clusterTimeToFirstPieceMs, 42);
+		Assert.equal(result.clusterGenerationTimeMs, undefined);
+	} finally {
+		await server.stop();
+	}
+});
+
+Test('reads the cluster generation-time header the whole-answer mode names, and leaves the streamed one unset', async () => {
+	const server = await startTestServer((request, response) => {
+		response.writeHead(200, {
+			'Content-Type': 'application/json',
+			'X-Webai-Generation-Time-Ms': '99',
+		});
+		response.end(JSON.stringify({ choices: [{ message: { content: 'whole answer' } }] }));
+	});
+	try {
+		const client = CompletionSender.createClient({
+			baseUrl: server.baseUrl,
+			apiKey: 'insecure-benchmark-key',
+			timeoutMs: 5_000,
+		});
+		const result = await CompletionSender.send({
+			client,
+			modelId: 'irrelevant-to-this-test',
+			messages: [{ role: 'user', content: 'say hi' }],
+			mode: 'nostream',
+		});
+		Assert.equal(result.clusterGenerationTimeMs, 99);
+		Assert.equal(result.clusterTimeToFirstPieceMs, undefined);
+	} finally {
+		await server.stop();
+	}
+});
+
+Test('reports no cluster generation time at all against an endpoint that sends neither header', async () => {
+	const server = await startTestServer((request, response) => {
+		response.writeHead(200, {
+			'Content-Type': 'application/json',
+		});
+		response.end(JSON.stringify({ choices: [{ message: { content: 'whole answer' } }] }));
+	});
+	try {
+		const client = CompletionSender.createClient({
+			baseUrl: server.baseUrl,
+			apiKey: 'insecure-benchmark-key',
+			timeoutMs: 5_000,
+		});
+		const result = await CompletionSender.send({
+			client,
+			modelId: 'irrelevant-to-this-test',
+			messages: [{ role: 'user', content: 'say hi' }],
+			mode: 'nostream',
+		});
+		Assert.equal(result.clusterGenerationTimeMs, undefined);
+		Assert.equal(result.clusterTimeToFirstPieceMs, undefined);
 	} finally {
 		await server.stop();
 	}

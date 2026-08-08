@@ -466,6 +466,10 @@ Test('answers a streamed request as the answer is written, and asks the cluster 
 		const response = await responsePromise;
 		Assert.equal(response.status, 200);
 		Assert.match(response.headers.get('content-type') ?? '', /text\/event-stream/);
+		// The total generation time is not known when a streamed response's headers must be
+		// sent, so this header carries the one generation-time fact that is: how long the
+		// cluster took to produce the first piece.
+		Assert.match(response.headers.get('x-webai-time-to-first-piece-ms') ?? '', /^\d+$/);
 
 		const lines = await streamedDataLines(response);
 		Assert.equal(lines.at(-1), '[DONE]');
@@ -505,6 +509,10 @@ Test('a request that asks for no stream asks the cluster for no pieces, and is a
 		const response = await responsePromise;
 		Assert.equal(response.status, 200);
 		Assert.match(response.headers.get('content-type') ?? '', /application\/json/);
+		// The whole answer is ready before this response's headers are sent, so this header can
+		// carry the total time the cluster spent generating it, under Rule 3 of this project's
+		// OpenAI compatibility requirement.
+		Assert.match(response.headers.get('x-webai-generation-time-ms') ?? '', /^\d+$/);
 		const body = await response.json() as { object: string; choices: { message: { content: string } }[] };
 		Assert.equal(body.object, 'chat.completion');
 		Assert.equal(body.choices[0]?.message.content, 'The capital.');

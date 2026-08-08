@@ -125,11 +125,12 @@ export class CompletionSender {
 	 */
 	private static async _sendStreamed(options: SendCompletionOptions): Promise<CompletionResult> {
 		const startedAt = performance.now();
-		const stream = await options.client.chat.completions.create({
+		const { data: stream, response } = await options.client.chat.completions.create({
 			model: options.modelId,
 			messages: options.messages,
 			stream: true,
-		});
+		}).withResponse();
+		const clusterTimeToFirstPieceMs = CompletionSender._readMsHeader(response, 'x-webai-time-to-first-piece-ms');
 
 		let answer = '';
 		let timeToFirstCharacterMs: number | undefined;
@@ -156,6 +157,8 @@ export class CompletionSender {
 			answer,
 			timeToFirstCharacterMs: timeToFirstCharacterMs ?? timeToLastCharacterMs,
 			timeToLastCharacterMs,
+			clusterGenerationTimeMs: undefined,
+			clusterTimeToFirstPieceMs,
 		};
 	}
 
@@ -170,10 +173,10 @@ export class CompletionSender {
 	 */
 	private static async _sendNostream(options: SendCompletionOptions): Promise<CompletionResult> {
 		const startedAt = performance.now();
-		const completion = await options.client.chat.completions.create({
+		const { data: completion, response } = await options.client.chat.completions.create({
 			model: options.modelId,
 			messages: options.messages,
-		});
+		}).withResponse();
 		const elapsedMs = performance.now() - startedAt;
 		const answer = completion.choices[0]?.message.content ?? '';
 		if (answer === '') {
@@ -187,6 +190,30 @@ export class CompletionSender {
 			answer,
 			timeToFirstCharacterMs: elapsedMs,
 			timeToLastCharacterMs: elapsedMs,
+			clusterGenerationTimeMs: CompletionSender._readMsHeader(response, 'x-webai-generation-time-ms'),
+			clusterTimeToFirstPieceMs: undefined,
 		};
+	}
+
+	/**
+	 * Reads one millisecond figure this project's own `consumer_openai` server reports in a
+	 * response header, under Rule 3 of its OpenAI compatibility requirement.
+	 *
+	 * @param response The raw response the `openai` npm package's transport received. Typed by
+	 * the one method this needs, rather than by that transport's own `Response` type, since the
+	 * `openai` npm package resolves to a different `Response` type than the rest of this
+	 * repository depending on which fetch implementation Node.js chose.
+	 * @param headerName The header to read.
+	 * @returns The header's value, or `undefined` when the endpoint sent no such header, or sent
+	 * one this tool cannot read as a plain number — which every endpoint other than this
+	 * project's own `consumer_openai` server does.
+	 */
+	private static _readMsHeader(response: { headers: { get(name: string): string | null } }, headerName: string): number | undefined {
+		const rawValue = response.headers.get(headerName);
+		if (rawValue === null) {
+			return undefined;
+		}
+		const value = Number(rawValue);
+		return Number.isFinite(value) ? value : undefined;
 	}
 }

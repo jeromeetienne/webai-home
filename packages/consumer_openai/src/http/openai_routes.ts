@@ -276,7 +276,9 @@ export class OpenaiRoutes {
 			return;
 		}
 
+		const generationStartedAt = performance.now();
 		const answer = await this.runner.run(taskInput, body.model, abortController.signal, onCorrelationIds);
+		const generationTimeMs = Math.round(performance.now() - generationStartedAt);
 		const completion: ChatCompletionResponse = {
 			id: `chatcmpl-${Crypto.randomUUID()}`,
 			object: 'chat.completion',
@@ -304,7 +306,13 @@ export class OpenaiRoutes {
 		if (response.writableEnded === true) {
 			return;
 		}
-		response.status(200).json(completion);
+		// Rule 3 of this project's OpenAI compatibility requirement: a value the OpenAI Chat
+		// Completions interface has no field for travels in a response header, or not at all. An
+		// OpenAI client ignores a header it does not recognise, so this one breaks nothing. Only
+		// the whole-answer response can carry it, because only here is the total generation time
+		// known before the response headers must be sent — a streamed response sends its headers
+		// with its first chunk, before the cluster has finished generating the rest of the answer.
+		response.status(200).set({ 'X-Webai-Generation-Time-Ms': String(generationTimeMs) }).json(completion);
 	}
 
 	/**
@@ -339,6 +347,7 @@ export class OpenaiRoutes {
 	): Promise<void> {
 		const completionId = `chatcmpl-${Crypto.randomUUID()}`;
 		const created = Math.floor(Date.now() / 1000);
+		const generationStartedAt = performance.now();
 		let isAnythingWritten = false;
 		/** Writes one chunk of the answer, opening the stream if this is the first. */
 		const writeChunk = (choice: ChatCompletionChunkChoice): void => {
@@ -349,11 +358,17 @@ export class OpenaiRoutes {
 				isAnythingWritten = true;
 				// Announced before anything is written, because the headers can no longer be set
 				// afterwards. `no-cache` keeps anything in between from holding the answer back
-				// until it is complete, which would undo the point of sending it in pieces.
+				// until it is complete, which would undo the point of sending it in pieces. The
+				// total generation time is not known yet, so under Rule 3 the one fact this
+				// response can still carry in a header is how long the cluster took to produce
+				// this first chunk — the only generation-time fact known before the headers of a
+				// streamed answer must be sent.
+				const timeToFirstPieceMs = Math.round(performance.now() - generationStartedAt);
 				response.status(200).set({
 					'Content-Type': 'text/event-stream; charset=utf-8',
 					'Cache-Control': 'no-cache',
 					Connection: 'keep-alive',
+					'X-Webai-Time-To-First-Piece-Ms': String(timeToFirstPieceMs),
 				});
 				if (transaction !== undefined) {
 					transaction.status = 200;
