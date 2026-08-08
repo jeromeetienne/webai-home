@@ -301,6 +301,30 @@ Test('counts passed, skipped, and failed pairs in the sweep summary', () => {
 	Assert.equal(lines[lines.length - 1], '1/3 passed, 1 skipped, 1 failed');
 });
 
+const sweepOutcomes = [
+	{ modelId: 'a', mode: 'nostream' as const, status: 'ok' as const, timeToFirstCharacterMs: 1, timeToLastCharacterMs: 2, characterCount: 3, answer: 'abc', failureMessage: undefined },
+	{ modelId: 'a', mode: 'streamed' as const, status: 'skipped' as const, timeToFirstCharacterMs: 0, timeToLastCharacterMs: 0, characterCount: 0, answer: '', failureMessage: 'why' },
+	{ modelId: 'b', mode: 'nostream' as const, status: 'failed' as const, timeToFirstCharacterMs: 5, timeToLastCharacterMs: 5, characterCount: 0, answer: '', failureMessage: 'no worker' },
+];
+
+Test('gives every swept pair its own markdown row, with the passed/skipped/failed counts below the table', () => {
+	const markdown = ReportRenderer.formatSweepReport(sweepOutcomes, 'markdown');
+	Assert.match(markdown, /^# OpenAI API sweep/);
+	Assert.match(markdown, /\| Model \| Mode \| Status \| Time to First Character \| Time to Last Character \| Characters \| Failure \|/);
+	Assert.match(markdown, /\| a \| nostream \| ok \|/);
+	Assert.match(markdown, /\| a \| streamed \| skipped \|/);
+	Assert.match(markdown, /\| b \| nostream \| failed \|/);
+	Assert.match(markdown, /1\/3 passed, 1 skipped, 1 failed/);
+});
+
+Test('writes every swept pair and the passed/skipped/failed counts as JSON', () => {
+	const json = ReportRenderer.formatSweepReport(sweepOutcomes, 'json');
+	const parsed = JSON.parse(json);
+	Assert.equal(parsed.outcomes.length, 3);
+	Assert.equal(parsed.outcomes[0].modelId, 'a');
+	Assert.deepEqual(parsed.summary, { passed: 1, skipped: 1, failed: 1, total: 3 });
+});
+
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 //	CompletionSender

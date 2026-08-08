@@ -17,13 +17,13 @@ npm run build:dependencies --workspace @webai/openai-api-tool
 The three subcommands are then reachable through `tsx`, with no build of this package needed:
 
 ```sh
-npx tsx packages/openai_api_tool/src/cli.ts completion --model dev_formula --nostream
+npx tsx ./src/cli.ts completion --model dev_formula --nostream
 ```
 
 `src/cli.ts` is executable on its own, with the shebang `#!/usr/bin/env -S npx tsx`:
 
 ```sh
-./packages/openai_api_tool/src/cli.ts history --model llm_llama3_2_3b_full
+././src/cli.ts history --model llm_llama3_2_3b_full
 ```
 
 Once this package has been built (`npm run build --workspace @webai/openai-api-tool`), the binary is linked into the repository's own `node_modules/.bin`:
@@ -52,15 +52,24 @@ Every subcommand accepts these:
 | `-u, --base_url <url>` | `WEBAI_OPENAI_BASE_URL`, or `http://localhost:8788/v1` | The OpenAI-compatible API to reach, without `/chat/completions`. |
 | `-k, --api_key <key>` | `OPENAI_API_KEY`, or `no-key-required` | The bearer token sent to the endpoint. |
 | `--timeout_ms <number>` | `600000` | How long one request may take before it is given up on. |
+| `-f, --format <format>` | `text` | The output format: `text`, `markdown`, or `json`. |
 
 `completion` and `history` additionally accept `-s/--streamed` or `--nostream` to restrict the run to one mode; giving neither, or both, sweeps both modes. `completion` also accepts `-p/--prompt` to send one prompt instead of each model's own default prompt.
 
-`benchmark` accepts neither mode flag, because it always asks for the answer in pieces: that is what lets it measure the Time to First Character apart from the Time to Last Character. It adds `-p/--prompt` (`Count up to 30`), `-r/--runs` (`10`), `-w/--warmup_runs` (`1`), and `-f/--format` (`text`, `markdown`, or `json`).
+`benchmark` accepts neither mode flag, because it always asks for the answer in pieces: that is what lets it measure the Time to First Character apart from the Time to Last Character. It adds `-p/--prompt` (`Count up to 30`), `-r/--runs` (`10`), and `-w/--warmup_runs` (`1`).
+
+`-f/--format text`, the default for all three subcommands, is the only format `completion` and `history` stream live: the raw answer is written out piece by piece as it arrives, followed by one analysis line per swept pair, colored green for `ok`, yellow for `skipped`, and red for `failed` (using [`chalk`](https://www.npmjs.com/package/chalk), which turns color off automatically once the output is piped or redirected). `-f/--format markdown` or `-f/--format json` runs the sweep silently instead, and prints one report — a markdown table, or JSON holding every outcome and the passed/skipped/failed counts — once every pair has finished:
+
+```sh
+npx tsx ./src/cli.ts completion --base_url http://localhost:1234/v1 --model qwen3.5-2b-mlx --format markdown
+```
+
+`benchmark` always runs silently and prints its own report in the requested format, since it never streams a raw answer to a person.
 
 `-m/--model` behaves the same way in all three subcommands: `all` and `list` name the task type names of this project, but a plain name outside that list is passed through to the endpoint unchanged, because `openai_api_tool` is a tool over the OpenAI-compatible chat completion API, not something specific to the Web AI at Home cluster:
 
 ```sh
-npx tsx packages/openai_api_tool/src/cli.ts benchmark --base_url http://localhost:1234/v1 --model llama-3.2-3b-instruct
+npx tsx ./src/cli.ts benchmark --base_url http://localhost:1234/v1 --model llama-3.2-3b-instruct
 ```
 
 ## What the benchmark measures

@@ -4,7 +4,7 @@ import type OpenAI from 'openai';
 // local imports
 import { taskTypeNamesAcceptingConversation } from '@webai/consumer-cli';
 import { CompletionSender } from '../completion_sender.js';
-import type { CompletionMode, SweepOutcome } from '../completion_types.js';
+import { reportFormats, type CompletionMode, type SweepOutcome } from '../completion_types.js';
 import { ModelSweeper } from '../model_sweeper.js';
 import { ReportRenderer } from '../report_renderer.js';
 import { SharedOptions, type RawSharedOptions } from '../shared_options.js';
@@ -37,29 +37,44 @@ export class HistoryCommand {
 	 * `-m/--model list` prints `taskTypeNamesAcceptingConversation` rather than every model on
 	 * offer, since only those models accept a whole conversation.
 	 *
+	 * `-f/--format text`, the default, streams each turn live and prints its analysis line as it
+	 * finishes. `-f/--format markdown` or `-f/--format json` runs the sweep silently and prints
+	 * one report once every pair has finished.
+	 *
 	 * @param rawOptions The subcommand's own options, exactly as commander parsed them.
 	 * @returns Nothing. Sets `process.exitCode` to `1` when any pair failed.
+	 * @throws {Error} If `--format` names a format that cannot be written.
 	 */
 	static async run(rawOptions: RawHistoryOptions): Promise<void> {
 		if (rawOptions.model === 'list') {
 			SharedOptions.printModelIds(taskTypeNamesAcceptingConversation);
 			return;
 		}
+		if (ReportRenderer.isReportFormat(rawOptions.format) === false) {
+			throw new Error(`--format must be one of ${reportFormats.join(', ')}`);
+		}
 
 		const modelIds = ModelSweeper.resolveModelIds(rawOptions.model, taskTypeNamesAcceptingConversation, 'accept');
 		const modes = SharedOptions.resolveModes(rawOptions);
 		const client = CompletionSender.createClient(SharedOptions.buildTarget(rawOptions));
+		const isText = rawOptions.format === 'text';
 
 		const outcomes: SweepOutcome[] = [];
 		for (const modelId of modelIds) {
 			for (const mode of modes) {
-				const outcome = await HistoryCommand._sweepOne(client, modelId, mode);
+				const outcome = await HistoryCommand._sweepOne(client, modelId, mode, isText);
 				outcomes.push(outcome);
-				ReportRenderer.printSweepOutcome(outcome);
+				if (isText === true) {
+					ReportRenderer.printSweepOutcome(outcome);
+				}
 			}
 		}
 
-		ReportRenderer.printSweepSummary(outcomes);
+		if (isText === true) {
+			ReportRenderer.printSweepSummary(outcomes);
+		} else {
+			console.log(ReportRenderer.formatSweepReport(outcomes, rawOptions.format));
+		}
 		if (outcomes.some((outcome) => outcome.status === 'failed')) {
 			process.exitCode = 1;
 		}
@@ -79,13 +94,16 @@ export class HistoryCommand {
 	 * @param client The OpenAI client pointed at the endpoint under test.
 	 * @param modelId The model identifier to request.
 	 * @param mode Whether to ask for each turn's answer as it is written, or in one piece.
+	 * @param isText Whether to stream each turn's raw answer to standard output as it arrives.
 	 * @returns What happened. The timings and character count are the second turn's own, since
 	 * that is the request whose latency and recall this subcommand measures.
 	 */
-	private static async _sweepOne(client: OpenAI, modelId: string, mode: CompletionMode): Promise<SweepOutcome> {
+	private static async _sweepOne(client: OpenAI, modelId: string, mode: CompletionMode, isText: boolean): Promise<SweepOutcome> {
 		const startedAt = performance.now();
 		try {
-			process.stdout.write('turn 1: ');
+			if (isText === true) {
+				process.stdout.write('turn 1: ');
+			}
 			const firstTurn = await CompletionSender.send({
 				client,
 				modelId,
@@ -96,11 +114,13 @@ export class HistoryCommand {
 					},
 				],
 				mode,
-				writePiece: (piece) => process.stdout.write(piece),
+				...(isText === true ? { writePiece: (piece: string) => { process.stdout.write(piece); } } : {}),
 			});
-			process.stdout.write('\n');
+			if (isText === true) {
+				process.stdout.write('\n');
+				process.stdout.write('turn 2: ');
+			}
 
-			process.stdout.write('turn 2: ');
 			const secondTurn = await CompletionSender.send({
 				client,
 				modelId,
@@ -119,9 +139,11 @@ export class HistoryCommand {
 					},
 				],
 				mode,
-				writePiece: (piece) => process.stdout.write(piece),
+				...(isText === true ? { writePiece: (piece: string) => { process.stdout.write(piece); } } : {}),
 			});
-			process.stdout.write('\n');
+			if (isText === true) {
+				process.stdout.write('\n');
+			}
 
 			const secondAnswerLower = secondTurn.answer.toLowerCase();
 			const recalledName = secondAnswerLower.includes('ada');
@@ -141,7 +163,9 @@ export class HistoryCommand {
 				failureMessage: undefined,
 			};
 		} catch (error: unknown) {
-			process.stdout.write('\n');
+			if (isText === true) {
+				process.stdout.write('\n');
+			}
 			const elapsedMs = performance.now() - startedAt;
 			return {
 				modelId,

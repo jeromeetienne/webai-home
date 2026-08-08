@@ -12,7 +12,6 @@ import { taskTypeNames, taskTypeNamesAcceptingConversation } from '@webai/consum
 import { BenchmarkCommand, type RawBenchmarkOptions } from './commands/benchmark_command.js';
 import { CompletionCommand, type RawCompletionOptions } from './commands/completion_command.js';
 import { HistoryCommand, type RawHistoryOptions } from './commands/history_command.js';
-import { benchmarkReportFormats } from './completion_types.js';
 import { SharedOptions } from './shared_options.js';
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -58,6 +57,7 @@ export class Cli {
 			)
 			.option('-p, --prompt <text>', "the prompt to send instead of each model's own default prompt");
 		SharedOptions.addModeOptions(completion);
+		SharedOptions.addFormatOption(completion);
 		SharedOptions.addEndpointOptions(completion);
 		completion.action(async (rawOptions: RawCompletionOptions) => {
 			await CompletionCommand.run(rawOptions);
@@ -74,6 +74,7 @@ export class Cli {
 				'all',
 			);
 		SharedOptions.addModeOptions(history);
+		SharedOptions.addFormatOption(history);
 		SharedOptions.addEndpointOptions(history);
 		history.action(async (rawOptions: RawHistoryOptions) => {
 			await HistoryCommand.run(rawOptions);
@@ -89,8 +90,8 @@ export class Cli {
 			)
 			.option('-p, --prompt <text>', 'the one prompt sent to the endpoint', BenchmarkCommand.defaultPrompt)
 			.option('-r, --runs <number>', 'measured requests per model', '10')
-			.option('-w, --warmup_runs <number>', 'unreported warm-up requests per model', '1')
-			.option('-f, --format <format>', `output format: ${benchmarkReportFormats.join(', ')}`, 'text');
+			.option('-w, --warmup_runs <number>', 'unreported warm-up requests per model', '1');
+		SharedOptions.addFormatOption(benchmark);
 		SharedOptions.addEndpointOptions(benchmark);
 		benchmark.action(async (rawOptions: RawBenchmarkOptions) => {
 			await BenchmarkCommand.run(rawOptions);

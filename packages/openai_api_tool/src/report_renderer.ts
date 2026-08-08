@@ -1,9 +1,12 @@
+// npm imports
+import Chalk from 'chalk';
+
 // local imports
 import {
-	benchmarkReportFormats,
+	reportFormats,
 	type BenchmarkReport,
-	type BenchmarkReportFormat,
 	type BenchmarkSummary,
+	type ReportFormat,
 	type SweepOutcome,
 } from './completion_types.js';
 
@@ -41,13 +44,15 @@ export class ReportRenderer {
 
 	/**
 	 * Prints the analysis line for one swept model and mode pair, sending a failure to the error
-	 * output so that a run piped into a file still shows what went wrong.
+	 * output so that a run piped into a file still shows what went wrong. Colored green for
+	 * `ok`, yellow for `skipped`, and red for `failed`, turned off automatically once output is
+	 * piped or redirected.
 	 *
 	 * @param outcome The outcome to print.
 	 * @returns Nothing.
 	 */
 	static printSweepOutcome(outcome: SweepOutcome): void {
-		const line = ReportRenderer.sweepOutcomeLine(outcome);
+		const line = ReportRenderer._colorByStatus(outcome.status, ReportRenderer.sweepOutcomeLine(outcome));
 		if (outcome.status === 'failed') {
 			console.error(line);
 			return;
@@ -75,15 +80,27 @@ export class ReportRenderer {
 	}
 
 	/**
-	 * Prints the summary table at the end of a sweep.
+	 * Prints the summary table at the end of a sweep. Each per-pair line is colored by its
+	 * status, and the final counts line highlights `skipped`/`failed` in color when either is
+	 * above zero, turned off automatically once output is piped or redirected.
 	 *
 	 * @param outcomes Every pair swept, in the order they were swept.
 	 * @returns Nothing.
 	 */
 	static printSweepSummary(outcomes: readonly SweepOutcome[]): void {
-		for (const line of ReportRenderer.sweepSummaryLines(outcomes)) {
-			console.log(line);
+		console.log('');
+		console.log('Summary:');
+		for (const outcome of outcomes) {
+			console.log(ReportRenderer._colorByStatus(outcome.status, `  ${outcome.modelId} (${outcome.mode}): ${outcome.status}`));
 		}
+		console.log('');
+
+		const failureCount = outcomes.filter((outcome) => outcome.status === 'failed').length;
+		const skippedCount = outcomes.filter((outcome) => outcome.status === 'skipped').length;
+		const passedCount = outcomes.length - failureCount - skippedCount;
+		const skippedText = skippedCount > 0 ? Chalk.yellow(`${skippedCount} skipped`) : `${skippedCount} skipped`;
+		const failedText = failureCount > 0 ? Chalk.red(`${failureCount} failed`) : `${failureCount} failed`;
+		console.log(`${passedCount}/${outcomes.length} passed, ${skippedText}, ${failedText}`);
 	}
 
 	/**
@@ -93,7 +110,7 @@ export class ReportRenderer {
 	 * @param format Which format to write.
 	 * @returns The whole report as one string, ready to print.
 	 */
-	static formatBenchmarkReport(report: BenchmarkReport, format: BenchmarkReportFormat): string {
+	static formatBenchmarkReport(report: BenchmarkReport, format: ReportFormat): string {
 		if (format === 'json') {
 			return JSON.stringify(report, null, 2);
 		}
@@ -104,13 +121,36 @@ export class ReportRenderer {
 	}
 
 	/**
-	 * Reports whether a string names a format `formatBenchmarkReport` can write.
+	 * Writes a `completion` or `history` sweep report out in the requested format, once the
+	 * sweep has finished. `markdown` and `json` hold every outcome plus the passed/skipped/failed
+	 * counts; `text` reuses the same lines `printSweepOutcome`/`printSweepSummary` print live,
+	 * uncolored, for a caller that wants the sweep run silently and printed once at the end.
+	 *
+	 * @param outcomes Every pair swept, in the order they were swept.
+	 * @param format Which format to write.
+	 * @returns The whole report as one string, ready to print.
+	 */
+	static formatSweepReport(outcomes: readonly SweepOutcome[], format: ReportFormat): string {
+		if (format === 'json') {
+			return JSON.stringify({ outcomes, summary: ReportRenderer._sweepCounts(outcomes) }, null, 2);
+		}
+		if (format === 'markdown') {
+			return ReportRenderer._renderMarkdownSweepReport(outcomes);
+		}
+		return [
+			...outcomes.map((outcome) => ReportRenderer.sweepOutcomeLine(outcome)),
+			...ReportRenderer.sweepSummaryLines(outcomes),
+		].join('\n');
+	}
+
+	/**
+	 * Reports whether a string names a format `formatBenchmarkReport`/`formatSweepReport` can write.
 	 *
 	 * @param value The value to check, as typed on the command line.
 	 * @returns `true` when the value names a format.
 	 */
-	static isReportFormat(value: string): value is BenchmarkReportFormat {
-		return (benchmarkReportFormats as readonly string[]).includes(value);
+	static isReportFormat(value: string): value is ReportFormat {
+		return (reportFormats as readonly string[]).includes(value);
 	}
 
 	///////////////////////////////////////////////////////////////////////////////
@@ -118,6 +158,73 @@ export class ReportRenderer {
 	//	Private Helpers
 	///////////////////////////////////////////////////////////////////////////////
 	///////////////////////////////////////////////////////////////////////////////
+
+	/**
+	 * Colors one printed line by a sweep outcome's status: green for `ok`, yellow for
+	 * `skipped`, red for `failed`. Turned off automatically once output is piped or redirected.
+	 *
+	 * @param status The status the line describes.
+	 * @param line The line to color.
+	 * @returns The colored line.
+	 */
+	private static _colorByStatus(status: SweepOutcome['status'], line: string): string {
+		if (status === 'ok') {
+			return Chalk.green(line);
+		}
+		if (status === 'skipped') {
+			return Chalk.yellow(line);
+		}
+		return Chalk.red(line);
+	}
+
+	/**
+	 * Counts how a sweep's outcomes turned out.
+	 *
+	 * @param outcomes Every pair swept, in the order they were swept.
+	 * @returns The passed, skipped, failed, and total counts.
+	 */
+	private static _sweepCounts(outcomes: readonly SweepOutcome[]): { passed: number; skipped: number; failed: number; total: number } {
+		const failed = outcomes.filter((outcome) => outcome.status === 'failed').length;
+		const skipped = outcomes.filter((outcome) => outcome.status === 'skipped').length;
+		return {
+			passed: outcomes.length - failed - skipped,
+			skipped,
+			failed,
+			total: outcomes.length,
+		};
+	}
+
+	/**
+	 * Renders a `completion` or `history` sweep report as markdown, one row per swept pair,
+	 * followed by the passed/skipped/failed counts.
+	 *
+	 * @param outcomes Every pair swept, in the order they were swept.
+	 * @returns The whole report as one markdown document.
+	 */
+	private static _renderMarkdownSweepReport(outcomes: readonly SweepOutcome[]): string {
+		const rows = outcomes.map((outcome) => [
+			'|',
+			outcome.modelId,
+			'|',
+			outcome.mode,
+			`| ${outcome.status}`,
+			`| ${ReportRenderer._rounded(outcome.timeToFirstCharacterMs)} ms`,
+			`| ${ReportRenderer._rounded(outcome.timeToLastCharacterMs)} ms`,
+			`| ${outcome.characterCount}`,
+			`| ${outcome.failureMessage ?? ''} |`,
+		].join(' '));
+		const counts = ReportRenderer._sweepCounts(outcomes);
+		const blocks: string[] = [
+			'# OpenAI API sweep',
+			[
+				'| Model | Mode | Status | Time to First Character | Time to Last Character | Characters | Failure |',
+				'| --- | --- | --- | ---: | ---: | ---: | --- |',
+				...rows,
+			].join('\n'),
+			`${counts.passed}/${counts.total} passed, ${counts.skipped} skipped, ${counts.failed} failed`,
+		];
+		return `${blocks.join('\n\n')}\n`;
+	}
 
 	/**
 	 * Rounds a report number for readable human output, while the JSON format keeps full values.

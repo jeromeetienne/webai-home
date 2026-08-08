@@ -2,7 +2,7 @@
 import type { Command } from 'commander';
 
 // local imports
-import { completionModes, type CompletionMode, type CompletionTarget } from './completion_types.js';
+import { completionModes, reportFormats, type CompletionMode, type CompletionTarget } from './completion_types.js';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -30,6 +30,8 @@ export type RawSharedOptions = {
 	api_key: string;
 	/** How long one request may take before it is given up on, still as text. */
 	timeout_ms: string;
+	/** The output format, still unchecked against `reportFormats`. */
+	format: string;
 };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -72,6 +74,16 @@ export class SharedOptions {
 		return command
 			.option('-s, --streamed', 'sweep the streamed mode only')
 			.option('--nostream', 'sweep the nostream mode only');
+	}
+
+	/**
+	 * Adds `-f/--format` to one subcommand.
+	 *
+	 * @param command The subcommand to add the option to.
+	 * @returns The same subcommand, so the call can be chained.
+	 */
+	static addFormatOption(command: Command): Command {
+		return command.option('-f, --format <format>', `output format: ${reportFormats.join(', ')}`, 'text');
 	}
 
 	/**

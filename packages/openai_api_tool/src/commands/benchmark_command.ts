@@ -1,7 +1,7 @@
 // local imports
 import { taskTypeNames } from '@webai/consumer-cli';
 import { BenchmarkRunner } from '../benchmark_runner.js';
-import { benchmarkReportFormats } from '../completion_types.js';
+import { reportFormats } from '../completion_types.js';
 import { ModelSweeper } from '../model_sweeper.js';
 import { ReportRenderer } from '../report_renderer.js';
 import { SharedOptions, type RawSharedOptions } from '../shared_options.js';
@@ -25,8 +25,6 @@ export type RawBenchmarkOptions = RawSharedOptions & {
 	runs: string;
 	/** The number of unreported warm-up requests per model, still as text. */
 	warmup_runs: string;
-	/** The output format, still unchecked against `benchmarkReportFormats`. */
-	format: string;
 };
 
 /** Measures the streamed chat completion latency of one OpenAI-compatible endpoint. */
@@ -49,7 +47,7 @@ export class BenchmarkCommand {
 			return;
 		}
 		if (ReportRenderer.isReportFormat(rawOptions.format) === false) {
-			throw new Error(`--format must be one of ${benchmarkReportFormats.join(', ')}`);
+			throw new Error(`--format must be one of ${reportFormats.join(', ')}`);
 		}
 
 		const target = SharedOptions.buildTarget(rawOptions);

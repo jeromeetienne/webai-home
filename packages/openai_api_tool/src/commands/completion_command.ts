@@ -4,7 +4,7 @@ import type OpenAI from 'openai';
 // local imports
 import { taskTypeNames } from '@webai/consumer-cli';
 import { CompletionSender } from '../completion_sender.js';
-import type { CompletionMode, SweepOutcome } from '../completion_types.js';
+import { reportFormats, type CompletionMode, type SweepOutcome } from '../completion_types.js';
 import { ModelSweeper } from '../model_sweeper.js';
 import { ReportRenderer } from '../report_renderer.js';
 import { SharedOptions, type RawSharedOptions } from '../shared_options.js';
@@ -40,30 +40,45 @@ export class CompletionCommand {
 	 * `-m/--model list` is handled first, as a request to print the model identifiers rather than
 	 * to send anything, so it needs neither `-u/--base_url` to answer nor a gateway to be reachable.
 	 *
+	 * `-f/--format text`, the default, streams each pair's raw answer live and prints its
+	 * analysis line as it finishes. `-f/--format markdown` or `-f/--format json` runs the sweep
+	 * silently and prints one report once every pair has finished.
+	 *
 	 * @param rawOptions The subcommand's own options, exactly as commander parsed them.
 	 * @returns Nothing. Sets `process.exitCode` to `1` when any pair failed.
+	 * @throws {Error} If `--format` names a format that cannot be written.
 	 */
 	static async run(rawOptions: RawCompletionOptions): Promise<void> {
 		if (rawOptions.model === 'list') {
 			SharedOptions.printModelIds(taskTypeNames);
 			return;
 		}
+		if (ReportRenderer.isReportFormat(rawOptions.format) === false) {
+			throw new Error(`--format must be one of ${reportFormats.join(', ')}`);
+		}
 
 		const modelIds = ModelSweeper.resolveModelIds(rawOptions.model, taskTypeNames, 'accept');
 		const modes = SharedOptions.resolveModes(rawOptions);
 		const client = CompletionSender.createClient(SharedOptions.buildTarget(rawOptions));
+		const isText = rawOptions.format === 'text';
 
 		const outcomes: SweepOutcome[] = [];
 		for (const modelId of modelIds) {
 			const prompt = rawOptions.prompt ?? CompletionCommand._defaultPromptFor(modelId);
 			for (const mode of modes) {
-				const outcome = await CompletionCommand._sweepOne(client, modelId, mode, prompt);
+				const outcome = await CompletionCommand._sweepOne(client, modelId, mode, prompt, isText);
 				outcomes.push(outcome);
-				ReportRenderer.printSweepOutcome(outcome);
+				if (isText === true) {
+					ReportRenderer.printSweepOutcome(outcome);
+				}
 			}
 		}
 
-		ReportRenderer.printSweepSummary(outcomes);
+		if (isText === true) {
+			ReportRenderer.printSweepSummary(outcomes);
+		} else {
+			console.log(ReportRenderer.formatSweepReport(outcomes, rawOptions.format));
+		}
 		if (outcomes.some((outcome) => outcome.status === 'failed')) {
 			process.exitCode = 1;
 		}
@@ -101,9 +116,10 @@ export class CompletionCommand {
 	 * @param modelId The model identifier to request.
 	 * @param mode Whether to ask for the answer as it is written, or in one piece.
 	 * @param prompt The single user message to send.
+	 * @param isText Whether to stream the raw answer to standard output as it arrives.
 	 * @returns What happened.
 	 */
-	private static async _sweepOne(client: OpenAI, modelId: string, mode: CompletionMode, prompt: string): Promise<SweepOutcome> {
+	private static async _sweepOne(client: OpenAI, modelId: string, mode: CompletionMode, prompt: string, isText: boolean): Promise<SweepOutcome> {
 		if (modelId === 'dev_formula' && mode === 'streamed') {
 			return {
 				modelId,
@@ -119,7 +135,9 @@ export class CompletionCommand {
 
 		const startedAt = performance.now();
 		try {
-			process.stdout.write(`${mode}: `);
+			if (isText === true) {
+				process.stdout.write(`${mode}: `);
+			}
 			const result = await CompletionSender.send({
 				client,
 				modelId,
@@ -130,9 +148,11 @@ export class CompletionCommand {
 					},
 				],
 				mode,
-				writePiece: (piece) => process.stdout.write(piece),
+				...(isText === true ? { writePiece: (piece: string) => { process.stdout.write(piece); } } : {}),
 			});
-			process.stdout.write('\n');
+			if (isText === true) {
+				process.stdout.write('\n');
+			}
 			return {
 				modelId,
 				mode,
@@ -144,7 +164,9 @@ export class CompletionCommand {
 				failureMessage: undefined,
 			};
 		} catch (error: unknown) {
-			process.stdout.write('\n');
+			if (isText === true) {
+				process.stdout.write('\n');
+			}
 			const elapsedMs = performance.now() - startedAt;
 			return {
 				modelId,

@@ -164,8 +164,8 @@ export type BenchmarkReport = {
 	readonly summaries: readonly BenchmarkSummary[];
 };
 
-/** The ways a benchmark report can be written out. */
-export type BenchmarkReportFormat = 'text' | 'markdown' | 'json';
+/** The ways a benchmark report, or a completion/history sweep report, can be written out. */
+export type ReportFormat = 'text' | 'markdown' | 'json';
 
-/** Every format the benchmark subcommand accepts, in the order the help text lists them. */
-export const benchmarkReportFormats: readonly BenchmarkReportFormat[] = ['text', 'markdown', 'json'];
+/** Every format all three subcommands accept, in the order the help text lists them. */
+export const reportFormats: readonly ReportFormat[] = ['text', 'markdown', 'json'];
