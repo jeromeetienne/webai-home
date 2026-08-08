@@ -46,7 +46,7 @@ export class HistoryCommand {
 			return;
 		}
 
-		const modelIds = ModelSweeper.resolveModelIds(rawOptions.model, taskTypeNamesAcceptingConversation, 'reject');
+		const modelIds = ModelSweeper.resolveModelIds(rawOptions.model, taskTypeNamesAcceptingConversation, 'accept');
 		const modes = SharedOptions.resolveModes(rawOptions);
 		const client = CompletionSender.createClient(SharedOptions.buildTarget(rawOptions));
 

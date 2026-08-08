@@ -57,7 +57,7 @@ Every subcommand accepts these:
 
 `benchmark` accepts neither mode flag, because it always asks for the answer in pieces: that is what lets it measure the Time to First Character apart from the Time to Last Character. It adds `-p/--prompt` (`Count up to 30`), `-r/--runs` (`10`), `-w/--warmup_runs` (`1`), and `-f/--format` (`text`, `markdown`, or `json`).
 
-`-m/--model` differs between the subcommands in one way. `completion` and `history` reject a name that is not a task type name of this project, because those two can only reach models this cluster runs. `benchmark` passes such a name through to the endpoint unchanged, because it measures servers this project has no list of:
+`-m/--model` behaves the same way in all three subcommands: `all` and `list` name the task type names of this project, but a plain name outside that list is passed through to the endpoint unchanged, because `openai_api_tool` is a tool over the OpenAI-compatible chat completion API, not something specific to the Web AI at Home cluster:
 
 ```sh
 npx tsx packages/openai_api_tool/src/cli.ts benchmark --base_url http://localhost:1234/v1 --model llama-3.2-3b-instruct

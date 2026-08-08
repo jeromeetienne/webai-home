@@ -7,11 +7,11 @@
 /**
  * What to do with a part of `-m/--model` that names no model the subcommand knows about.
  *
- * `reject` is for `completion` and `history`, which can only reach the models this cluster runs,
- * so a name outside that list is a mistake worth reporting. `accept` is for
- * `benchmark`, which measures any server that speaks the OpenAI-compatible API, so a name such
- * as `llama-3.2-3b-instruct` on LM Studio is a name this package has no list of and must pass
- * through untouched.
+ * `openai_api_tool` measures any server that speaks the OpenAI-compatible API, so `accept` is
+ * what every subcommand passes: a name such as `llama-3.2-3b-instruct` on LM Studio is a name
+ * this package has no list of and must pass through untouched. `reject` is kept for a caller
+ * that does have a closed list of model identifiers, and wants a name outside it treated as a
+ * mistake worth reporting rather than sent on.
  */
 export type UnknownModelPolicy = 'reject' | 'accept';
 

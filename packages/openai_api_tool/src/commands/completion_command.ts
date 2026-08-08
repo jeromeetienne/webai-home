@@ -49,7 +49,7 @@ export class CompletionCommand {
 			return;
 		}
 
-		const modelIds = ModelSweeper.resolveModelIds(rawOptions.model, taskTypeNames, 'reject');
+		const modelIds = ModelSweeper.resolveModelIds(rawOptions.model, taskTypeNames, 'accept');
 		const modes = SharedOptions.resolveModes(rawOptions);
 		const client = CompletionSender.createClient(SharedOptions.buildTarget(rawOptions));
 
