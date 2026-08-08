@@ -102,6 +102,15 @@ npm run benchmark:webai_at_home:llm_llama3_2_3b_full --workspace @webai/openai-a
 npm run benchmark:webai_at_home:llm_qwen3_0_6b_sharded --workspace @webai/openai-api-tool
 ```
 
+Convenience scripts run `history` against the same LM Studio endpoint, and against the cluster's `llm_llama3_2_3b_full` — one of the two models `taskTypeNamesAcceptingConversation` names, so it is the one of the pair `history` can sweep on the cluster:
+
+```sh
+npm run history:lm_studio:llama-3.2-3b-instruct --workspace @webai/openai-api-tool
+```
+```sh
+npm run history:webai_at_home:llm_llama3_2_3b_full --workspace @webai/openai-api-tool
+```
+
 ## Test it
 
 ```sh

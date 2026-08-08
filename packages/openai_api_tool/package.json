@@ -15,6 +15,8 @@
 		"completion": "tsx src/cli.ts completion",
 		"prehistory": "npm run build:dependencies",
 		"history": "tsx src/cli.ts history",
+		"history:lm_studio:llama-3.2-3b-instruct": "tsx src/cli.ts history --base_url http://localhost:1234/v1 --model llama-3.2-3b-instruct",
+		"history:webai_at_home:llm_llama3_2_3b_full": "tsx src/cli.ts history --base_url http://localhost:8788/v1 --model llm_llama3_2_3b_full",
 		"prebenchmark": "npm run build:dependencies",
 		"benchmark": "tsx src/cli.ts benchmark",
 		"benchmark:lm_studio:llama-3.2-3b-instruct": "tsx src/cli.ts benchmark --base_url http://localhost:1234/v1 --model llama-3.2-3b-instruct",
