@@ -2,7 +2,7 @@
 import OpenAI, { APIError } from 'openai';
 
 // local imports
-import type { CompletionMode, CompletionResult, CompletionTarget } from './completion_types.js';
+import type { ChatCompletionUsage, CompletionMode, CompletionResult, CompletionTarget } from './completion_types.js';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -37,6 +37,14 @@ export type SendCompletionOptions = {
 	 * measures rather than shows.
 	 */
 	readonly writePiece?: (piece: string) => void;
+	/**
+	 * Whether to ask the streamed mode for its final, choice-less usage chunk with
+	 * `stream_options: { include_usage: true }`. Left out by every caller other than the `usage`
+	 * subcommand, so `completion`, `history`, and `benchmark` keep sending the exact request they
+	 * always have. Has no effect in the nostream mode, which reports `usage` in its response body
+	 * regardless of this option.
+	 */
+	readonly includeUsage?: boolean;
 };
 
 /** The completion request a benchmark run uses, replaceable for deterministic tests. */
@@ -129,12 +137,23 @@ export class CompletionSender {
 			model: options.modelId,
 			messages: options.messages,
 			stream: true,
+			...(options.includeUsage === true ? { stream_options: { include_usage: true } } : {}),
 		}).withResponse();
 		const clusterTimeToFirstPieceMs = CompletionSender._readMsHeader(response, 'x-webai-time-to-first-piece-ms');
 
 		let answer = '';
 		let timeToFirstCharacterMs: number | undefined;
+		let usage: ChatCompletionUsage | undefined;
+		let finishReason: string | undefined;
 		for await (const chunk of stream) {
+			const finishReasonOfChunk = chunk.choices[0]?.finish_reason;
+			if (finishReasonOfChunk !== undefined && finishReasonOfChunk !== null) {
+				finishReason = finishReasonOfChunk;
+			}
+			const usageOfChunk = CompletionSender._toUsage(chunk.usage);
+			if (usageOfChunk !== undefined) {
+				usage = usageOfChunk;
+			}
 			const piece = chunk.choices[0]?.delta.content ?? '';
 			if (piece === '') {
 				continue;
@@ -159,6 +178,8 @@ export class CompletionSender {
 			timeToLastCharacterMs,
 			clusterGenerationTimeMs: undefined,
 			clusterTimeToFirstPieceMs,
+			usage,
+			finishReason,
 		};
 	}
 
@@ -192,6 +213,8 @@ export class CompletionSender {
 			timeToLastCharacterMs: elapsedMs,
 			clusterGenerationTimeMs: CompletionSender._readMsHeader(response, 'x-webai-generation-time-ms'),
 			clusterTimeToFirstPieceMs: undefined,
+			usage: CompletionSender._toUsage(completion.usage),
+			finishReason: completion.choices[0]?.finish_reason,
 		};
 	}
 
@@ -215,5 +238,23 @@ export class CompletionSender {
 		}
 		const value = Number(rawValue);
 		return Number.isFinite(value) ? value : undefined;
+	}
+
+	/**
+	 * Camel-cases the `openai` npm package's own usage object into `ChatCompletionUsage`.
+	 *
+	 * @param usage The usage object read from a response body or from a streamed chunk, `undefined`
+	 * or `null` when the worker that produced the answer reported no usage.
+	 * @returns The camelCased usage, or `undefined` when `usage` was `undefined` or `null`.
+	 */
+	private static _toUsage(usage: OpenAI.CompletionUsage | null | undefined): ChatCompletionUsage | undefined {
+		if (usage === null || usage === undefined) {
+			return undefined;
+		}
+		return {
+			promptTokens: usage.prompt_tokens,
+			completionTokens: usage.completion_tokens,
+			totalTokens: usage.total_tokens,
+		};
 	}
 }

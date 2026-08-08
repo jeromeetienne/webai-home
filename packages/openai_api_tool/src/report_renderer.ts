@@ -8,6 +8,8 @@ import {
 	type BenchmarkSummary,
 	type ReportFormat,
 	type SweepOutcome,
+	type SweepStatus,
+	type UsageOutcome,
 } from './completion_types.js';
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -155,6 +157,107 @@ export class ReportRenderer {
 		return (reportFormats as readonly string[]).includes(value);
 	}
 
+	/**
+	 * Builds the analysis line for one swept model and mode pair's usage outcome.
+	 *
+	 * @param outcome The outcome to describe.
+	 * @returns The one line to print.
+	 */
+	static usageOutcomeLine(outcome: UsageOutcome): string {
+		if (outcome.status === 'skipped') {
+			return `${outcome.modelId} (${outcome.mode}): skipped — ${String(outcome.failureMessage)}`;
+		}
+		if (outcome.status === 'failed') {
+			return `${outcome.modelId} (${outcome.mode}): failed — ${String(outcome.failureMessage)}`;
+		}
+		const finishReasonText = `finish_reason ${outcome.finishReason ?? 'unknown'}`;
+		if (outcome.usagePresent === false || outcome.usage === undefined) {
+			return `${outcome.modelId} (${outcome.mode}): ok — usage not reported, ${finishReasonText}`;
+		}
+		const usage = outcome.usage;
+		return `${outcome.modelId} (${outcome.mode}): ok — usage present, prompt_tokens ${usage.promptTokens}, completion_tokens ${usage.completionTokens}, total_tokens ${usage.totalTokens}, ${finishReasonText}`;
+	}
+
+	/**
+	 * Prints the analysis line for one swept model and mode pair's usage outcome, sending a
+	 * failure to the error output so that a run piped into a file still shows what went wrong.
+	 * Colored green for `ok`, yellow for `skipped`, and red for `failed`, turned off automatically
+	 * once output is piped or redirected.
+	 *
+	 * @param outcome The outcome to print.
+	 * @returns Nothing.
+	 */
+	static printUsageOutcome(outcome: UsageOutcome): void {
+		const line = ReportRenderer._colorByStatus(outcome.status, ReportRenderer.usageOutcomeLine(outcome));
+		if (outcome.status === 'failed') {
+			console.error(line);
+			return;
+		}
+		console.log(line);
+	}
+
+	/**
+	 * Builds the summary table printed at the end of a `usage` sweep.
+	 *
+	 * @param outcomes Every pair swept, in the order they were swept.
+	 * @returns The lines to print, in order.
+	 */
+	static usageSummaryLines(outcomes: readonly UsageOutcome[]): string[] {
+		const lines: string[] = ['', 'Summary:'];
+		for (const outcome of outcomes) {
+			lines.push(`  ${outcome.modelId} (${outcome.mode}): ${ReportRenderer._usageSummaryText(outcome)}`);
+		}
+		const counts = ReportRenderer._usageCounts(outcomes);
+		lines.push('');
+		lines.push(`${counts.reportingUsage}/${counts.total} reported usage, ${counts.skipped} skipped, ${counts.failed} failed`);
+		return lines;
+	}
+
+	/**
+	 * Prints the summary table at the end of a `usage` sweep. Each per-pair line is colored by its
+	 * status, and the final counts line highlights `skipped`/`failed` in color when either is
+	 * above zero, turned off automatically once output is piped or redirected.
+	 *
+	 * @param outcomes Every pair swept, in the order they were swept.
+	 * @returns Nothing.
+	 */
+	static printUsageSummary(outcomes: readonly UsageOutcome[]): void {
+		console.log('');
+		console.log('Summary:');
+		for (const outcome of outcomes) {
+			console.log(ReportRenderer._colorByStatus(outcome.status, `  ${outcome.modelId} (${outcome.mode}): ${ReportRenderer._usageSummaryText(outcome)}`));
+		}
+		console.log('');
+
+		const counts = ReportRenderer._usageCounts(outcomes);
+		const skippedText = counts.skipped > 0 ? Chalk.yellow(`${counts.skipped} skipped`) : `${counts.skipped} skipped`;
+		const failedText = counts.failed > 0 ? Chalk.red(`${counts.failed} failed`) : `${counts.failed} failed`;
+		console.log(`${counts.reportingUsage}/${counts.total} reported usage, ${skippedText}, ${failedText}`);
+	}
+
+	/**
+	 * Writes a `usage` sweep report out in the requested format, once the sweep has finished.
+	 * `markdown` and `json` hold every outcome plus the reported/skipped/failed counts; `text`
+	 * reuses the same lines `printUsageOutcome`/`printUsageSummary` print live, uncolored, for a
+	 * caller that wants the sweep run silently and printed once at the end.
+	 *
+	 * @param outcomes Every pair swept, in the order they were swept.
+	 * @param format Which format to write.
+	 * @returns The whole report as one string, ready to print.
+	 */
+	static formatUsageReport(outcomes: readonly UsageOutcome[], format: ReportFormat): string {
+		if (format === 'json') {
+			return JSON.stringify({ outcomes, summary: ReportRenderer._usageCounts(outcomes) }, null, 2);
+		}
+		if (format === 'markdown') {
+			return ReportRenderer._renderMarkdownUsageReport(outcomes);
+		}
+		return [
+			...outcomes.map((outcome) => ReportRenderer.usageOutcomeLine(outcome)),
+			...ReportRenderer.usageSummaryLines(outcomes),
+		].join('\n');
+	}
+
 	///////////////////////////////////////////////////////////////////////////////
 	///////////////////////////////////////////////////////////////////////////////
 	//	Private Helpers
@@ -169,7 +272,7 @@ export class ReportRenderer {
 	 * @param line The line to color.
 	 * @returns The colored line.
 	 */
-	private static _colorByStatus(status: SweepOutcome['status'], line: string): string {
+	private static _colorByStatus(status: SweepStatus, line: string): string {
 		if (status === 'ok') {
 			return Chalk.green(line);
 		}
@@ -194,6 +297,72 @@ export class ReportRenderer {
 			failed,
 			total: outcomes.length,
 		};
+	}
+
+	/**
+	 * The short status text one `usage` sweep summary line shows for one outcome.
+	 *
+	 * @param outcome The outcome to describe.
+	 * @returns `usage present` or `usage not reported` for an `ok` outcome, and the status itself
+	 * for a `skipped` or `failed` outcome.
+	 */
+	private static _usageSummaryText(outcome: UsageOutcome): string {
+		if (outcome.status !== 'ok') {
+			return outcome.status;
+		}
+		return outcome.usagePresent === true ? 'usage present' : 'usage not reported';
+	}
+
+	/**
+	 * Counts how a `usage` sweep's outcomes turned out.
+	 *
+	 * @param outcomes Every pair swept, in the order they were swept.
+	 * @returns The count of outcomes that reported usage, the skipped, failed, and total counts.
+	 */
+	private static _usageCounts(outcomes: readonly UsageOutcome[]): { reportingUsage: number; skipped: number; failed: number; total: number } {
+		const failed = outcomes.filter((outcome) => outcome.status === 'failed').length;
+		const skipped = outcomes.filter((outcome) => outcome.status === 'skipped').length;
+		const reportingUsage = outcomes.filter((outcome) => outcome.usagePresent === true).length;
+		return {
+			reportingUsage,
+			skipped,
+			failed,
+			total: outcomes.length,
+		};
+	}
+
+	/**
+	 * Renders a `usage` sweep report as markdown, one row per swept pair, followed by the
+	 * reported/skipped/failed counts.
+	 *
+	 * @param outcomes Every pair swept, in the order they were swept.
+	 * @returns The whole report as one markdown document.
+	 */
+	private static _renderMarkdownUsageReport(outcomes: readonly UsageOutcome[]): string {
+		const rows = outcomes.map((outcome) => [
+			'|',
+			outcome.modelId,
+			'|',
+			outcome.mode,
+			`| ${outcome.status}`,
+			`| ${outcome.usagePresent === true ? 'yes' : 'no'}`,
+			`| ${outcome.usage?.promptTokens ?? ''}`,
+			`| ${outcome.usage?.completionTokens ?? ''}`,
+			`| ${outcome.usage?.totalTokens ?? ''}`,
+			`| ${outcome.finishReason ?? ''}`,
+			`| ${outcome.failureMessage ?? ''} |`,
+		].join(' '));
+		const counts = ReportRenderer._usageCounts(outcomes);
+		const blocks: string[] = [
+			'# OpenAI API usage sweep',
+			[
+				'| Model | Mode | Status | Usage Present | Prompt Tokens | Completion Tokens | Total Tokens | Finish Reason | Failure |',
+				'| --- | --- | --- | --- | ---: | ---: | ---: | --- | --- |',
+				...rows,
+			].join('\n'),
+			`${counts.reportingUsage}/${counts.total} reported usage, ${counts.skipped} skipped, ${counts.failed} failed`,
+		];
+		return `${blocks.join('\n\n')}\n`;
 	}
 
 	/**

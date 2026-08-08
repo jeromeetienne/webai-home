@@ -12,16 +12,18 @@ import { taskTypeNames, taskTypeNamesAcceptingConversation } from '@webai/consum
 import { BenchmarkCommand, type RawBenchmarkOptions } from './commands/benchmark_command.js';
 import { CompletionCommand, type RawCompletionOptions } from './commands/completion_command.js';
 import { HistoryCommand, type RawHistoryOptions } from './commands/history_command.js';
+import { UsageCommand, type RawUsageOptions } from './commands/usage_command.js';
 import { SharedOptions } from './shared_options.js';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
-//	Cli — the openai_api_tool command line program and its three subcommands
+//	Cli — the openai_api_tool command line program and its four subcommands
 //
 //	Run with:
 //	  ./src/cli.ts completion --streamed --model llm_qwen3_0_6b_sharded
 //	  ./src/cli.ts history --model llm_llama3_2_3b_full
 //	  ./src/cli.ts benchmark --base_url http://localhost:1234/v1 --model llama-3.2-3b-instruct
+//	  ./src/cli.ts usage --model all
 //	or, from the workspace:
 //	  npm run completion --workspace @webai/openai-api-tool -- --model all
 //
@@ -95,6 +97,22 @@ export class Cli {
 		SharedOptions.addEndpointOptions(benchmark);
 		benchmark.action(async (rawOptions: RawBenchmarkOptions) => {
 			await BenchmarkCommand.run(rawOptions);
+		});
+
+		const usage = program
+			.command('usage')
+			.description("Sends one chat completion request per model and per mode, and reports each answer's usage and finish_reason.")
+			.option(
+				'-m, --model <name>',
+				'model identifier, a comma-separated list of identifiers, a pattern such as llm_*, all, or list to print the model identifiers',
+				'all',
+			)
+			.option('-p, --prompt <text>', "the prompt to send instead of each model's own default prompt");
+		SharedOptions.addModeOptions(usage);
+		SharedOptions.addFormatOption(usage);
+		SharedOptions.addEndpointOptions(usage);
+		usage.action(async (rawOptions: RawUsageOptions) => {
+			await UsageCommand.run(rawOptions);
 		});
 
 		try {

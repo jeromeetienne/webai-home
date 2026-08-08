@@ -14,7 +14,7 @@ It holds the two programs that used to live inside `@webai/consumer-openai`, as 
 npm run build:dependencies --workspace @webai/openai-api-tool
 ```
 
-The three subcommands are then reachable through `tsx`, with no build of this package needed:
+The four subcommands are then reachable through `tsx`, with no build of this package needed:
 
 ```sh
 npx tsx ./src/cli.ts completion --model dev_formula --nostream
@@ -32,15 +32,16 @@ Once this package has been built (`npm run build --workspace @webai/openai-api-t
 npx openai_api_tool completion --model all
 ```
 
-## The three subcommands
+## The four subcommands
 
 | Subcommand | What it does |
 | --- | --- |
 | `completion` | Sends one prompt per model and per mode, and reports which ones answered. Every model has its own default prompt: `5` for `dev_formula`, which accepts only a number, and a plain question for every other model. |
 | `history` | Sends a two-turn conversation, then checks that the second turn's answer recalls both facts the first turn stated. Only `llm_qwen3_5_0_8b_full` and `llm_llama3_2_3b_full` accept a whole conversation rather than only one prompt, so only those two are swept. |
 | `benchmark` | Measures the latency of one endpoint, one model at a time, over repeated requests, and prints a report as text, markdown, or JSON. |
+| `usage` | Sends one prompt per model and per mode, the same sweep `completion` runs, and reports each answer's `usage` — whether it was present, and its `prompt_tokens`/`completion_tokens`/`total_tokens` when it was — and its `finish_reason`. The streamed mode asks for its final, choice-less usage chunk with `stream_options: { include_usage: true }`. |
 
-`completion` and `history` print one line per swept pair followed by a summary table, and set the process exit code to `1` when any pair failed, so a single command answers whether the cluster still works.
+`completion`, `history`, and `usage` print one line per swept pair followed by a summary table, and set the process exit code to `1` when any pair failed, so a single command answers whether the cluster still works.
 
 ## Options
 
@@ -54,11 +55,11 @@ Every subcommand accepts these:
 | `--timeout_ms <number>` | `600000` | How long one request may take before it is given up on. |
 | `-f, --format <format>` | `text` | The output format: `text`, `markdown`, or `json`. |
 
-`completion` and `history` additionally accept `-s/--streamed` or `--nostream` to restrict the run to one mode; giving neither, or both, sweeps both modes. `completion` also accepts `-p/--prompt` to send one prompt instead of each model's own default prompt.
+`completion`, `history`, and `usage` additionally accept `-s/--streamed` or `--nostream` to restrict the run to one mode; giving neither, or both, sweeps both modes. `completion` and `usage` also accept `-p/--prompt` to send one prompt instead of each model's own default prompt.
 
 `benchmark` accepts neither mode flag, because it always asks for the answer in pieces: that is what lets it measure the Time to First Character apart from the Time to Last Character. It adds `-p/--prompt` (`Count up to 30`), `-r/--runs` (`10`), and `-w/--warmup_runs` (`1`).
 
-`-f/--format text`, the default for all three subcommands, is the only format `completion` and `history` stream live: the raw answer is written out piece by piece as it arrives, followed by one analysis line per swept pair, colored green for `ok`, yellow for `skipped`, and red for `failed` (using [`chalk`](https://www.npmjs.com/package/chalk), which turns color off automatically once the output is piped or redirected). `-f/--format markdown` or `-f/--format json` runs the sweep silently instead, and prints one report — a markdown table, or JSON holding every outcome and the passed/skipped/failed counts — once every pair has finished:
+`-f/--format text`, the default for all four subcommands, is the only format `completion` and `history` stream live: the raw answer is written out piece by piece as it arrives, followed by one analysis line per swept pair, colored green for `ok`, yellow for `skipped`, and red for `failed` (using [`chalk`](https://www.npmjs.com/package/chalk), which turns color off automatically once the output is piped or redirected). `usage` prints its own analysis line live the same way, without streaming the raw answer, since what it reports is the answer's `usage` and `finish_reason` rather than its text. `-f/--format markdown` or `-f/--format json` runs the sweep silently instead, and prints one report — a markdown table, or JSON holding every outcome and the passed/skipped/failed (or reported/skipped/failed, for `usage`) counts — once every pair has finished:
 
 ```sh
 npx tsx ./src/cli.ts completion --base_url http://localhost:1234/v1 --model qwen3.5-2b-mlx --format markdown
@@ -68,7 +69,7 @@ npx tsx ./src/cli.ts completion --base_url http://localhost:1234/v1 --model qwen
 
 `history` shows every message of its two-turn conversation, labeled with its role. In `-f/--format text` each message is printed live as `[user] ...`/`[assistant] ...`; in `-f/--format markdown` a `## Turns` section lists them below the summary table, one subsection per swept model and mode; in `-f/--format json` they appear as the `turns` array on each outcome.
 
-`-m/--model` behaves the same way in all three subcommands: `all` and `list` name the task type names of this project, but a plain name outside that list is passed through to the endpoint unchanged, because `openai_api_tool` is a tool over the OpenAI-compatible chat completion API, not something specific to the Web AI at Home cluster:
+`-m/--model` behaves the same way in all four subcommands: `all` and `list` name the task type names of this project, but a plain name outside that list is passed through to the endpoint unchanged, because `openai_api_tool` is a tool over the OpenAI-compatible chat completion API, not something specific to the Web AI at Home cluster:
 
 ```sh
 npx tsx ./src/cli.ts benchmark --base_url http://localhost:1234/v1 --model llama-3.2-3b-instruct
@@ -111,24 +112,52 @@ npm run history:lm_studio:llama-3.2-3b-instruct --workspace @webai/openai-api-to
 npm run history:webai_at_home:llm_llama3_2_3b_full --workspace @webai/openai-api-tool
 ```
 
+## What `usage` reports
+
+`usage` sweeps every model of `taskTypeNames`, in both modes, the same sweep `completion` runs, but instead of reporting which pair answered, it reports what each answer's `usage` and `finish_reason` actually were. In the nostream mode it reads `usage` straight from the response body; in the streamed mode it sends `stream_options: { include_usage: true }` and reads `usage` off the final, choice-less chunk the endpoint sends after the chunk that carried `finish_reason` and before `data: [DONE]`, described in [`packages/consumer_openai/README.md`](../consumer_openai/README.md#usage--the-token-counts-and-why-an-answer-stopped).
+
+`usage` is present on an answer only when the worker that produced it reported both its prompt and completion token counts — never estimated, and never filled with `0` for a count nobody reported. Which models report it depends on the worker: this project's `llm_qwen3_5_0_8b_full` and `llm_llama3_2_3b_full` do, `llm_gemma_nano_chrome_full` and `dev_formula`/`llm_qwen3_0_6b_sharded` do not. `usage` turns writing that table by hand into one repeatable command:
+
+```sh
+npx tsx ./src/cli.ts usage --model all --format markdown
+```
+
+Like the benchmark, `usage` calculates no monetary price, because these OpenAI-compatible endpoints provide no token pricing.
+
+Convenience scripts run `usage` against the same LM Studio endpoint, and against the cluster's `llm_qwen3_0_6b_sharded` and `llm_qwen3_5_0_8b_full`:
+
+```sh
+npm run usage:lm_studio:qwen_qwen3-0.6b --workspace @webai/openai-api-tool
+```
+```sh
+npm run usage:webai_at_home:llm_qwen3_0_6b_sharded --workspace @webai/openai-api-tool
+```
+```sh
+npm run usage:lm_studio:qwen_qwen3.5-0.8b --workspace @webai/openai-api-tool
+```
+```sh
+npm run usage:webai_at_home:llm_qwen3_5_0_8b_full --workspace @webai/openai-api-tool
+```
+
 ## Test it
 
 ```sh
 npm run test --workspace @webai/openai-api-tool
 ```
 
-The tests need no cluster and no gateway. The statistics, the model expansion, the aggregation, and the report rendering are checked on their own; the sender is checked against a local HTTP server started by the test, once for a real server-sent event stream whose pieces are spaced out over real wall-clock time, and once for a server that ignores the streaming request and answers with one JSON body.
+The tests need no cluster and no gateway. The statistics, the model expansion, the aggregation, and the report rendering are checked on their own; the sender is checked against a local HTTP server started by the test, once for a real server-sent event stream whose pieces are spaced out over real wall-clock time, once for a server that ignores the streaming request and answers with one JSON body, and once each for `usage` and `finish_reason` read from the nostream response body and from the streamed final usage chunk.
 
 ## The source files
 
-- [`src/cli.ts`](./src/cli.ts) — the `openai_api_tool` command line program: declares the three subcommands and dispatches to them.
+- [`src/cli.ts`](./src/cli.ts) — the `openai_api_tool` command line program: declares the four subcommands and dispatches to them.
 - [`src/commands/completion_command.ts`](./src/commands/completion_command.ts) — the `completion` subcommand.
 - [`src/commands/history_command.ts`](./src/commands/history_command.ts) — the `history` subcommand.
 - [`src/commands/benchmark_command.ts`](./src/commands/benchmark_command.ts) — the `benchmark` subcommand.
+- [`src/commands/usage_command.ts`](./src/commands/usage_command.ts) — the `usage` subcommand.
 - [`src/completion_sender.ts`](./src/completion_sender.ts) — the one way this package sends a request and times it.
 - [`src/benchmark_runner.ts`](./src/benchmark_runner.ts) — the warm-up and measured requests of one run, and the aggregation of what they measured.
 - [`src/model_sweeper.ts`](./src/model_sweeper.ts) — expands `-m/--model` into the model identifiers to work through.
 - [`src/statistics_calculator.ts`](./src/statistics_calculator.ts) — the average, median, minimum, and maximum of measured values.
 - [`src/report_renderer.ts`](./src/report_renderer.ts) — the outcome lines, the summary table, and the text, markdown, and JSON reports.
-- [`src/shared_options.ts`](./src/shared_options.ts) — every command line option all three subcommands accept.
-- [`src/completion_types.ts`](./src/completion_types.ts) — every data shape the three subcommands share.
+- [`src/shared_options.ts`](./src/shared_options.ts) — every command line option all four subcommands accept.
+- [`src/completion_types.ts`](./src/completion_types.ts) — every data shape the four subcommands share.

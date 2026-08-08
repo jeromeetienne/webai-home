@@ -26,6 +26,19 @@ export type CompletionTarget = {
 	readonly timeoutMs: number;
 };
 
+/**
+ * One chat completion answer's token usage, camelCased from the OpenAI-compatible response body's
+ * own `prompt_tokens`/`completion_tokens`/`total_tokens` object.
+ */
+export type ChatCompletionUsage = {
+	/** The number of tokens in the prompt sent. */
+	readonly promptTokens: number;
+	/** The number of tokens the answer was generated as. */
+	readonly completionTokens: number;
+	/** The sum of `promptTokens` and `completionTokens`. */
+	readonly totalTokens: number;
+};
+
 /** What sending one request, given a full list of messages, produced. */
 export type CompletionResult = {
 	/** The complete assistant answer, concatenated from every streamed piece in the streamed mode. */
@@ -53,6 +66,18 @@ export type CompletionResult = {
 	 * streamed mode. `undefined` when the endpoint sent no such header.
 	 */
 	readonly clusterTimeToFirstPieceMs: number | undefined;
+	/**
+	 * The answer's token usage, read straight from the response body in the nostream mode, or from
+	 * the final, choice-less streamed chunk when the streamed mode asked for it with `stream_options:
+	 * { include_usage: true }`. `undefined` when the worker that produced the answer reported no
+	 * usage, or when the streamed mode did not ask for it.
+	 */
+	readonly usage: ChatCompletionUsage | undefined;
+	/**
+	 * The OpenAI Chat Completions interface's own reason the answer stopped, such as `stop` or
+	 * `length`. `undefined` when the endpoint reported none.
+	 */
+	readonly finishReason: string | undefined;
 };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -118,6 +143,29 @@ export type SweepOutcome = {
 	 * does not appear in a `completion` sweep's JSON report.
 	 */
 	readonly turns?: readonly SweepTurn[];
+};
+
+/** What sweeping one model and one mode produced, for `usage`. */
+export type UsageOutcome = {
+	/** The model identifier swept. */
+	readonly modelId: string;
+	/** The mode swept. */
+	readonly mode: CompletionMode;
+	/**
+	 * `ok` once the model answered with usable text, `failed` once it did not, and `skipped`
+	 * for a pairing known ahead of the request not to work, such as `dev_formula` asked to
+	 * stream, so that a permanent, documented restriction of the cluster does not read as a
+	 * failure of this run.
+	 */
+	readonly status: SweepStatus;
+	/** Whether the answer carried a `usage` object at all. `false` when not `ok`. */
+	readonly usagePresent: boolean;
+	/** The answer's token usage, `undefined` when not `ok` or when the answer carried no `usage` object. */
+	readonly usage: ChatCompletionUsage | undefined;
+	/** The OpenAI Chat Completions interface's own reason the answer stopped, `undefined` when not `ok`. */
+	readonly finishReason: string | undefined;
+	/** Why the pair failed or was skipped, `undefined` on success. */
+	readonly failureMessage: string | undefined;
 };
 
 ///////////////////////////////////////////////////////////////////////////////

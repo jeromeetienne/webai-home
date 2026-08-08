@@ -6,7 +6,7 @@ import Test from 'node:test';
 // local imports
 import { BenchmarkRunner, type BenchmarkOptions } from '../src/benchmark_runner.js';
 import { CompletionSender } from '../src/completion_sender.js';
-import type { CompletionResult, CompletionTarget } from '../src/completion_types.js';
+import type { CompletionResult, CompletionTarget, UsageOutcome } from '../src/completion_types.js';
 import { ModelSweeper } from '../src/model_sweeper.js';
 import { ReportRenderer } from '../src/report_renderer.js';
 import { StatisticsCalculator } from '../src/statistics_calculator.js';
@@ -47,6 +47,8 @@ function completionResult(answer: string, timeToFirstCharacterMs: number, timeTo
 		timeToLastCharacterMs,
 		clusterGenerationTimeMs: undefined,
 		clusterTimeToFirstPieceMs: undefined,
+		usage: undefined,
+		finishReason: undefined,
 	};
 }
 
@@ -366,6 +368,82 @@ Test('carries every history turn and its role through the JSON sweep report', ()
 	Assert.deepEqual(parsed.outcomes[0].turns[0], { role: 'user', content: 'My name is Ada and my favorite programming language is Lisp. Please just say hello back.' });
 });
 
+const usageOutcomes: UsageOutcome[] = [
+	{
+		modelId: 'llm_qwen3_5_0_8b_full',
+		mode: 'nostream',
+		status: 'ok',
+		usagePresent: true,
+		usage: { promptTokens: 7, completionTokens: 3, totalTokens: 10 },
+		finishReason: 'stop',
+		failureMessage: undefined,
+	},
+	{
+		modelId: 'llm_gemma_nano_chrome_full',
+		mode: 'nostream',
+		status: 'ok',
+		usagePresent: false,
+		usage: undefined,
+		finishReason: 'stop',
+		failureMessage: undefined,
+	},
+	{
+		modelId: 'dev_formula',
+		mode: 'streamed',
+		status: 'skipped',
+		usagePresent: false,
+		usage: undefined,
+		finishReason: undefined,
+		failureMessage: 'it answers with one number',
+	},
+	{
+		modelId: 'llm_llama3_2_3b_full',
+		mode: 'nostream',
+		status: 'failed',
+		usagePresent: false,
+		usage: undefined,
+		finishReason: undefined,
+		failureMessage: 'no worker',
+	},
+];
+
+Test('describes a usage outcome by whether usage was present, its token counts, and its finish_reason', () => {
+	Assert.equal(
+		ReportRenderer.usageOutcomeLine(usageOutcomes[0]),
+		'llm_qwen3_5_0_8b_full (nostream): ok — usage present, prompt_tokens 7, completion_tokens 3, total_tokens 10, finish_reason stop',
+	);
+	Assert.equal(
+		ReportRenderer.usageOutcomeLine(usageOutcomes[1]),
+		'llm_gemma_nano_chrome_full (nostream): ok — usage not reported, finish_reason stop',
+	);
+	Assert.equal(
+		ReportRenderer.usageOutcomeLine(usageOutcomes[2]),
+		'dev_formula (streamed): skipped — it answers with one number',
+	);
+});
+
+Test('counts how many pairs reported usage in the usage sweep summary', () => {
+	const lines = ReportRenderer.usageSummaryLines(usageOutcomes);
+	Assert.equal(lines[lines.length - 1], '1/4 reported usage, 1 skipped, 1 failed');
+});
+
+Test('gives every usage pair its own markdown row, with the reported/skipped/failed counts below the table', () => {
+	const markdown = ReportRenderer.formatUsageReport(usageOutcomes, 'markdown');
+	Assert.match(markdown, /^# OpenAI API usage sweep/);
+	Assert.match(markdown, /\| Model \| Mode \| Status \| Usage Present \| Prompt Tokens \| Completion Tokens \| Total Tokens \| Finish Reason \| Failure \|/);
+	Assert.match(markdown, /\| llm_qwen3_5_0_8b_full \| nostream \| ok \| yes \| 7 \| 3 \| 10 \| stop \|/);
+	Assert.match(markdown, /\| llm_gemma_nano_chrome_full \| nostream \| ok \| no \|/);
+	Assert.match(markdown, /1\/4 reported usage, 1 skipped, 1 failed/);
+});
+
+Test('writes every usage pair and the reported/skipped/failed counts as JSON', () => {
+	const json = ReportRenderer.formatUsageReport(usageOutcomes, 'json');
+	const parsed = JSON.parse(json);
+	Assert.equal(parsed.outcomes.length, 4);
+	Assert.deepEqual(parsed.outcomes[0].usage, { promptTokens: 7, completionTokens: 3, totalTokens: 10 });
+	Assert.deepEqual(parsed.summary, { reportingUsage: 1, skipped: 1, failed: 1, total: 4 });
+});
+
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 //	CompletionSender
@@ -575,6 +653,138 @@ Test('reports an endpoint that answered with no text at all as a failure', async
 			}),
 			/no answer text/,
 		);
+	} finally {
+		await server.stop();
+	}
+});
+
+Test('reads usage and finish_reason straight from the nostream response body', async () => {
+	const server = await startTestServer((request, response) => {
+		response.writeHead(200, {
+			'Content-Type': 'application/json',
+		});
+		response.end(JSON.stringify({
+			choices: [{ message: { content: 'whole answer' }, finish_reason: 'stop' }],
+			usage: { prompt_tokens: 7, completion_tokens: 3, total_tokens: 10 },
+		}));
+	});
+	try {
+		const client = CompletionSender.createClient({
+			baseUrl: server.baseUrl,
+			apiKey: 'insecure-benchmark-key',
+			timeoutMs: 5_000,
+		});
+		const result = await CompletionSender.send({
+			client,
+			modelId: 'irrelevant-to-this-test',
+			messages: [{ role: 'user', content: 'say hi' }],
+			mode: 'nostream',
+		});
+		Assert.deepEqual(result.usage, { promptTokens: 7, completionTokens: 3, totalTokens: 10 });
+		Assert.equal(result.finishReason, 'stop');
+	} finally {
+		await server.stop();
+	}
+});
+
+Test('leaves usage undefined when the nostream response body carries none', async () => {
+	const server = await startTestServer((request, response) => {
+		response.writeHead(200, {
+			'Content-Type': 'application/json',
+		});
+		response.end(JSON.stringify({ choices: [{ message: { content: 'whole answer' }, finish_reason: 'stop' }] }));
+	});
+	try {
+		const client = CompletionSender.createClient({
+			baseUrl: server.baseUrl,
+			apiKey: 'insecure-benchmark-key',
+			timeoutMs: 5_000,
+		});
+		const result = await CompletionSender.send({
+			client,
+			modelId: 'irrelevant-to-this-test',
+			messages: [{ role: 'user', content: 'say hi' }],
+			mode: 'nostream',
+		});
+		Assert.equal(result.usage, undefined);
+	} finally {
+		await server.stop();
+	}
+});
+
+Test('asks for and reads usage from the final, choice-less streamed chunk only when includeUsage is set', async () => {
+	const requestedStreamOptions: unknown[] = [];
+	const server = await startTestServer((request, response) => {
+		let body = '';
+		request.on('data', (chunk: Buffer) => {
+			body += chunk.toString();
+		});
+		request.on('end', () => {
+			requestedStreamOptions.push(JSON.parse(body).stream_options);
+			response.writeHead(200, {
+				'Content-Type': 'text/event-stream; charset=utf-8',
+			});
+			response.write(`data: ${JSON.stringify({ choices: [{ delta: { role: 'assistant', content: 'hi' } }], usage: null })}\n\n`);
+			response.write(`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }], usage: null })}\n\n`);
+			response.write(`data: ${JSON.stringify({ choices: [], usage: { prompt_tokens: 4, completion_tokens: 1, total_tokens: 5 } })}\n\n`);
+			response.write('data: [DONE]\n\n');
+			response.end();
+		});
+	});
+	try {
+		const client = CompletionSender.createClient({
+			baseUrl: server.baseUrl,
+			apiKey: 'insecure-benchmark-key',
+			timeoutMs: 5_000,
+		});
+		const result = await CompletionSender.send({
+			client,
+			modelId: 'irrelevant-to-this-test',
+			messages: [{ role: 'user', content: 'say hi' }],
+			mode: 'streamed',
+			includeUsage: true,
+		});
+		Assert.deepEqual(requestedStreamOptions, [{ include_usage: true }]);
+		Assert.deepEqual(result.usage, { promptTokens: 4, completionTokens: 1, totalTokens: 5 });
+		Assert.equal(result.finishReason, 'stop');
+	} finally {
+		await server.stop();
+	}
+});
+
+Test('sends no stream_options at all when includeUsage is left out, exactly as completion/history/benchmark already do', async () => {
+	const requestedStreamOptions: unknown[] = [];
+	const server = await startTestServer((request, response) => {
+		let body = '';
+		request.on('data', (chunk: Buffer) => {
+			body += chunk.toString();
+		});
+		request.on('end', () => {
+			requestedStreamOptions.push(JSON.parse(body).stream_options);
+			response.writeHead(200, {
+				'Content-Type': 'text/event-stream; charset=utf-8',
+			});
+			response.write(`data: ${JSON.stringify({ choices: [{ delta: { role: 'assistant', content: 'hi' } }] })}\n\n`);
+			response.write(`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }] })}\n\n`);
+			response.write('data: [DONE]\n\n');
+			response.end();
+		});
+	});
+	try {
+		const client = CompletionSender.createClient({
+			baseUrl: server.baseUrl,
+			apiKey: 'insecure-benchmark-key',
+			timeoutMs: 5_000,
+		});
+		const result = await CompletionSender.send({
+			client,
+			modelId: 'irrelevant-to-this-test',
+			messages: [{ role: 'user', content: 'say hi' }],
+			mode: 'streamed',
+		});
+		Assert.deepEqual(requestedStreamOptions, [undefined]);
+		Assert.equal(result.usage, undefined);
+		Assert.equal(result.finishReason, 'stop');
 	} finally {
 		await server.stop();
 	}
