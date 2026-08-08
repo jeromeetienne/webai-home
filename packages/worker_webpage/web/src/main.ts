@@ -117,6 +117,8 @@ export class WorkerPage {
 	private readonly quietToneButtonEl: HTMLButtonElement;
 	/** Shows the quiet tone's current state. */
 	private readonly quietToneStateEl: HTMLElement;
+	/** Shows whether this tab is running at full power, or can be throttled once hidden. */
+	private readonly powerStatusEl: HTMLElement;
 	/** The button that asks the system to keep the screen on while this tab is visible. */
 	private readonly screenWakeLockButtonEl: HTMLButtonElement;
 	/** Shows the screen wake lock's current state. */
@@ -174,6 +176,7 @@ export class WorkerPage {
 		this.builtInModelDownloadButtonEl = PageElements.getButton('#built-in-model-download');
 		this.quietToneButtonEl = PageElements.getButton('#quiet-tone');
 		this.quietToneStateEl = PageElements.getElement('#quiet-tone-state');
+		this.powerStatusEl = PageElements.getElement('#power-status');
 		this.screenWakeLockButtonEl = PageElements.getButton('#screen-wake-lock');
 		this.screenWakeLockStateEl = PageElements.getElement('#screen-wake-lock-state');
 		this.commitShaEl = PageElements.getElement('#commit-sha');
@@ -879,6 +882,7 @@ export class WorkerPage {
 	private pollQuietToneState(): void {
 		const state: AudioKeepaliveState = AudioKeepalive.state();
 		this.quietToneStateEl.textContent = state.charAt(0).toUpperCase() + state.slice(1);
+		this.updatePowerStatusBadge();
 		window.setTimeout((): void => {
 			this.pollQuietToneState();
 		}, AUDIO_STATE_POLL_INTERVAL_MS);
@@ -894,9 +898,27 @@ export class WorkerPage {
 	private pollScreenWakeLockState(): void {
 		const state: ScreenWakeLockState = ScreenWakeLock.state();
 		this.screenWakeLockStateEl.textContent = state.charAt(0).toUpperCase() + state.slice(1);
+		this.updatePowerStatusBadge();
 		window.setTimeout((): void => {
 			this.pollScreenWakeLockState();
 		}, SCREEN_WAKE_LOCK_STATE_POLL_INTERVAL_MS);
+	}
+
+	/**
+	 * Reflects whether this tab is running at full power in the power status badge: full power
+	 * once the quiet tone is playing and the screen wake lock is held, both needed to keep this
+	 * tab's language model at full generation speed while the tab is hidden; throttleable
+	 * otherwise.
+	 */
+	private updatePowerStatusBadge(): void {
+		const isFullPower = AudioKeepalive.state() === 'running' && ScreenWakeLock.state() === 'held';
+		if (isFullPower) {
+			this.powerStatusEl.textContent = 'Full power';
+			this.powerStatusEl.className = 'badge rounded-pill text-bg-success';
+			return;
+		}
+		this.powerStatusEl.textContent = 'Throttleable';
+		this.powerStatusEl.className = 'badge rounded-pill text-bg-danger';
 	}
 
 	/**
