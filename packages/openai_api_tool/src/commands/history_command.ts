@@ -4,7 +4,7 @@ import type OpenAI from 'openai';
 // local imports
 import { taskTypeNamesAcceptingConversation } from '@webai/consumer-cli';
 import { CompletionSender } from '../completion_sender.js';
-import { reportFormats, type CompletionMode, type SweepOutcome } from '../completion_types.js';
+import { reportFormats, type CompletionMode, type SweepOutcome, type SweepTurn } from '../completion_types.js';
 import { ModelSweeper } from '../model_sweeper.js';
 import { ReportRenderer } from '../report_renderer.js';
 import { SharedOptions, type RawSharedOptions } from '../shared_options.js';
@@ -100,9 +100,12 @@ export class HistoryCommand {
 	 */
 	private static async _sweepOne(client: OpenAI, modelId: string, mode: CompletionMode, isText: boolean): Promise<SweepOutcome> {
 		const startedAt = performance.now();
+		const turns: SweepTurn[] = [];
 		try {
+			turns.push({ role: 'user', content: HistoryCommand._firstMessage });
 			if (isText === true) {
-				process.stdout.write('turn 1: ');
+				process.stdout.write(`[user] ${HistoryCommand._firstMessage}\n`);
+				process.stdout.write('[assistant] ');
 			}
 			const firstTurn = await CompletionSender.send({
 				client,
@@ -116,11 +119,16 @@ export class HistoryCommand {
 				mode,
 				...(isText === true ? { writePiece: (piece: string) => { process.stdout.write(piece); } } : {}),
 			});
+			turns.push({ role: 'assistant', content: firstTurn.answer });
 			if (isText === true) {
 				process.stdout.write('\n');
-				process.stdout.write('turn 2: ');
 			}
 
+			turns.push({ role: 'user', content: HistoryCommand._secondMessage });
+			if (isText === true) {
+				process.stdout.write(`[user] ${HistoryCommand._secondMessage}\n`);
+				process.stdout.write('[assistant] ');
+			}
 			const secondTurn = await CompletionSender.send({
 				client,
 				modelId,
@@ -141,6 +149,7 @@ export class HistoryCommand {
 				mode,
 				...(isText === true ? { writePiece: (piece: string) => { process.stdout.write(piece); } } : {}),
 			});
+			turns.push({ role: 'assistant', content: secondTurn.answer });
 			if (isText === true) {
 				process.stdout.write('\n');
 			}
@@ -161,6 +170,7 @@ export class HistoryCommand {
 				characterCount: secondTurn.answer.length,
 				answer: secondTurn.answer,
 				failureMessage: undefined,
+				turns,
 			};
 		} catch (error: unknown) {
 			if (isText === true) {
@@ -176,6 +186,7 @@ export class HistoryCommand {
 				characterCount: 0,
 				answer: '',
 				failureMessage: CompletionSender.describeFailure(error),
+				turns,
 			};
 		}
 	}

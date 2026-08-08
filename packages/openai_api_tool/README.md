@@ -66,6 +66,8 @@ npx tsx ./src/cli.ts completion --base_url http://localhost:1234/v1 --model qwen
 
 `benchmark` always runs silently and prints its own report in the requested format, since it never streams a raw answer to a person.
 
+`history` shows every message of its two-turn conversation, labeled with its role. In `-f/--format text` each message is printed live as `[user] ...`/`[assistant] ...`; in `-f/--format markdown` a `## Turns` section lists them below the summary table, one subsection per swept model and mode; in `-f/--format json` they appear as the `turns` array on each outcome.
+
 `-m/--model` behaves the same way in all three subcommands: `all` and `list` name the task type names of this project, but a plain name outside that list is passed through to the endpoint unchanged, because `openai_api_tool` is a tool over the OpenAI-compatible chat completion API, not something specific to the Web AI at Home cluster:
 
 ```sh

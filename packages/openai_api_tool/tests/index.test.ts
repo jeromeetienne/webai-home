@@ -325,6 +325,45 @@ Test('writes every swept pair and the passed/skipped/failed counts as JSON', () 
 	Assert.deepEqual(parsed.summary, { passed: 1, skipped: 1, failed: 1, total: 3 });
 });
 
+const historySweepOutcomes = [
+	{
+		modelId: 'a',
+		mode: 'nostream' as const,
+		status: 'ok' as const,
+		timeToFirstCharacterMs: 1,
+		timeToLastCharacterMs: 2,
+		characterCount: 3,
+		answer: 'Ada, Lisp',
+		failureMessage: undefined,
+		turns: [
+			{ role: 'user' as const, content: 'My name is Ada and my favorite programming language is Lisp. Please just say hello back.' },
+			{ role: 'assistant' as const, content: 'Hello Ada!' },
+			{ role: 'user' as const, content: 'What is my name, and what is my favorite programming language? Answer in one short sentence.' },
+			{ role: 'assistant' as const, content: 'Ada, Lisp' },
+		],
+	},
+];
+
+Test("lists every history turn and its role under a Turns section, naming the swept model and mode", () => {
+	const markdown = ReportRenderer.formatSweepReport(historySweepOutcomes, 'markdown');
+	Assert.match(markdown, /## Turns/);
+	Assert.match(markdown, /### a \(nostream\)/);
+	Assert.match(markdown, /- \*\*user\*\*: My name is Ada/);
+	Assert.match(markdown, /- \*\*assistant\*\*: Hello Ada!/);
+});
+
+Test('leaves out the Turns section when no outcome carries turns', () => {
+	const markdown = ReportRenderer.formatSweepReport(sweepOutcomes, 'markdown');
+	Assert.doesNotMatch(markdown, /## Turns/);
+});
+
+Test('carries every history turn and its role through the JSON sweep report', () => {
+	const json = ReportRenderer.formatSweepReport(historySweepOutcomes, 'json');
+	const parsed = JSON.parse(json);
+	Assert.equal(parsed.outcomes[0].turns.length, 4);
+	Assert.deepEqual(parsed.outcomes[0].turns[0], { role: 'user', content: 'My name is Ada and my favorite programming language is Lisp. Please just say hello back.' });
+});
+
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 //	CompletionSender

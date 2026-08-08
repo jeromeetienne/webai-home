@@ -49,6 +49,14 @@ export type CompletionResult = {
 /** How one swept model and mode pair turned out. */
 export type SweepStatus = 'ok' | 'failed' | 'skipped';
 
+/** One message of a conversation `history` sent, in the order it was sent. */
+export type SweepTurn = {
+	/** Who sent the message. */
+	readonly role: 'user' | 'assistant';
+	/** The message text. */
+	readonly content: string;
+};
+
 /** What sweeping one model and one mode produced, for `completion` and `history`. */
 export type SweepOutcome = {
 	/** The model identifier swept. */
@@ -75,6 +83,13 @@ export type SweepOutcome = {
 	readonly answer: string;
 	/** Why the pair failed or was skipped, `undefined` on success. */
 	readonly failureMessage: string | undefined;
+	/**
+	 * Every message of the conversation, in the order it was sent, as far as the sweep got. Only
+	 * `history` sets this, since it is the only subcommand that sends a whole conversation rather
+	 * than one prompt; left out entirely for `completion`, rather than set to `undefined`, so it
+	 * does not appear in a `completion` sweep's JSON report.
+	 */
+	readonly turns?: readonly SweepTurn[];
 };
 
 ///////////////////////////////////////////////////////////////////////////////

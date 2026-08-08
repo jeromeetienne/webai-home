@@ -196,7 +196,8 @@ export class ReportRenderer {
 
 	/**
 	 * Renders a `completion` or `history` sweep report as markdown, one row per swept pair,
-	 * followed by the passed/skipped/failed counts.
+	 * followed by the passed/skipped/failed counts, and — only when `history` set `turns` on at
+	 * least one outcome — a transcript section listing every message of every such outcome.
 	 *
 	 * @param outcomes Every pair swept, in the order they were swept.
 	 * @returns The whole report as one markdown document.
@@ -223,7 +224,30 @@ export class ReportRenderer {
 			].join('\n'),
 			`${counts.passed}/${counts.total} passed, ${counts.skipped} skipped, ${counts.failed} failed`,
 		];
+		const turnsSection = ReportRenderer._renderTurnsSection(outcomes);
+		if (turnsSection !== undefined) {
+			blocks.push(turnsSection);
+		}
 		return `${blocks.join('\n\n')}\n`;
+	}
+
+	/**
+	 * Renders the `## Turns` section of a markdown sweep report, one subsection per outcome that
+	 * carries `turns`, listing every message in the order it was sent.
+	 *
+	 * @param outcomes Every pair swept, in the order they were swept.
+	 * @returns The section as markdown, or `undefined` when no outcome carries `turns`.
+	 */
+	private static _renderTurnsSection(outcomes: readonly SweepOutcome[]): string | undefined {
+		const outcomesWithTurns = outcomes.filter((outcome) => outcome.turns !== undefined && outcome.turns.length > 0);
+		if (outcomesWithTurns.length === 0) {
+			return undefined;
+		}
+		const subsections = outcomesWithTurns.map((outcome) => {
+			const turnLines = (outcome.turns ?? []).map((turn) => `- **${turn.role}**: ${turn.content}`);
+			return [`### ${outcome.modelId} (${outcome.mode})`, ...turnLines].join('\n');
+		});
+		return ['## Turns', ...subsections].join('\n\n');
 	}
 
 	/**
