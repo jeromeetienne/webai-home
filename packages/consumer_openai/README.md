@@ -32,10 +32,6 @@ npm run dev --workspace @webai/consumer-openai
 
 The server listens on port 8788, and an OpenAI client is pointed at `http://localhost:8788/v1`.
 
-## Benchmarking an OpenAI-compatible endpoint
-
-The latency benchmark moved out of this package into [`@webai/openai-api-tool`](../openai_api_tool/), where it is the `benchmark` subcommand. It measures any server that speaks the OpenAI-compatible API, including this one and LM Studio, so it is not specific to this package. See [that package's README](../openai_api_tool/README.md) for what it measures and how to run it.
-
 ## Command line options
 
 | Option | Default | What it does |
