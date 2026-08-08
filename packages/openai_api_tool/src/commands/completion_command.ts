@@ -11,7 +11,7 @@ import { SharedOptions, type RawSharedOptions } from '../shared_options.js';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
-//	TextCompletionCommand — sends one prompt per model and per mode, and reports which answered
+//	CompletionCommand — sends one prompt per model and per mode, and reports which answered
 //
 //	Every model of `taskTypeNames` has its own default prompt: `5` for `dev_formula`, which
 //	accepts only a number, and a plain question for every other model. Each pair is sent one at a
@@ -19,14 +19,14 @@ import { SharedOptions, type RawSharedOptions } from '../shared_options.js';
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
-/** The `text_completion` subcommand's own options, exactly as commander parses them. */
-export type RawTextCompletionOptions = RawSharedOptions & {
+/** The `completion` subcommand's own options, exactly as commander parses them. */
+export type RawCompletionOptions = RawSharedOptions & {
 	/** The prompt to send instead of each model's own default prompt. */
 	prompt?: string;
 };
 
 /** Sends one chat completion request per model and per mode, and reports which ones answered. */
-export class TextCompletionCommand {
+export class CompletionCommand {
 	/** The prompt sent to `dev_formula`, which accepts only a number and answers with a number. */
 	private static readonly _devFormulaPrompt = '5';
 
@@ -34,7 +34,7 @@ export class TextCompletionCommand {
 	private static readonly _defaultLanguagePrompt = 'What is the capital of France?';
 
 	/**
-	 * Runs the `text_completion` subcommand: sweeps every requested model and mode pair, one at a
+	 * Runs the `completion` subcommand: sweeps every requested model and mode pair, one at a
 	 * time, prints one line per pair, and finishes with a summary table.
 	 *
 	 * `-m/--model list` is handled first, as a request to print the model identifiers rather than
@@ -43,7 +43,7 @@ export class TextCompletionCommand {
 	 * @param rawOptions The subcommand's own options, exactly as commander parsed them.
 	 * @returns Nothing. Sets `process.exitCode` to `1` when any pair failed.
 	 */
-	static async run(rawOptions: RawTextCompletionOptions): Promise<void> {
+	static async run(rawOptions: RawCompletionOptions): Promise<void> {
 		if (rawOptions.model === 'list') {
 			SharedOptions.printModelIds(taskTypeNames);
 			return;
@@ -55,9 +55,9 @@ export class TextCompletionCommand {
 
 		const outcomes: SweepOutcome[] = [];
 		for (const modelId of modelIds) {
-			const prompt = rawOptions.prompt ?? TextCompletionCommand._defaultPromptFor(modelId);
+			const prompt = rawOptions.prompt ?? CompletionCommand._defaultPromptFor(modelId);
 			for (const mode of modes) {
-				const outcome = await TextCompletionCommand._sweepOne(client, modelId, mode, prompt);
+				const outcome = await CompletionCommand._sweepOne(client, modelId, mode, prompt);
 				outcomes.push(outcome);
 				ReportRenderer.printSweepOutcome(outcome);
 			}
@@ -83,9 +83,9 @@ export class TextCompletionCommand {
 	 */
 	private static _defaultPromptFor(modelId: string): string {
 		if (modelId === 'dev_formula') {
-			return TextCompletionCommand._devFormulaPrompt;
+			return CompletionCommand._devFormulaPrompt;
 		}
-		return TextCompletionCommand._defaultLanguagePrompt;
+		return CompletionCommand._defaultLanguagePrompt;
 	}
 
 	/**

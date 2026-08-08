@@ -8,8 +8,8 @@ import type { CompletionMode, CompletionResult, CompletionTarget } from './compl
 ///////////////////////////////////////////////////////////////////////////////
 //	CompletionSender — the one way this package sends a chat completion request and times it
 //
-//	Every subcommand goes through this class, so `text_completion`, `conversation_history`, and
-//	`benchmark` cannot drift apart in how they talk to an endpoint or in what their timings mean.
+//	Every subcommand goes through this class, so `completion`, `history`, and `benchmark` cannot
+//	drift apart in how they talk to an endpoint or in what their timings mean.
 //	The `openai` npm package is the single transport: nothing here builds a request body, parses
 //	server-sent events, or reads a response body by hand.
 ///////////////////////////////////////////////////////////////////////////////

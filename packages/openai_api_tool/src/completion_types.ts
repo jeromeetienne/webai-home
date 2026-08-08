@@ -49,7 +49,7 @@ export type CompletionResult = {
 /** How one swept model and mode pair turned out. */
 export type SweepStatus = 'ok' | 'failed' | 'skipped';
 
-/** What sweeping one model and one mode produced, for `text_completion` and `conversation_history`. */
+/** What sweeping one model and one mode produced, for `completion` and `history`. */
 export type SweepOutcome = {
 	/** The model identifier swept. */
 	readonly modelId: string;

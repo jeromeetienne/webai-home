@@ -11,7 +11,7 @@ import { SharedOptions, type RawSharedOptions } from '../shared_options.js';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
-//	ConversationHistoryCommand — checks that a second turn recalls what the first turn said
+//	HistoryCommand — checks that a second turn recalls what the first turn said
 //
 //	Sends a two-turn conversation and checks that the second turn's answer recalls both facts the
 //	first turn stated, across every model in `taskTypeNamesAcceptingConversation` — the only
@@ -19,11 +19,11 @@ import { SharedOptions, type RawSharedOptions } from '../shared_options.js';
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
-/** The `conversation_history` subcommand's own options, exactly as commander parses them. */
-export type RawConversationHistoryOptions = RawSharedOptions;
+/** The `history` subcommand's own options, exactly as commander parses them. */
+export type RawHistoryOptions = RawSharedOptions;
 
 /** Sends a two-turn conversation to a model that accepts one, and checks what the second turn recalls. */
-export class ConversationHistoryCommand {
+export class HistoryCommand {
 	/** The first turn, stating a fact and nothing else. */
 	private static readonly _firstMessage = 'My name is Ada and my favorite programming language is Lisp. Please just say hello back.';
 
@@ -31,9 +31,8 @@ export class ConversationHistoryCommand {
 	private static readonly _secondMessage = 'What is my name, and what is my favorite programming language? Answer in one short sentence.';
 
 	/**
-	 * Runs the `conversation_history` subcommand: sweeps every requested model and mode pair, one
-	 * at a time, prints the two turns and one analysis line per pair, and finishes with a summary
-	 * table.
+	 * Runs the `history` subcommand: sweeps every requested model and mode pair, one at a time,
+	 * prints the two turns and one analysis line per pair, and finishes with a summary table.
 	 *
 	 * `-m/--model list` prints `taskTypeNamesAcceptingConversation` rather than every model on
 	 * offer, since only those models accept a whole conversation.
@@ -41,7 +40,7 @@ export class ConversationHistoryCommand {
 	 * @param rawOptions The subcommand's own options, exactly as commander parsed them.
 	 * @returns Nothing. Sets `process.exitCode` to `1` when any pair failed.
 	 */
-	static async run(rawOptions: RawConversationHistoryOptions): Promise<void> {
+	static async run(rawOptions: RawHistoryOptions): Promise<void> {
 		if (rawOptions.model === 'list') {
 			SharedOptions.printModelIds(taskTypeNamesAcceptingConversation);
 			return;
@@ -54,7 +53,7 @@ export class ConversationHistoryCommand {
 		const outcomes: SweepOutcome[] = [];
 		for (const modelId of modelIds) {
 			for (const mode of modes) {
-				const outcome = await ConversationHistoryCommand._sweepOne(client, modelId, mode);
+				const outcome = await HistoryCommand._sweepOne(client, modelId, mode);
 				outcomes.push(outcome);
 				ReportRenderer.printSweepOutcome(outcome);
 			}
@@ -93,7 +92,7 @@ export class ConversationHistoryCommand {
 				messages: [
 					{
 						role: 'user',
-						content: ConversationHistoryCommand._firstMessage,
+						content: HistoryCommand._firstMessage,
 					},
 				],
 				mode,
@@ -108,7 +107,7 @@ export class ConversationHistoryCommand {
 				messages: [
 					{
 						role: 'user',
-						content: ConversationHistoryCommand._firstMessage,
+						content: HistoryCommand._firstMessage,
 					},
 					{
 						role: 'assistant',
@@ -116,7 +115,7 @@ export class ConversationHistoryCommand {
 					},
 					{
 						role: 'user',
-						content: ConversationHistoryCommand._secondMessage,
+						content: HistoryCommand._secondMessage,
 					},
 				],
 				mode,

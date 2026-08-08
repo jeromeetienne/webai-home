@@ -10,8 +10,8 @@ import { Command } from 'commander';
 // local imports
 import { taskTypeNames, taskTypeNamesAcceptingConversation } from '@webai/consumer-cli';
 import { BenchmarkCommand, type RawBenchmarkOptions } from './commands/benchmark_command.js';
-import { ConversationHistoryCommand, type RawConversationHistoryOptions } from './commands/conversation_history_command.js';
-import { TextCompletionCommand, type RawTextCompletionOptions } from './commands/text_completion_command.js';
+import { CompletionCommand, type RawCompletionOptions } from './commands/completion_command.js';
+import { HistoryCommand, type RawHistoryOptions } from './commands/history_command.js';
 import { benchmarkReportFormats } from './completion_types.js';
 import { SharedOptions } from './shared_options.js';
 
@@ -20,11 +20,11 @@ import { SharedOptions } from './shared_options.js';
 //	Cli — the openai_api_tool command line program and its three subcommands
 //
 //	Run with:
-//	  ./src/cli.ts text_completion --streamed --model llm_qwen3_0_6b_sharded
-//	  ./src/cli.ts conversation_history --model llm_llama3_2_3b_full
+//	  ./src/cli.ts completion --streamed --model llm_qwen3_0_6b_sharded
+//	  ./src/cli.ts history --model llm_llama3_2_3b_full
 //	  ./src/cli.ts benchmark --base_url http://localhost:1234/v1 --model llama-3.2-3b-instruct
 //	or, from the workspace:
-//	  npm run text_completion --workspace @webai/openai-api-tool -- --model all
+//	  npm run completion --workspace @webai/openai-api-tool -- --model all
 //
 //	`-m/--model` accepts one model identifier, a comma-separated list of identifiers, a pattern
 //	such as `llm_*`, `all`, or `list` to print the model identifiers and send nothing. Neither
@@ -36,8 +36,7 @@ import { SharedOptions } from './shared_options.js';
 /** The `openai_api_tool` command line program. */
 export class Cli {
 	/**
-	 * Parses the command line and dispatches to `text_completion`, `conversation_history`, or
-	 * `benchmark`.
+	 * Parses the command line and dispatches to `completion`, `history`, or `benchmark`.
 	 *
 	 * @param args The command line arguments, without the program name. Defaults to the arguments
 	 * this process was started with.
@@ -49,8 +48,8 @@ export class Cli {
 		const program = new Command();
 		program.name('openai_api_tool').description('Exercises and measures a server that speaks the OpenAI-compatible API.');
 
-		const textCompletion = program
-			.command('text_completion')
+		const completion = program
+			.command('completion')
 			.description('Sends one chat completion request per model and per mode, and reports which ones answered.')
 			.option(
 				'-m, --model <name>',
@@ -58,14 +57,14 @@ export class Cli {
 				'all',
 			)
 			.option('-p, --prompt <text>', "the prompt to send instead of each model's own default prompt");
-		SharedOptions.addModeOptions(textCompletion);
-		SharedOptions.addEndpointOptions(textCompletion);
-		textCompletion.action(async (rawOptions: RawTextCompletionOptions) => {
-			await TextCompletionCommand.run(rawOptions);
+		SharedOptions.addModeOptions(completion);
+		SharedOptions.addEndpointOptions(completion);
+		completion.action(async (rawOptions: RawCompletionOptions) => {
+			await CompletionCommand.run(rawOptions);
 		});
 
-		const conversationHistory = program
-			.command('conversation_history')
+		const history = program
+			.command('history')
 			.description(
 				"Sends a two-turn conversation to a model that accepts one, and checks that the second turn's answer recalls what the first turn said.",
 			)
@@ -74,10 +73,10 @@ export class Cli {
 				`model identifier, a comma-separated list of identifiers, a pattern, all, or list to print the model identifiers — only ${taskTypeNamesAcceptingConversation.join(' and ')} accept a whole conversation`,
 				'all',
 			);
-		SharedOptions.addModeOptions(conversationHistory);
-		SharedOptions.addEndpointOptions(conversationHistory);
-		conversationHistory.action(async (rawOptions: RawConversationHistoryOptions) => {
-			await ConversationHistoryCommand.run(rawOptions);
+		SharedOptions.addModeOptions(history);
+		SharedOptions.addEndpointOptions(history);
+		history.action(async (rawOptions: RawHistoryOptions) => {
+			await HistoryCommand.run(rawOptions);
 		});
 
 		const benchmark = program

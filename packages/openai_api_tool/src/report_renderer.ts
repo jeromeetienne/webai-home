@@ -13,7 +13,7 @@ import {
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
-/** Writes out what `text_completion`, `conversation_history`, and `benchmark` produced. */
+/** Writes out what `completion`, `history`, and `benchmark` produced. */
 export class ReportRenderer {
 	/**
 	 * Builds the analysis line for one swept model and mode pair. The raw answer, or the two

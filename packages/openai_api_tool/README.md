@@ -17,30 +17,30 @@ npm run build:dependencies --workspace @webai/openai-api-tool
 The three subcommands are then reachable through `tsx`, with no build of this package needed:
 
 ```sh
-npx tsx packages/openai_api_tool/src/cli.ts text_completion --model dev_formula --nostream
+npx tsx packages/openai_api_tool/src/cli.ts completion --model dev_formula --nostream
 ```
 
 `src/cli.ts` is executable on its own, with the shebang `#!/usr/bin/env -S npx tsx`:
 
 ```sh
-./packages/openai_api_tool/src/cli.ts conversation_history --model llm_llama3_2_3b_full
+./packages/openai_api_tool/src/cli.ts history --model llm_llama3_2_3b_full
 ```
 
 Once this package has been built (`npm run build --workspace @webai/openai-api-tool`), the binary is linked into the repository's own `node_modules/.bin`:
 
 ```sh
-npx openai_api_tool text_completion --model all
+npx openai_api_tool completion --model all
 ```
 
 ## The three subcommands
 
 | Subcommand | What it does |
 | --- | --- |
-| `text_completion` | Sends one prompt per model and per mode, and reports which ones answered. Every model has its own default prompt: `5` for `dev_formula`, which accepts only a number, and a plain question for every other model. |
-| `conversation_history` | Sends a two-turn conversation, then checks that the second turn's answer recalls both facts the first turn stated. Only `llm_qwen3_5_0_8b_full` and `llm_llama3_2_3b_full` accept a whole conversation rather than only one prompt, so only those two are swept. |
+| `completion` | Sends one prompt per model and per mode, and reports which ones answered. Every model has its own default prompt: `5` for `dev_formula`, which accepts only a number, and a plain question for every other model. |
+| `history` | Sends a two-turn conversation, then checks that the second turn's answer recalls both facts the first turn stated. Only `llm_qwen3_5_0_8b_full` and `llm_llama3_2_3b_full` accept a whole conversation rather than only one prompt, so only those two are swept. |
 | `benchmark` | Measures the latency of one endpoint, one model at a time, over repeated requests, and prints a report as text, markdown, or JSON. |
 
-`text_completion` and `conversation_history` print one line per swept pair followed by a summary table, and set the process exit code to `1` when any pair failed, so a single command answers whether the cluster still works.
+`completion` and `history` print one line per swept pair followed by a summary table, and set the process exit code to `1` when any pair failed, so a single command answers whether the cluster still works.
 
 ## Options
 
@@ -53,11 +53,11 @@ Every subcommand accepts these:
 | `-k, --api_key <key>` | `OPENAI_API_KEY`, or `no-key-required` | The bearer token sent to the endpoint. |
 | `--timeout_ms <number>` | `600000` | How long one request may take before it is given up on. |
 
-`text_completion` and `conversation_history` additionally accept `-s/--streamed` or `--nostream` to restrict the run to one mode; giving neither, or both, sweeps both modes. `text_completion` also accepts `-p/--prompt` to send one prompt instead of each model's own default prompt.
+`completion` and `history` additionally accept `-s/--streamed` or `--nostream` to restrict the run to one mode; giving neither, or both, sweeps both modes. `completion` also accepts `-p/--prompt` to send one prompt instead of each model's own default prompt.
 
 `benchmark` accepts neither mode flag, because it always asks for the answer in pieces: that is what lets it measure the Time to First Character apart from the Time to Last Character. It adds `-p/--prompt` (`Count up to 30`), `-r/--runs` (`10`), `-w/--warmup_runs` (`1`), and `-f/--format` (`text`, `markdown`, or `json`).
 
-`-m/--model` differs between the subcommands in one way. `text_completion` and `conversation_history` reject a name that is not a task type name of this project, because those two can only reach models this cluster runs. `benchmark` passes such a name through to the endpoint unchanged, because it measures servers this project has no list of:
+`-m/--model` differs between the subcommands in one way. `completion` and `history` reject a name that is not a task type name of this project, because those two can only reach models this cluster runs. `benchmark` passes such a name through to the endpoint unchanged, because it measures servers this project has no list of:
 
 ```sh
 npx tsx packages/openai_api_tool/src/cli.ts benchmark --base_url http://localhost:1234/v1 --model llama-3.2-3b-instruct
@@ -102,8 +102,8 @@ The tests need no cluster and no gateway. The statistics, the model expansion, t
 ## The source files
 
 - [`src/cli.ts`](./src/cli.ts) — the `openai_api_tool` command line program: declares the three subcommands and dispatches to them.
-- [`src/commands/text_completion_command.ts`](./src/commands/text_completion_command.ts) — the `text_completion` subcommand.
-- [`src/commands/conversation_history_command.ts`](./src/commands/conversation_history_command.ts) — the `conversation_history` subcommand.
+- [`src/commands/completion_command.ts`](./src/commands/completion_command.ts) — the `completion` subcommand.
+- [`src/commands/history_command.ts`](./src/commands/history_command.ts) — the `history` subcommand.
 - [`src/commands/benchmark_command.ts`](./src/commands/benchmark_command.ts) — the `benchmark` subcommand.
 - [`src/completion_sender.ts`](./src/completion_sender.ts) — the one way this package sends a request and times it.
 - [`src/benchmark_runner.ts`](./src/benchmark_runner.ts) — the warm-up and measured requests of one run, and the aggregation of what they measured.

@@ -7,8 +7,8 @@
 /**
  * What to do with a part of `-m/--model` that names no model the subcommand knows about.
  *
- * `reject` is for `text_completion` and `conversation_history`, which can only reach the models
- * this cluster runs, so a name outside that list is a mistake worth reporting. `accept` is for
+ * `reject` is for `completion` and `history`, which can only reach the models this cluster runs,
+ * so a name outside that list is a mistake worth reporting. `accept` is for
  * `benchmark`, which measures any server that speaks the OpenAI-compatible API, so a name such
  * as `llama-3.2-3b-instruct` on LM Studio is a name this package has no list of and must pass
  * through untouched.
