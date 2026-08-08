@@ -17,11 +17,18 @@
 		"history": "tsx src/cli.ts history",
 		"prebenchmark": "npm run build:dependencies",
 		"benchmark": "tsx src/cli.ts benchmark",
-		"benchmark:lm_studio:llama-3.2-3b-instruct": "tsx src/cli.ts benchmark --base_url http://localhost:1234/v1 --model llama-3.2-3b-instruct",
-		"benchmark:webai_at_home:llm_llama3_2_3b_full": "tsx src/cli.ts benchmark --base_url http://localhost:8788/v1 --model llm_llama3_2_3b_full",
+		"benchmark:lm_studio:qwen_qwen3-0.6b": "tsx src/cli.ts benchmark --base_url http://localhost:1234/v1 --model qwen_qwen3-0.6b",
 		"benchmark:webai_at_home:llm_qwen3_0_6b_sharded": "tsx src/cli.ts benchmark --base_url http://localhost:8788/v1 --model llm_qwen3_0_6b_sharded",
 		"benchmark:lm_studio:qwen_qwen3.5-0.8b": "tsx src/cli.ts benchmark --base_url http://localhost:1234/v1 --model qwen_qwen3.5-0.8b",
-		"benchmark:webai_at_home:llm_qwen3_5_0_8b_full": "tsx src/cli.ts benchmark --base_url http://localhost:8788/v1 --model llm_qwen3_5_0_8b_full"
+		"benchmark:webai_at_home:llm_qwen3_5_0_8b_full": "tsx src/cli.ts benchmark --base_url http://localhost:8788/v1 --model llm_qwen3_5_0_8b_full",
+		"completion:lm_studio:qwen_qwen3-0.6b": "tsx src/cli.ts completion --base_url http://localhost:1234/v1 --model qwen_qwen3-0.6b",
+		"completion:webai_at_home:llm_qwen3_0_6b_sharded": "tsx src/cli.ts completion --base_url http://localhost:8788/v1 --model llm_qwen3_0_6b_sharded",
+		"completion:lm_studio:qwen_qwen3.5-0.8b": "tsx src/cli.ts completion --base_url http://localhost:1234/v1 --model qwen_qwen3.5-0.8b",
+		"completion:webai_at_home:llm_qwen3_5_0_8b_full": "tsx src/cli.ts completion --base_url http://localhost:8788/v1 --model llm_qwen3_5_0_8b_full",
+		"history:lm_studio:qwen_qwen3-0.6b": "tsx src/cli.ts history --base_url http://localhost:1234/v1 --model qwen_qwen3-0.6b",
+		"history:webai_at_home:llm_qwen3_0_6b_sharded": "tsx src/cli.ts history --base_url http://localhost:8788/v1 --model llm_qwen3_0_6b_sharded",
+		"history:lm_studio:qwen_qwen3.5-0.8b": "tsx src/cli.ts history --base_url http://localhost:1234/v1 --model qwen_qwen3.5-0.8b",
+		"history:webai_at_home:llm_qwen3_5_0_8b_full": "tsx src/cli.ts history --base_url http://localhost:8788/v1 --model llm_qwen3_5_0_8b_full"
 	},
 	"dependencies": {
 		"@webai/consumer-cli": "0.1.0",
