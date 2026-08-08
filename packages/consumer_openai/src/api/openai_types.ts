@@ -60,6 +60,16 @@ export type ChatCompletionRequest = z.infer<typeof ChatCompletionRequestSchema>;
 ///////////////////////////////////////////////////////////////////////////////
 
 /**
+ * Why an answer stopped, spelled the way the OpenAI Chat Completions interface spells it.
+ *
+ * This server only ever produces `stop` or `length`: nothing in this cluster runs tools or
+ * filters content, so `tool_calls`, `content_filter`, and `function_call` never occur, but the
+ * field is still typed as the whole closed set the OpenAI Chat Completions interface defines,
+ * since that is the set a reader is entitled to expect and to nothing outside it.
+ */
+export type ChatCompletionFinishReason = 'stop' | 'length' | 'tool_calls' | 'content_filter' | 'function_call';
+
+/**
  * One answer inside a chat completion response.
  *
  * This server always returns exactly one, because one request runs one cluster task, and a
@@ -69,14 +79,30 @@ export type ChatCompletionChoice = {
 	index: number;
 	message: { role: 'assistant'; content: string };
 	logprobs: null;
-	finish_reason: 'stop';
+	finish_reason: ChatCompletionFinishReason;
+};
+
+/**
+ * The token counts for one answer, present only when the worker that produced it reported them.
+ *
+ * Rule 1 of this project's OpenAI compatibility requirement, from
+ * [issue #150](https://github.com/webai-at-home/webai-at-home/issues/150): `usage` is present
+ * only when the counts are known, and absent rather than filled with an invented or estimated
+ * number when they are not.
+ */
+export type ChatCompletionUsage = {
+	prompt_tokens: number;
+	completion_tokens: number;
+	total_tokens: number;
 };
 
 /**
  * The body returned by `POST /v1/chat/completions`.
  *
- * There is no `usage` field. The gateway reports no token counts to a consumer, so this
- * server has no counts to report and states none rather than inventing them.
+ * `usage` is present only when the worker that produced the answer reported both the prompt and
+ * the completion token counts. The three language-model task types this cluster runs sit on
+ * three engines with three different levels of self-knowledge, so a request answered by one
+ * worker may carry `usage` while the same request answered by another does not.
  */
 export type ChatCompletionResponse = {
 	id: string;
@@ -84,6 +110,7 @@ export type ChatCompletionResponse = {
 	created: number;
 	model: string;
 	choices: ChatCompletionChoice[];
+	usage?: ChatCompletionUsage;
 };
 
 /**
@@ -97,7 +124,7 @@ export type ChatCompletionChunkChoice = {
 	index: number;
 	delta: { role?: 'assistant'; content?: string };
 	logprobs: null;
-	finish_reason: 'stop' | null;
+	finish_reason: ChatCompletionFinishReason | null;
 };
 
 /**

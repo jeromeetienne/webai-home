@@ -13,6 +13,7 @@ import { OpenaiError } from '../src/api/openai_error.js';
 import { OpenaiRoutes } from '../src/http/openai_routes.js';
 import { ConversationBuilder } from '../src/api/conversation_builder.js';
 import { ChatCompletionRequestSchema, type ChatCompletionResponse } from '../src/api/openai_types.js';
+import { FinishReasonTranslator } from '../src/api/finish_reason_translator.js';
 import { PromptFlattener } from '../src/api/prompt_flattener.js';
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -151,6 +152,21 @@ Test('names the field at fault and the failure kind in the body', () => {
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
+//	Translating A Stop Reason Into An OpenAI Value
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+Test('translates a worker\'s own stop reason into the OpenAI value under Rule 2 of issue #150', () => {
+	Assert.equal(FinishReasonTranslator.translate(undefined), 'stop');
+	Assert.equal(FinishReasonTranslator.translate('end_of_sequence'), 'stop');
+	Assert.equal(FinishReasonTranslator.translate('max_new_tokens'), 'length');
+	// There is no OpenAI value for an answer the cluster gave up on producing, so it is refused
+	// rather than invented.
+	Assert.throws(() => FinishReasonTranslator.translate('interrupted'), OpenaiError);
+});
+
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
 //	Running A Cluster Task
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -254,7 +270,7 @@ Test('submits one task per request and answers with the text it generated', asyn
 	cluster.receive({ type: 'task.updated', update: { taskId: 'task-1', taskRevision: 4, state: 'completed', completedStageCount: 2, currentStageAttempts: 0, result: 17 } });
 
 	// A development formula task carries a plain number, so its answer is that number written out.
-	Assert.equal(await answer, '17');
+	Assert.equal((await answer).text, '17');
 	Assert.equal(cluster.runner.tasksInFlight, 0);
 	cluster.runner.close();
 });
@@ -266,7 +282,32 @@ Test('answers with the generated text of a language-model task', async () => {
 	const taskRequestId = cluster.lastSentBody()['taskRequestId'];
 	cluster.receive({ type: 'task.accepted', taskRequestId, task: { taskId: 'task-2', taskRequestId, state: 'queued' } });
 	cluster.receive({ type: 'task.updated', update: { taskId: 'task-2', taskRevision: 9, state: 'completed', completedStageCount: 4, currentStageAttempts: 0, result: { text: 'Paris is the capital of France.', done: true } } });
-	Assert.equal(await answer, 'Paris is the capital of France.');
+	Assert.equal((await answer).text, 'Paris is the capital of France.');
+	cluster.runner.close();
+});
+
+Test('carries the usage and stop reason a worker reports on its result', async () => {
+	const cluster = await registeredStandInCluster();
+	const answer = cluster.runner.run({ taskType: 'task_type_llm_qwen3_5_0_8b_full', input: 'What is the capital of France?' }, 'llm_qwen3_5_0_8b_full');
+	await settlePromises();
+	const taskRequestId = cluster.lastSentBody()['taskRequestId'];
+	cluster.receive({ type: 'task.accepted', taskRequestId, task: { taskId: 'task-usage-1', taskRequestId, state: 'queued' } });
+	cluster.receive({
+		type: 'task.updated',
+		update: {
+			taskId: 'task-usage-1',
+			taskRevision: 2,
+			state: 'completed',
+			completedStageCount: 1,
+			currentStageAttempts: 0,
+			result: { text: 'Paris.', done: true, promptTokenCount: 8, completionTokenCount: 3, stopReason: 'end_of_sequence' },
+		},
+	});
+	const resolved = await answer;
+	Assert.equal(resolved.text, 'Paris.');
+	Assert.equal(resolved.promptTokenCount, 8);
+	Assert.equal(resolved.completionTokenCount, 3);
+	Assert.equal(resolved.stopReason, 'end_of_sequence');
 	cluster.runner.close();
 });
 
@@ -635,6 +676,123 @@ Test('submits the real conversation for a model that accepts one, instead of a f
 		server.cluster.receive({ type: 'task.accepted', taskRequestId, task: { taskId: 'task-conversation-1', taskRequestId, state: 'queued' } });
 		server.cluster.receive({ type: 'task.updated', update: { taskId: 'task-conversation-1', taskRevision: 2, state: 'completed', completedStageCount: 1, currentStageAttempts: 0, result: { text: 'Paris.', done: true } } });
 		Assert.equal((await responsePromise).status, 200);
+	} finally {
+		server.close();
+	}
+});
+
+Test('reports usage and a translated finish_reason when the worker\'s result carries them', async () => {
+	const server = await listeningServer();
+	try {
+		const responsePromise = fetch(`${server.url}/v1/chat/completions`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ model: 'llm_qwen3_5_0_8b_full', messages: [{ role: 'user', content: 'What is the capital of France?' }] }),
+		});
+		await waitUntil(() => server.cluster.lastSentBody()['type'] === 'task.submit');
+		const taskRequestId = server.cluster.lastSentBody()['taskRequestId'];
+		server.cluster.receive({ type: 'task.accepted', taskRequestId, task: { taskId: 'task-usage-1', taskRequestId, state: 'queued' } });
+		server.cluster.receive({
+			type: 'task.updated',
+			update: {
+				taskId: 'task-usage-1',
+				taskRevision: 2,
+				state: 'completed',
+				completedStageCount: 1,
+				currentStageAttempts: 0,
+				result: { text: 'Paris.', done: true, promptTokenCount: 8, completionTokenCount: 3, stopReason: 'max_new_tokens' },
+			},
+		});
+		const response = await responsePromise;
+		Assert.equal(response.status, 200);
+		const body = await response.json() as ChatCompletionResponse;
+		Assert.equal(body.choices[0]?.finish_reason, 'length');
+		Assert.deepEqual(body.usage, { prompt_tokens: 8, completion_tokens: 3, total_tokens: 11 });
+	} finally {
+		server.close();
+	}
+});
+
+Test('answers with no usage field when the worker reports no counts, exactly as before milestone 2 of issue #150', async () => {
+	const server = await listeningServer();
+	try {
+		const responsePromise = fetch(`${server.url}/v1/chat/completions`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ model: 'dev_formula', messages: [{ role: 'user', content: '5' }] }),
+		});
+		await waitUntil(() => server.cluster.lastSentBody()['type'] === 'task.submit');
+		const taskRequestId = server.cluster.lastSentBody()['taskRequestId'];
+		server.cluster.receive({ type: 'task.accepted', taskRequestId, task: { taskId: 'task-nousage-1', taskRequestId, state: 'queued' } });
+		server.cluster.receive({ type: 'task.updated', update: { taskId: 'task-nousage-1', taskRevision: 2, state: 'completed', completedStageCount: 1, currentStageAttempts: 0, result: 17 } });
+		const response = await responsePromise;
+		const body = await response.json() as Record<string, unknown>;
+		Assert.equal('usage' in body, false);
+	} finally {
+		server.close();
+	}
+});
+
+Test('answers a whole-answer request with an error when the cluster gave up before finishing', async () => {
+	const server = await listeningServer();
+	try {
+		const responsePromise = fetch(`${server.url}/v1/chat/completions`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ model: 'llm_qwen3_5_0_8b_full', messages: [{ role: 'user', content: 'What is the capital of France?' }] }),
+		});
+		await waitUntil(() => server.cluster.lastSentBody()['type'] === 'task.submit');
+		const taskRequestId = server.cluster.lastSentBody()['taskRequestId'];
+		server.cluster.receive({ type: 'task.accepted', taskRequestId, task: { taskId: 'task-interrupted-1', taskRequestId, state: 'queued' } });
+		server.cluster.receive({
+			type: 'task.updated',
+			update: {
+				taskId: 'task-interrupted-1',
+				taskRevision: 2,
+				state: 'completed',
+				completedStageCount: 1,
+				currentStageAttempts: 0,
+				result: { text: 'Par', done: true, stopReason: 'interrupted' },
+			},
+		});
+		const response = await responsePromise;
+		Assert.equal(response.status, 502);
+		const body = await response.json() as { error: { code: string | null } };
+		Assert.equal(body.error.code, 'task_failed');
+	} finally {
+		server.close();
+	}
+});
+
+Test('writes an error into a streamed answer when the cluster gave up before finishing', async () => {
+	const server = await listeningServer();
+	try {
+		const responsePromise = fetch(`${server.url}/v1/chat/completions`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ model: 'llm_qwen3_5_0_8b_full', messages: [{ role: 'user', content: 'What is the capital of France?' }], stream: true }),
+		});
+		await waitUntil(() => server.cluster.lastSentBody()['type'] === 'task.submit');
+		const taskRequestId = server.cluster.lastSentBody()['taskRequestId'];
+		server.cluster.receive({ type: 'task.accepted', taskRequestId, task: { taskId: 'task-interrupted-stream-1', taskRequestId, state: 'queued' } });
+		server.cluster.receive({ type: 'task.updated', update: { taskId: 'task-interrupted-stream-1', taskRevision: 2, state: 'running', completedStageCount: 1, currentStageAttempts: 1, newText: 'Par' } });
+		server.cluster.receive({
+			type: 'task.updated',
+			update: {
+				taskId: 'task-interrupted-stream-1',
+				taskRevision: 3,
+				state: 'completed',
+				completedStageCount: 2,
+				currentStageAttempts: 0,
+				result: { text: 'Par', done: true, stopReason: 'interrupted' },
+			},
+		});
+		const response = await responsePromise;
+		Assert.equal(response.status, 200);
+		const lines = await streamedDataLines(response);
+		Assert.equal(lines.at(-1), '[DONE]');
+		const last = JSON.parse(lines.at(-2)!) as { error?: { code: string | null } };
+		Assert.equal(last.error?.code, 'task_failed');
 	} finally {
 		server.close();
 	}

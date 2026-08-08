@@ -72,6 +72,7 @@ export { TaskProjection } from './task/task_projection.js';
 ///////////////////////////////////////////////////////////////////////////////
 
 export type { EncodedTensor, LlmStagePayload, StagePayload } from './stage/stage_payload_types.js';
+export { StagePayloadSchema } from './stage/stage_payload_types.js';
 export { StagePayloadFactory } from './stage/stage_payload_factory.js';
 export { GeneratedText } from './stage/generated_text.js';
 

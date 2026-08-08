@@ -121,10 +121,28 @@ export class StagePayloadFactory {
 	 * @param newText The text the run that finished the answer produced, when that run produced
 	 * any. Left out by a run that produced the whole answer by itself, since there were no
 	 * earlier pieces for this to be measured against.
+	 * @param usage The token counts and the reason generation stopped, when the worker's engine
+	 * can report them. Left out entirely by a worker whose engine cannot, per milestone 2 of
+	 * [issue #150](https://github.com/webai-at-home/webai-at-home/issues/150) — a worker is added
+	 * to this in milestone 3, one engine at a time, rather than every worker gaining it at once.
 	 * @returns The stage payload that ends the task's generation loop.
 	 */
-	static llmDone(text: string, newText?: string): LlmStagePayload {
-		return { text, ...StagePayloadFactory.piece(newText), done: true };
+	static llmDone(
+		text: string,
+		newText?: string,
+		usage?: { promptTokenCount?: number; completionTokenCount?: number; stopReason?: 'end_of_sequence' | 'max_new_tokens' | 'interrupted' },
+	): LlmStagePayload {
+		const payload: LlmStagePayload = { text, ...StagePayloadFactory.piece(newText), done: true };
+		if (usage?.promptTokenCount !== undefined) {
+			payload.promptTokenCount = usage.promptTokenCount;
+		}
+		if (usage?.completionTokenCount !== undefined) {
+			payload.completionTokenCount = usage.completionTokenCount;
+		}
+		if (usage?.stopReason !== undefined) {
+			payload.stopReason = usage.stopReason;
+		}
+		return payload;
 	}
 
 	/**

@@ -8,7 +8,7 @@ An OpenAI-compatible server in front of the `webai-at-home` cluster. It accepts 
 
 - `src/cli.ts`: the `consumer_openai` command line program, with one subcommand, `server`, implemented in `src/commands/server_command.ts`.
 - `src/http/openai_routes.ts`: the HTTP routes, `/v1/models` and `/v1/chat/completions`. `src/http/curl_style_transaction_logger.ts` records each request and answer.
-- `src/api/`: `openai_types.ts`, `openai_error.ts`, `model_catalog.ts` (which task type each model name maps to), `conversation_builder.ts`, and `prompt_flattener.ts`.
+- `src/api/`: `openai_types.ts`, `openai_error.ts`, `model_catalog.ts` (which task type each model name maps to), `conversation_builder.ts`, `prompt_flattener.ts`, and `finish_reason_translator.ts`.
 - `src/libs/cluster_task_runner.ts`: submits the task and follows it, on top of `ConsumerClient` from `@webai/consumer-cli`.
 - `src/libs/server_settings.ts`: every command line option and environment variable this server reads.
 - `examples/`: one runnable example per task type and per calling style, named `chat_completion_<style>_<task type>.ts`.
@@ -22,3 +22,4 @@ An OpenAI-compatible server in front of the `webai-at-home` cluster. It accepts 
 - `tests/index.test.ts` runs without a cluster. The `tests/real_*.test.ts` files drive real browser tabs with Puppeteer and are run one at a time with the matching `test:real:<task type>` script, never as part of `npm test`.
 - Every new command line option or environment variable is added to `src/libs/server_settings.ts` and documented in [`docs/environment_variables.md`](../../docs/environment_variables.md).
 - A value the OpenAI Chat Completions interface has no field for travels in an `X-Webai-*` response header, or not at all — never as an added member of a response body. `X-Webai-Generation-Time-Ms` carries the whole-answer response's total generation time; `X-Webai-Time-To-First-Piece-Ms` carries the streamed response's time to its first piece, the one generation-time fact known before that response's headers must be sent. See [issue #150](https://github.com/webai-at-home/webai-at-home/issues/150).
+- `usage` is present on the chat completion response only when the worker that produced the answer reported both `promptTokenCount` and `completionTokenCount` on `LlmStagePayload`, read through `ClusterTaskRunner.run`'s `TaskAnswer`. It is never estimated, and never set to `0` for a count nobody reported. `finish_reason` is translated from the worker's own `stopReason` by `src/api/finish_reason_translator.ts`, which refuses to answer a reason with no OpenAI value — `interrupted` — rather than inventing one. See milestone 2 of [issue #150](https://github.com/webai-at-home/webai-at-home/issues/150).

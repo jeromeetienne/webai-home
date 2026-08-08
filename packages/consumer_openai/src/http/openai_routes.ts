@@ -18,12 +18,14 @@ import type {
 import { ConversationBuilder } from '../api/conversation_builder.js';
 import { ModelCatalog } from '../api/model_catalog.js';
 import { OpenaiError } from '../api/openai_error.js';
+import { FinishReasonTranslator } from '../api/finish_reason_translator.js';
 import { PromptFlattener } from '../api/prompt_flattener.js';
 import {
 	ChatCompletionRequestSchema,
 	type ChatCompletionChunk,
 	type ChatCompletionChunkChoice,
 	type ChatCompletionResponse,
+	type ChatCompletionUsage,
 	type HealthResponse,
 } from '../api/openai_types.js';
 
@@ -279,6 +281,11 @@ export class OpenaiRoutes {
 		const generationStartedAt = performance.now();
 		const answer = await this.runner.run(taskInput, body.model, abortController.signal, onCorrelationIds);
 		const generationTimeMs = Math.round(performance.now() - generationStartedAt);
+		// Rule 2 of this project's OpenAI compatibility requirement: an answer the cluster gave up
+		// on producing has no OpenAI value for `finish_reason`, so it is reported as an HTTP error
+		// for a whole-answer response like this one, rather than an invented `finish_reason`.
+		const finishReason = FinishReasonTranslator.translate(answer.stopReason);
+		const usage = OpenaiRoutes._usageOf(answer);
 		const completion: ChatCompletionResponse = {
 			id: `chatcmpl-${Crypto.randomUUID()}`,
 			object: 'chat.completion',
@@ -289,12 +296,13 @@ export class OpenaiRoutes {
 					index: 0,
 					message: {
 						role: 'assistant',
-						content: answer,
+						content: answer.text,
 					},
 					logprobs: null,
-					finish_reason: 'stop',
+					finish_reason: finishReason,
 				},
 			],
+			...(usage === undefined ? {} : { usage }),
 		};
 		if (transaction !== undefined) {
 			transaction.respondedAt = new Date();
@@ -419,29 +427,35 @@ export class OpenaiRoutes {
 					logprobs: null,
 					finish_reason: null,
 				});
-				if (answer !== '') {
+				if (answer.text !== '') {
 					writeChunk({
 						index: 0,
 						delta: {
-							content: answer,
+							content: answer.text,
 						},
 						logprobs: null,
 						finish_reason: null,
 					});
 				}
 			}
+			// Rule 2 of this project's OpenAI compatibility requirement: an answer the cluster gave
+			// up on producing has no OpenAI value for `finish_reason`. Translating it is done here,
+			// after every piece has already been written, so that a failure to translate it falls
+			// into the `catch` below and is written into the stream as an error, which is what an
+			// OpenAI client already expects when a stream fails partway through.
+			const finishReason = FinishReasonTranslator.translate(answer.stopReason);
 			writeChunk({
 				index: 0,
 				delta: {},
 				logprobs: null,
-				finish_reason: 'stop',
+				finish_reason: finishReason,
 			});
 			if (transaction !== undefined) {
 				transaction.respondedAt = new Date();
 				transaction.outcome = 'completed';
 				transaction.responseBody = {
 					object: 'chat.completion.chunk',
-					answer,
+					answer: answer.text,
 				};
 			}
 			OpenaiRoutes._endStream(response);
@@ -483,6 +497,26 @@ export class OpenaiRoutes {
 	//	Reading The Request
 	///////////////////////////////////////////////////////////////////////////////
 	///////////////////////////////////////////////////////////////////////////////
+
+	/**
+	 * Builds the `usage` object for a task's answer, under Rule 1 of this project's OpenAI
+	 * compatibility requirement.
+	 *
+	 * @param answer What the cluster task produced.
+	 * @returns The `usage` object, or `undefined` when the worker that produced the answer did
+	 * not report both counts, since `total_tokens` cannot be stated without both of them and no
+	 * count here is ever estimated from one that is missing.
+	 */
+	private static _usageOf(answer: { promptTokenCount: number | undefined; completionTokenCount: number | undefined }): ChatCompletionUsage | undefined {
+		if (answer.promptTokenCount === undefined || answer.completionTokenCount === undefined) {
+			return undefined;
+		}
+		return {
+			prompt_tokens: answer.promptTokenCount,
+			completion_tokens: answer.completionTokenCount,
+			total_tokens: answer.promptTokenCount + answer.completionTokenCount,
+		};
+	}
 
 	/**
 	 * Turns the reasons a body failed its checks into one failure naming each of them.

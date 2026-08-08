@@ -76,6 +76,42 @@ export type LlmStagePayload = {
 	isContinuation?: boolean;
 	/** Set by the final shard once generation should stop (end-of-sequence token or the token limit reached). */
 	done?: boolean;
+	/**
+	 * How many tokens the prompt this task answered was counted as, by the worker that produced
+	 * the result that finishes the task.
+	 *
+	 * Present only when that worker's engine can count tokens at all — token counts exist only
+	 * where the model runs, and not every engine this cluster runs on can report them. Absent
+	 * rather than estimated or set to `0`, so a consumer never mistakes an unknown count for a
+	 * known one of zero. See milestone 2 of
+	 * [issue #150](https://github.com/webai-at-home/webai-at-home/issues/150).
+	 */
+	promptTokenCount?: number;
+	/**
+	 * How many tokens the whole answer this task produced was counted as, by the worker that
+	 * produced the result that finishes the task.
+	 *
+	 * Present only when that worker's engine can count tokens at all, and only on the result that
+	 * finishes the task, since it counts the whole answer rather than one piece of it. Absent
+	 * rather than estimated or set to `0`, for the same reason `promptTokenCount` is.
+	 */
+	completionTokenCount?: number;
+	/**
+	 * The worker's own word for why generation stopped, on the result that finishes the task.
+	 *
+	 * Not an OpenAI value: this is the protocol, not the OpenAI Chat Completions interface, and it
+	 * keeps the worker's own word for diagnosis and for the accounting ledger. A consumer that
+	 * speaks the OpenAI Chat Completions interface translates this into the OpenAI value for
+	 * `finish_reason`, or into an error when there is none, rather than the protocol borrowing that
+	 * interface's spelling for itself.
+	 *
+	 * - `end_of_sequence` — the model produced its own end-of-sequence token.
+	 * - `max_new_tokens` — generation reached the worker's token limit before an end-of-sequence
+	 *   token appeared.
+	 * - `interrupted` — generation was stopped before either of the above, such as by a cancelled
+	 *   task. There is no OpenAI value for this.
+	 */
+	stopReason?: 'end_of_sequence' | 'max_new_tokens' | 'interrupted';
 };
 
 /** The value carried by one stage: a plain number for the formula pipeline, or an LLM payload. */
@@ -93,5 +129,8 @@ export const StagePayloadSchema = z.union([
 		position: z.number().int().nonnegative().optional(),
 		isContinuation: z.boolean().optional(),
 		done: z.boolean().optional(),
+		promptTokenCount: z.number().int().nonnegative().optional(),
+		completionTokenCount: z.number().int().nonnegative().optional(),
+		stopReason: z.enum(['end_of_sequence', 'max_new_tokens', 'interrupted']).optional(),
 	}).strict(),
 ]) as unknown as z.ZodType<StagePayload>;

@@ -16,6 +16,7 @@ import {
 	PipelineStageSchema,
 	StageName,
 	StagePayloadFactory,
+	StagePayloadSchema,
 	TaskInput,
 	TaskState,
 	maximumDiagnosticEntriesPerBatch,
@@ -120,6 +121,29 @@ Test('StagePayloadFactory builds each stage payload shape', () => {
 	// A run that finished an answer without adding to it says nothing about what it produced,
 	// rather than saying it produced an empty piece.
 	Assert.deepEqual(StagePayloadFactory.llmDone('The capital of France is Paris.', ''), { text: 'The capital of France is Paris.', done: true });
+	// A worker whose engine can report usage passes it as a third argument, and it is carried
+	// through unchanged; a worker that cannot leaves it out entirely, which is the case above.
+	Assert.deepEqual(
+		StagePayloadFactory.llmDone('The capital of France is Paris.', undefined, {
+			promptTokenCount: 12,
+			completionTokenCount: 7,
+			stopReason: 'end_of_sequence',
+		}),
+		{ text: 'The capital of France is Paris.', done: true, promptTokenCount: 12, completionTokenCount: 7, stopReason: 'end_of_sequence' },
+	);
+});
+
+Test('StagePayloadSchema accepts and refuses the usage fields milestone 2 of issue #150 added', () => {
+	Assert.equal(
+		StagePayloadSchema.safeParse({ text: 'Paris.', done: true, promptTokenCount: 12, completionTokenCount: 7, stopReason: 'end_of_sequence' }).success,
+		true,
+	);
+	Assert.equal(StagePayloadSchema.safeParse({ text: 'Paris.', done: true, stopReason: 'max_new_tokens' }).success, true);
+	Assert.equal(StagePayloadSchema.safeParse({ text: 'Paris.', done: true, stopReason: 'interrupted' }).success, true);
+	// There is no OpenAI value for anything but these three raw reasons, so nothing else is a
+	// valid `stopReason`.
+	Assert.equal(StagePayloadSchema.safeParse({ text: 'Paris.', done: true, stopReason: 'gave_up' }).success, false);
+	Assert.equal(StagePayloadSchema.safeParse({ text: 'Paris.', done: true, promptTokenCount: -1 }).success, false);
 });
 
 Test('an answer is reported only as far as its last finished character', () => {

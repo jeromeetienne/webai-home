@@ -22,6 +22,26 @@ import { OpenaiError } from '../api/openai_error.js';
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
+/**
+ * What one submitted task produced: the generated text, and whatever the worker that produced
+ * it reported alongside that text, per milestone 2 of
+ * [issue #150](https://github.com/webai-at-home/webai-at-home/issues/150).
+ */
+export type TaskAnswer = {
+	/** The generated text. */
+	text: string;
+	/** How many tokens the prompt was counted as, `undefined` when the worker did not report it. */
+	promptTokenCount: number | undefined;
+	/** How many tokens the whole answer was counted as, `undefined` when the worker did not report it. */
+	completionTokenCount: number | undefined;
+	/**
+	 * The worker's own word for why generation stopped, `undefined` when the worker did not
+	 * report it. Not an OpenAI value — translating this into `finish_reason` is a job for whoever
+	 * calls this runner and speaks the OpenAI Chat Completions interface.
+	 */
+	stopReason: 'end_of_sequence' | 'max_new_tokens' | 'interrupted' | undefined;
+};
+
 /** How this runner reaches the central gateway and how long it is willing to wait. */
 export type ClusterTaskRunnerOptions = {
 	/** The WebSocket address of the central gateway. */
@@ -59,7 +79,7 @@ type PendingTask = {
 	taskInput: TaskInput;
 	/** The model the request asked for, named in a failure so the caller recognises it. */
 	modelId: string;
-	resolve: (answer: string) => void;
+	resolve: (answer: TaskAnswer) => void;
 	reject: (failure: OpenaiError) => void;
 	/** The timer that gives up on this task once this server has waited long enough. */
 	timeoutTimer: ReturnType<typeof setTimeout> | undefined;
@@ -160,7 +180,7 @@ export class ClusterTaskRunner {
 	 * @param onPiece Told each piece of the answer as the cluster reports it. It is called only
 	 * for a task submitted asking to be answered as its answer is written, because only such a
 	 * task is reported in pieces. Joining the pieces gives the same text this returns.
-	 * @returns The generated text.
+	 * @returns The generated text, and whatever usage the worker that produced it reported.
 	 * @throws OpenaiError when the task fails, is refused, or does not finish in time.
 	 */
 	async run(
@@ -169,14 +189,14 @@ export class ClusterTaskRunner {
 		abortSignal?: AbortSignal,
 		onCorrelationIds?: (ids: { taskRequestId: string; taskId?: string }) => void,
 		onPiece?: (piece: string) => void,
-	): Promise<string> {
+	): Promise<TaskAnswer> {
 		if (this.pendingByTaskRequestId.size >= this.options.maximumTasksInFlight) {
 			throw OpenaiError.tooManyTasksInFlight(this.options.maximumTasksInFlight);
 		}
 		const client = await this._registeredClient();
 		const taskRequestId = Crypto.randomUUID();
 		onCorrelationIds?.({ taskRequestId });
-		return await new Promise<string>((resolve, reject) => {
+		return await new Promise<TaskAnswer>((resolve, reject) => {
 			const pending: PendingTask = {
 				taskRequestId,
 				taskId: undefined,
@@ -459,7 +479,7 @@ export class ClusterTaskRunner {
 		error: string | undefined,
 	): void {
 		if (state === 'completed') {
-			const answer = ClusterTaskRunner._answerTextOf(pending.taskInput, result);
+			const answer = ClusterTaskRunner._taskAnswerOf(pending.taskInput, result);
 			if (answer === undefined) {
 				this._settleWithFailure(pending, OpenaiError.answerUnreadable(pending.taskInput.taskType));
 				return;
@@ -504,25 +524,37 @@ export class ClusterTaskRunner {
 	}
 
 	/**
-	 * Reads the generated text out of a task result.
+	 * Reads the generated text and its usage out of a task result.
 	 *
 	 * @param taskInput What was submitted, which says which shape the result has.
 	 * @param result The task result.
-	 * @returns The text to answer with, or `undefined` when the result carries none.
+	 * @returns The answer to resolve the request with, or `undefined` when the result carries no
+	 * text to answer with. A development formula task never carries usage, since it runs no
+	 * language model.
 	 */
-	private static _answerTextOf(taskInput: TaskInput, result: StagePayload | undefined): string | undefined {
+	private static _taskAnswerOf(taskInput: TaskInput, result: StagePayload | undefined): TaskAnswer | undefined {
 		if (result === undefined) {
 			return undefined;
 		}
 		// A development formula task carries a plain number, so its answer is that number
 		// written out. Either language-model task carries the generated text.
 		if (taskInput.taskType === 'task_type_dev_formula') {
-			return typeof result === 'number' ? String(result) : undefined;
+			return typeof result === 'number'
+				? { text: String(result), promptTokenCount: undefined, completionTokenCount: undefined, stopReason: undefined }
+				: undefined;
 		}
 		if (typeof result === 'number') {
 			return undefined;
 		}
-		return result.text;
+		if (result.text === undefined) {
+			return undefined;
+		}
+		return {
+			text: result.text,
+			promptTokenCount: result.promptTokenCount,
+			completionTokenCount: result.completionTokenCount,
+			stopReason: result.stopReason,
+		};
 	}
 
 	///////////////////////////////////////////////////////////////////////////////
@@ -550,12 +582,12 @@ export class ClusterTaskRunner {
 	}
 
 	/**
-	 * Answers one request with the text its task generated.
+	 * Answers one request with what its task generated.
 	 *
 	 * @param pending The request being answered.
-	 * @param answer The generated text.
+	 * @param answer The generated text and its usage.
 	 */
-	private _settleWithAnswer(pending: PendingTask, answer: string): void {
+	private _settleWithAnswer(pending: PendingTask, answer: TaskAnswer): void {
 		if (this._forget(pending) === false) {
 			return;
 		}

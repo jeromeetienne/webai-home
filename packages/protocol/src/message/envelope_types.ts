@@ -40,11 +40,22 @@ import type { GatewayMessage } from './gateway_message.js';
  * the change is refused by a gateway built before it at the moment it authenticates. That refusal
  * is the point: it is what stops a worker built before the change from receiving a first stage
  * value whose `text` is absent and answering a prompt it was never given.
+ *
+ * Version 5 widened the result a language-model task's finishing stage carries. `LlmStagePayload`
+ * now carries `promptTokenCount` and `completionTokenCount`, each present only when the worker
+ * that produced the result counted it, and `stopReason`, the worker's own word for why generation
+ * stopped — `end_of_sequence`, `max_new_tokens`, or `interrupted` — never an OpenAI value, since
+ * translating it into one belongs to whichever consumer speaks the OpenAI Chat Completions
+ * interface, not to the protocol. See milestone 2 of
+ * [issue #150](https://github.com/webai-at-home/webai-at-home/issues/150). `StagePayloadSchema`
+ * refuses these fields before this version, so a worker built after the change is refused by a
+ * gateway built before it at the moment it authenticates, rather than having its first result
+ * refused for a shape that gateway's stage payload schema does not allow.
  */
-export const protocolVersion = 4;
+export const protocolVersion = 5;
 
 /** The protocol versions the gateway accepts. No earlier version is accepted. */
-export const supportedProtocolVersions: number[] = [4];
+export const supportedProtocolVersions: number[] = [5];
 
 /**
  * The wrapper around every frame sent in either direction.
