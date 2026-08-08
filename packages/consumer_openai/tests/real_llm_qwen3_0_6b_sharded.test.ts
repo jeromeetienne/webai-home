@@ -80,6 +80,13 @@ NodeTest.test('answers with the capital of France, through a real browser worker
 	});
 
 	Assert.match(completion.choices[0]?.message.content ?? '', /paris/i);
+	// Milestone 3 of issue #150, extended to this task type: a real worker reports its exact
+	// prompt and completion token counts and why it stopped, rather than nothing at all.
+	Assert.equal(completion.choices[0]?.finish_reason, 'stop');
+	Assert.ok(completion.usage !== undefined, 'expected a usage object, and got none');
+	Assert.ok((completion.usage?.prompt_tokens ?? 0) > 0, 'expected a positive prompt_tokens count');
+	Assert.ok((completion.usage?.completion_tokens ?? 0) > 0, 'expected a positive completion_tokens count');
+	Assert.equal(completion.usage?.total_tokens, (completion.usage?.prompt_tokens ?? 0) + (completion.usage?.completion_tokens ?? 0));
 });
 
 NodeTest.test('streams the answer one token at a time, through a real browser worker cluster and the OpenAI-compatible server', {
@@ -98,19 +105,28 @@ NodeTest.test('streams the answer one token at a time, through a real browser wo
 			content: 'What is the capital of France?',
 		}],
 		stream: true,
+		stream_options: { include_usage: true },
 	});
 
 	let answer = '';
 	let pieceCount = 0;
+	let usage: OpenAI.CompletionUsage | undefined;
 	for await (const chunk of stream) {
 		const piece = chunk.choices[0]?.delta.content ?? '';
-		if (piece === '') {
-			continue;
+		if (piece !== '') {
+			pieceCount += 1;
+			answer += piece;
 		}
-		pieceCount += 1;
-		answer += piece;
+		if (chunk.usage != null) {
+			usage = chunk.usage;
+		}
 	}
 
 	Assert.ok(pieceCount > 1, `expected the answer to arrive as more than one piece, got ${pieceCount}`);
 	Assert.match(answer, /paris/i);
+	// Milestone 3 of issue #150, extended to this task type, together with milestone 4's final
+	// usage chunk: a real streamed answer carries real usage, asked for with stream_options.
+	Assert.ok(usage !== undefined, 'expected a final usage chunk, and got none');
+	Assert.ok((usage?.prompt_tokens ?? 0) > 0, 'expected a positive prompt_tokens count');
+	Assert.ok((usage?.completion_tokens ?? 0) > 0, 'expected a positive completion_tokens count');
 });

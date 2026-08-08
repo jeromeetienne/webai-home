@@ -172,6 +172,11 @@ export class StageHelperLlmQwen3_0_6bSharded {
 			: (StageHelperLlmQwen3_0_6bSharded.stateByTaskId.get(taskId) ?? StageHelperLlmQwen3_0_6bSharded.startTask(taskId));
 
 		const inputIds = isFirstRound ? StageHelperLlmQwen3_0_6bSharded.encodePrompt(payload.text ?? '') : (payload.inputIds ?? []);
+		// Shard 1's first round is the only round that ever sees the prompt text, so it is also the
+		// only round that can measure it. Every hop since — shard to shard, round to round — carries
+		// this number forward on the wire rather than in memory, because each shard runs on its own
+		// device. See milestone 3 of issue #150.
+		const promptTokenCount = isFirstRound ? inputIds.length : payload.promptTokenCount;
 		const position = payload.position ?? 0;
 		const boundary = payload.tensors ? StageHelperLlmQwen3_0_6bSharded.decodeBoundary(payload.tensors) : undefined;
 
@@ -191,7 +196,8 @@ export class StageHelperLlmQwen3_0_6bSharded {
 			const text = StageHelperLlmQwen3_0_6bSharded.tokenizer?.decode(state.generatedIds, {
 				skip_special_tokens: true,
 			}).trim() ?? '';
-			const done = nextToken === EOS_TOKEN_ID || state.generatedIds.length >= MAX_NEW_TOKENS;
+			const isEndOfSequence = nextToken === EOS_TOKEN_ID;
+			const done = isEndOfSequence || state.generatedIds.length >= MAX_NEW_TOKENS;
 			// Nothing is held back once the answer is finished: there is no round after this one to
 			// report the rest, so what a reader has been shown must add up to the whole answer.
 			const reportable = done ? text : GeneratedText.reportable(state.reportedText, text);
@@ -200,10 +206,15 @@ export class StageHelperLlmQwen3_0_6bSharded {
 			if (done) {
 				StageHelperLlmQwen3_0_6bSharded.clearTask(taskId);
 				// The whole answer travels once, on the one result that ends the task, and the piece
-				// travels with it so a reader joining the pieces receives the last one as well.
-				return StagePayloadFactory.llmDone(text, newText);
+				// travels with it so a reader joining the pieces receives the last one as well. See
+				// milestone 3 of issue #150 for the usage this stage now reports alongside it.
+				return StagePayloadFactory.llmDone(
+					text,
+					newText,
+					StageHelperLlmQwen3_0_6bSharded.usageOf(state, promptTokenCount, isEndOfSequence ? 'end_of_sequence' : 'max_new_tokens'),
+				);
 			}
-			return StagePayloadFactory.llmContinue(newText, nextToken, position + inputIds.length);
+			return StagePayloadFactory.llmContinue(newText, nextToken, position + inputIds.length, promptTokenCount);
 		}
 
 		const boundaryNames = SHARD_BOUNDARIES[shardIndex + 1];
@@ -217,7 +228,34 @@ export class StageHelperLlmQwen3_0_6bSharded {
 			},
 			inputIds,
 			position,
+			promptTokenCount,
 		);
+	}
+
+	/**
+	 * Builds the `usage` object for the final {@link StagePayloadFactory.llmDone} call, field by
+	 * field, so a value typed `number | undefined` is never assigned into a parameter typed
+	 * merely optional, which `exactOptionalPropertyTypes` refuses.
+	 *
+	 * @param state This task's generation state, holding the tokens generated so far.
+	 * @param promptTokenCount The exact number of tokens the prompt was encoded into, carried
+	 * forward from shard 1's first round on the wire.
+	 * @param stopReason Which of the two ways this stage can finish generating just happened.
+	 * @returns The `usage` object to pass to `llmDone`.
+	 */
+	private static usageOf(
+		state: TaskGenerationState,
+		promptTokenCount: number | undefined,
+		stopReason: 'end_of_sequence' | 'max_new_tokens',
+	): { promptTokenCount?: number; completionTokenCount?: number; stopReason?: 'end_of_sequence' | 'max_new_tokens' | 'interrupted' } {
+		const usage: { promptTokenCount?: number; completionTokenCount?: number; stopReason?: 'end_of_sequence' | 'max_new_tokens' | 'interrupted' } = {
+			stopReason,
+			completionTokenCount: state.generatedIds.length,
+		};
+		if (promptTokenCount !== undefined) {
+			usage.promptTokenCount = promptTokenCount;
+		}
+		return usage;
 	}
 
 	/**
