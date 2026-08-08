@@ -269,17 +269,19 @@ export class ReportRenderer {
 	 */
 	private static _renderTextReport(report: BenchmarkReport): string {
 		const lines: string[] = [
-			`OpenAI API benchmark (parallelism: ${report.settings.parallelism})`,
-			`Measured requests: ${report.settings.runs}; warm-up requests: ${report.settings.warmupRuns}`,
+			Chalk.bold(`OpenAI API benchmark (parallelism: ${report.settings.parallelism})`),
+			Chalk.dim(`Measured requests: ${report.settings.runs}; warm-up requests: ${report.settings.warmupRuns}`),
 		];
 		for (const summary of report.summaries) {
 			lines.push('');
-			lines.push(`${summary.baseUrl} (${summary.modelId})`);
-			lines.push(`  Time to First Character:      ${ReportRenderer._statisticsLine(summary.timeToFirstCharacterMs)}`);
-			lines.push(`  Time to Last Character:       ${ReportRenderer._statisticsLine(summary.timeToLastCharacterMs)}`);
-			lines.push(`  Output Characters per Second: ${ReportRenderer._rounded(summary.outputCharactersPerSecond.average)} characters/second average`);
-			lines.push(`  Input Characters:             ${summary.inputCharacters} characters`);
-			lines.push(`  Output Characters:            ${ReportRenderer._rounded(summary.outputCharacters.average)} characters average`);
+			lines.push(Chalk.cyan.bold(`${summary.baseUrl} (${summary.modelId})`));
+			lines.push(`  ${Chalk.dim('Time to First Character:      ')} ${ReportRenderer._statisticsLine(summary.timeToFirstCharacterMs)}`);
+			lines.push(`  ${Chalk.dim('Time to Last Character:       ')} ${ReportRenderer._statisticsLine(summary.timeToLastCharacterMs)}`);
+			lines.push(`  ${Chalk.dim('Input Characters:             ')} ${summary.inputCharacters} characters`);
+			lines.push(`  ${Chalk.dim('Output Characters:            ')} ${ReportRenderer._rounded(summary.outputCharacters.average)} characters average`);
+			lines.push(
+				`  ${Chalk.dim('Output Characters per Second: ')} ${Chalk.green.bold(`${ReportRenderer._rounded(summary.outputCharactersPerSecond.average)} characters/second average`)}`,
+			);
 		}
 		return lines.join('\n');
 	}
