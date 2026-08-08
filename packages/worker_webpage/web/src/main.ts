@@ -124,6 +124,8 @@ export class WorkerPage {
 	private readonly screenWakeLockButtonEl: HTMLButtonElement;
 	/** Shows the screen wake lock's current state. */
 	private readonly screenWakeLockStateEl: HTMLElement;
+	/** The navigation bar button that starts or stops both the quiet tone and the screen wake lock together. */
+	private readonly fullPowerButtonEl: HTMLButtonElement;
 	/** Shows the git commit this build was made from. */
 	private readonly commitShaEl: HTMLElement;
 
@@ -180,6 +182,7 @@ export class WorkerPage {
 		this.powerStatusEl = PageElements.getElement('#power-status');
 		this.screenWakeLockButtonEl = PageElements.getButton('#screen-wake-lock');
 		this.screenWakeLockStateEl = PageElements.getElement('#screen-wake-lock-state');
+		this.fullPowerButtonEl = PageElements.getButton('#full-power');
 		this.commitShaEl = PageElements.getElement('#commit-sha');
 		this.requestedStageNames = WorkerStageOffer.requestedStageNamesFromUrl(location.search);
 	}
@@ -219,13 +222,10 @@ export class WorkerPage {
 		// silently defeat the whole trick (see AudioKeepalive.start).
 		this.quietToneButtonEl.addEventListener('click', (): void => {
 			if (AudioKeepalive.state() === 'stopped') {
-				AudioKeepalive.start();
-				this.quietToneButtonEl.textContent = 'Stop quiet tone';
-				this.pollQuietToneState();
+				this.startQuietTone();
 				return;
 			}
-			AudioKeepalive.stop();
-			this.quietToneButtonEl.textContent = 'Start quiet tone';
+			this.stopQuietTone();
 		});
 
 		// A browser without the Screen Wake Lock interface, or one whose origin is not secure,
@@ -237,15 +237,32 @@ export class WorkerPage {
 		} else {
 			this.screenWakeLockButtonEl.addEventListener('click', (): void => {
 				if (ScreenWakeLock.isEnabled() === false) {
-					ScreenWakeLock.start();
-					this.screenWakeLockButtonEl.textContent = 'Stop keeping screen awake';
-					this.pollScreenWakeLockState();
+					this.startScreenWakeLock();
 					return;
 				}
-				ScreenWakeLock.stop();
-				this.screenWakeLockButtonEl.textContent = 'Keep screen awake';
+				this.stopScreenWakeLock();
 			});
 		}
+
+		/**
+		 * Starts or stops both the quiet tone and the screen wake lock together, whichever of
+		 * the two is not already in the state the button is asking for.
+		 */
+		this.fullPowerButtonEl.addEventListener('click', (): void => {
+			if (AudioKeepalive.state() !== 'stopped' && ScreenWakeLock.isEnabled()) {
+				this.stopQuietTone();
+				if (ScreenWakeLock.isEnabled()) {
+					this.stopScreenWakeLock();
+				}
+				return;
+			}
+			if (AudioKeepalive.state() === 'stopped') {
+				this.startQuietTone();
+			}
+			if (ScreenWakeLock.isEnabled() === false && ScreenWakeLock.state() !== 'unsupported') {
+				this.startScreenWakeLock();
+			}
+		});
 
 		/** Closes the WebSocket connection when the disconnect button is clicked. */
 		this.disconnectButtonEl.addEventListener('click', (): void => {
@@ -885,6 +902,7 @@ export class WorkerPage {
 		const state: AudioKeepaliveState = AudioKeepalive.state();
 		this.quietToneStateEl.textContent = state.charAt(0).toUpperCase() + state.slice(1);
 		this.updatePowerStatusBadge();
+		this.updateFullPowerButtonLabel();
 		window.setTimeout((): void => {
 			this.pollQuietToneState();
 		}, AUDIO_STATE_POLL_INTERVAL_MS);
@@ -901,6 +919,7 @@ export class WorkerPage {
 		const state: ScreenWakeLockState = ScreenWakeLock.state();
 		this.screenWakeLockStateEl.textContent = state.charAt(0).toUpperCase() + state.slice(1);
 		this.updatePowerStatusBadge();
+		this.updateFullPowerButtonLabel();
 		window.setTimeout((): void => {
 			this.pollScreenWakeLockState();
 		}, SCREEN_WAKE_LOCK_STATE_POLL_INTERVAL_MS);
@@ -921,6 +940,55 @@ export class WorkerPage {
 		}
 		this.powerStatusEl.textContent = 'Throttleable';
 		this.powerStatusEl.className = 'badge rounded-pill text-bg-danger';
+	}
+
+	/**
+	 * Reflects whether the navigation bar's full power button is asking to start or to stop full
+	 * power, based on whether the quiet tone and the screen wake lock are both currently enabled.
+	 */
+	private updateFullPowerButtonLabel(): void {
+		const isFullPowerRequested = AudioKeepalive.state() !== 'stopped' && ScreenWakeLock.isEnabled();
+		this.fullPowerButtonEl.textContent = isFullPowerRequested ? 'Stop full power' : 'Start full power';
+	}
+
+	/**
+	 * Starts the quiet tone and updates the quiet tone button and the full power button to match.
+	 */
+	private startQuietTone(): void {
+		AudioKeepalive.start();
+		this.quietToneButtonEl.textContent = 'Stop quiet tone';
+		this.pollQuietToneState();
+		this.updateFullPowerButtonLabel();
+	}
+
+	/**
+	 * Stops the quiet tone and updates the quiet tone button and the full power button to match.
+	 */
+	private stopQuietTone(): void {
+		AudioKeepalive.stop();
+		this.quietToneButtonEl.textContent = 'Start quiet tone';
+		this.updateFullPowerButtonLabel();
+	}
+
+	/**
+	 * Starts the screen wake lock and updates the screen wake lock button and the full power
+	 * button to match.
+	 */
+	private startScreenWakeLock(): void {
+		ScreenWakeLock.start();
+		this.screenWakeLockButtonEl.textContent = 'Stop keeping screen awake';
+		this.pollScreenWakeLockState();
+		this.updateFullPowerButtonLabel();
+	}
+
+	/**
+	 * Stops the screen wake lock and updates the screen wake lock button and the full power
+	 * button to match.
+	 */
+	private stopScreenWakeLock(): void {
+		ScreenWakeLock.stop();
+		this.screenWakeLockButtonEl.textContent = 'Keep screen awake';
+		this.updateFullPowerButtonLabel();
 	}
 
 	/**
