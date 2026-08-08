@@ -105,7 +105,7 @@ A task in this cluster carries one piece of text, so a conversation of several m
 
 ## Asking for the answer as it is written
 
-A request that sets `stream: true` is answered as server-sent events: one chunk per piece of the answer, each on its own `data:` line as a `chat.completion.chunk`, ended by a `data: [DONE]` line. The first chunk states the role and carries no text, and the last carries no text and says the answer stopped. Joining the pieces gives the same text the request would have been answered with in one piece.
+A request that sets `stream: true` is answered as server-sent events: one chunk per piece of the answer, each on its own `data:` line as a `chat.completion.chunk`, ended by a `data: [DONE]` line. The first chunk states the role and carries no text, and the last chunk that carries a choice carries no text and says the answer stopped (a further, choice-less chunk carrying `usage` follows it when the request asked for one — see below). Joining the pieces gives the same text the request would have been answered with in one piece.
 
 ```sh
 curl -N http://localhost:8788/v1/chat/completions -H 'Content-Type: application/json' -d '{"model":"llm_gemma_nano_chrome_full","messages":[{"role":"user","content":"What is the capital of France?"}],"stream":true}'
@@ -115,12 +115,41 @@ Asking for a stream is what makes the cluster send pieces at all. The cluster do
 
 A failure before the first chunk is answered with an HTTP status and an error body, like any other failure. A failure after the first chunk cannot be: the status line has already gone. Such a failure is written into the stream instead, as a `data:` line carrying the same error body, and the stream is then ended.
 
+## `usage` — the token counts and why an answer stopped
+
+Rule 1: `usage` is present on a chat completion response only when the worker that produced the answer reported both its prompt and completion token counts. It is never estimated, and never filled with `0` for a count nobody reported. Which models can report it depends on how much each engine knows about itself:
+
+| Model | Reports `usage` |
+| --- | --- |
+| `llm_qwen3_5_0_8b_full` | Always — an exact prompt count from the model's own chat template, and an exact completion count counted as it generates. |
+| `llm_llama3_2_3b_full` | Whenever the local OpenAI-compatible server (Ollama, LM Studio) reports it, which both do. |
+| `llm_gemma_nano_chrome_full` | Never — this engine has no prompt/completion token count to report, only a cumulative context-window usage number in its own unit. |
+| `dev_formula`, `llm_qwen3_0_6b_sharded` | Never — neither task type carries a language model with token counts to report. |
+
+Rule 2: `finish_reason` is always one of the OpenAI Chat Completions interface's own values (`stop` or `length`, for this cluster). A worker's own reason for stopping that has no OpenAI value — `interrupted`, when a worker gave up partway through — is never translated into one, so it becomes a failure instead: an HTTP error for a whole-answer response, or a `data:` line carrying the error body for a streamed one.
+
+A streamed answer has no response body to put `usage` in, so it is carried on an extra final chunk instead, sent only when the request asks for it with `stream_options: { include_usage: true }` — an existing field of the OpenAI Chat Completions interface. Every chunk before that one carries `usage: null` and one choice; the final chunk carries no choices at all and the `usage` object, and it is sent after the chunk that carried `finish_reason` and before the `data: [DONE]` line:
+
+```sh
+curl -N http://localhost:8788/v1/chat/completions -H 'Content-Type: application/json' -d '{"model":"llm_llama3_2_3b_full","messages":[{"role":"user","content":"What is the capital of France?"}],"stream":true,"stream_options":{"include_usage":true}}'
+```
+
+A caller that hangs up mid-answer is told nothing, because the connection it would have been told on is the one it closed. The cluster still learns the task was cancelled — that path already works, through this server cancelling the task — but a cancelled answer reports no usage to anybody.
+
+## `X-Webai-*` response headers — what has no OpenAI field
+
+Rule 3: a value the OpenAI Chat Completions interface has no field for travels in an `X-Webai-*` response header, or not at all — never as an added member of a response body, since that would risk breaking a client that reads the body strictly. An OpenAI client ignores a header it does not recognise, so these break nothing.
+
+| Header | Sent on | Carries |
+| --- | --- | --- |
+| `X-Webai-Generation-Time-Ms` | A whole-answer (non-streamed) response | The total time the cluster took to generate the answer. |
+| `X-Webai-Time-To-First-Piece-Ms` | The first chunk of a streamed response | The time to the first piece, the only generation-time fact known before a streamed response's headers must be sent. |
+
 ## What this server deliberately does not do
 
 This is a first version. It serves the two endpoints above rather than the whole OpenAI completion interface, and the following are left out on purpose rather than by oversight:
 
-- **It reports no `usage` field.** The gateway reports no token counts to a consumer, so this server has none to report and states none rather than inventing them.
-- **It ignores every generation setting except `stream`.** `temperature`, `top_p`, `max_tokens`, `n`, `stop`, `tools`, `logprobs`, and the rest are accepted in the body and then ignored, because the cluster's task input carries only a prompt and whether the answer is wanted in pieces. The generation limits are the worker browser tab's own: 160 tokens for the sharded Qwen3-0.6B task, and 400 pieces of an answer for the Chrome built-in task.
+- **It ignores every generation setting except `stream` and `stream_options`.** `temperature`, `top_p`, `max_tokens`, `n`, `stop`, `tools`, `logprobs`, and the rest are accepted in the body and then ignored, because the cluster's task input carries only a prompt and whether the answer is wanted in pieces. The generation limits are the worker browser tab's own: 160 tokens for the sharded Qwen3-0.6B task, and 400 pieces of an answer for the Chrome built-in task.
 - **It refuses a message whose content is a list of parts**, which is what a request carrying an image or audio sends, rather than joining the parts together. It also refuses the `tool` role, because it ignores the tool settings of a request and so could not continue a conversation containing the answer of a tool.
 - **It keeps no conversation state.** One request is one cluster task, and the whole conversation is sent with every request.
 
