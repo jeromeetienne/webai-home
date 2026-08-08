@@ -126,6 +126,8 @@ export class WorkerPage {
 	private readonly screenWakeLockStateEl: HTMLElement;
 	/** The navigation bar button that starts or stops both the quiet tone and the screen wake lock together. */
 	private readonly fullPowerButtonEl: HTMLButtonElement;
+	/** The large play button shown over the whole page until the reader starts full power. */
+	private readonly startOverlayEl: HTMLButtonElement;
 	/** Shows the git commit this build was made from. */
 	private readonly commitShaEl: HTMLElement;
 
@@ -183,6 +185,7 @@ export class WorkerPage {
 		this.screenWakeLockButtonEl = PageElements.getButton('#screen-wake-lock');
 		this.screenWakeLockStateEl = PageElements.getElement('#screen-wake-lock-state');
 		this.fullPowerButtonEl = PageElements.getButton('#full-power');
+		this.startOverlayEl = PageElements.getButton('#start-overlay');
 		this.commitShaEl = PageElements.getElement('#commit-sha');
 		this.requestedStageNames = WorkerStageOffer.requestedStageNamesFromUrl(location.search);
 	}
@@ -262,6 +265,16 @@ export class WorkerPage {
 			if (ScreenWakeLock.isEnabled() === false && ScreenWakeLock.state() !== 'unsupported') {
 				this.startScreenWakeLock();
 			}
+		});
+
+		/**
+		 * Starts full power the same way the full power button does, then dismisses the overlay,
+		 * since starting the quiet tone and the screen wake lock both need a click of their own to
+		 * satisfy the browser and cannot be done as soon as the page loads.
+		 */
+		this.startOverlayEl.addEventListener('click', (): void => {
+			this.fullPowerButtonEl.click();
+			this.startOverlayEl.classList.add('d-none');
 		});
 
 		/** Closes the WebSocket connection when the disconnect button is clicked. */

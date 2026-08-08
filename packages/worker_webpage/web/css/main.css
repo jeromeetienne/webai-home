@@ -49,3 +49,20 @@ html[data-theme="dark"] .event-item {
 html[data-theme="dark"] .help-icon {
     color: #9aa7b8;
 }
+
+.start-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1050;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    background: rgba(0, 0, 0, 0.5);
+    cursor: pointer;
+}
+
+.start-overlay i {
+    font-size: 6rem;
+    color: #fff;
+}
