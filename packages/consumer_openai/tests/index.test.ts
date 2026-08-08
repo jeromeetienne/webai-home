@@ -529,6 +529,89 @@ Test('answers a streamed request as the answer is written, and asks the cluster 
 	}
 });
 
+Test('sends a final usage chunk after the finish_reason chunk when the request asks for it, with usage: null on every chunk before it', async () => {
+	const server = await listeningServer();
+	try {
+		const responsePromise = fetch(`${server.url}/v1/chat/completions`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({
+				model: 'llm_qwen3_5_0_8b_full',
+				messages: [{ role: 'user', content: 'What is the capital of France?' }],
+				stream: true,
+				stream_options: { include_usage: true },
+			}),
+		});
+		await waitUntil(() => server.cluster.lastSentBody()['type'] === 'task.submit');
+		const taskRequestId = server.cluster.lastSentBody()['taskRequestId'];
+		server.cluster.receive({ type: 'task.accepted', taskRequestId, task: { taskId: 'task-stream-usage-1', taskRequestId, state: 'queued' } });
+		server.cluster.receive({ type: 'task.updated', update: { taskId: 'task-stream-usage-1', taskRevision: 2, state: 'running', completedStageCount: 1, currentStageAttempts: 1, newText: 'Paris.' } });
+		server.cluster.receive({
+			type: 'task.updated',
+			update: {
+				taskId: 'task-stream-usage-1',
+				taskRevision: 3,
+				state: 'completed',
+				completedStageCount: 2,
+				currentStageAttempts: 0,
+				result: { text: 'Paris.', done: true, promptTokenCount: 8, completionTokenCount: 3, stopReason: 'end_of_sequence' },
+			},
+		});
+
+		const response = await responsePromise;
+		const lines = await streamedDataLines(response);
+		Assert.equal(lines.at(-1), '[DONE]');
+		const chunks = lines.slice(0, -1).map(
+			(line) => JSON.parse(line) as { choices: { finish_reason: string | null }[]; usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number } | null },
+		);
+		// Every chunk before the last carries one choice and `usage: null`.
+		Assert.deepEqual(chunks.slice(0, -1).map((chunk) => chunk.usage), chunks.slice(0, -1).map(() => null));
+		Assert.deepEqual(chunks.slice(0, -1).map((chunk) => chunk.choices.length), chunks.slice(0, -1).map(() => 1));
+		// The finish_reason chunk is the one right before the usage chunk.
+		Assert.equal(chunks.at(-2)?.choices[0]?.finish_reason, 'stop');
+		// The final chunk carries the usage object and no choices at all.
+		const usageChunk = chunks.at(-1);
+		Assert.deepEqual(usageChunk?.choices, []);
+		Assert.deepEqual(usageChunk?.usage, { prompt_tokens: 8, completion_tokens: 3, total_tokens: 11 });
+	} finally {
+		server.close();
+	}
+});
+
+Test('sends no final usage chunk when the request does not ask for one, even though the worker reported usage', async () => {
+	const server = await listeningServer();
+	try {
+		const responsePromise = fetch(`${server.url}/v1/chat/completions`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ model: 'llm_qwen3_5_0_8b_full', messages: [{ role: 'user', content: 'What is the capital of France?' }], stream: true }),
+		});
+		await waitUntil(() => server.cluster.lastSentBody()['type'] === 'task.submit');
+		const taskRequestId = server.cluster.lastSentBody()['taskRequestId'];
+		server.cluster.receive({ type: 'task.accepted', taskRequestId, task: { taskId: 'task-stream-nousage-1', taskRequestId, state: 'queued' } });
+		server.cluster.receive({
+			type: 'task.updated',
+			update: {
+				taskId: 'task-stream-nousage-1',
+				taskRevision: 2,
+				state: 'completed',
+				completedStageCount: 1,
+				currentStageAttempts: 0,
+				result: { text: 'Paris.', done: true, promptTokenCount: 8, completionTokenCount: 3, stopReason: 'end_of_sequence' },
+			},
+		});
+
+		const response = await responsePromise;
+		const lines = await streamedDataLines(response);
+		Assert.equal(lines.at(-1), '[DONE]');
+		const chunks = lines.slice(0, -1).map((line) => JSON.parse(line) as { choices: { finish_reason: string | null }[] });
+		// The finish_reason chunk is the last answer chunk sent; nothing follows it but [DONE].
+		Assert.equal(chunks.at(-1)?.choices[0]?.finish_reason, 'stop');
+	} finally {
+		server.close();
+	}
+});
+
 Test('a request that asks for no stream asks the cluster for no pieces, and is answered in one piece', async () => {
 	const server = await listeningServer();
 	try {

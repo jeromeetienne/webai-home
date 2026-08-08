@@ -49,6 +49,7 @@ export const ChatCompletionRequestSchema = z.object({
 	model: z.string().min(1),
 	messages: z.array(ChatCompletionMessageSchema).min(1),
 	stream: z.boolean().optional(),
+	stream_options: z.object({ include_usage: z.boolean().optional() }).optional(),
 });
 /** The body of a request to `POST /v1/chat/completions`. */
 export type ChatCompletionRequest = z.infer<typeof ChatCompletionRequestSchema>;
@@ -128,19 +129,52 @@ export type ChatCompletionChunkChoice = {
 };
 
 /**
- * One chunk of a chat completion sent as the answer is written.
+ * One chunk of a chat completion sent as the answer is written, carrying one choice and no
+ * usage.
  *
- * The stream is a sequence of these, each on its own `data:` line, ended by a `data: [DONE]`
- * line. `id`, `created`, and `model` repeat on every chunk and are the same throughout one
- * answer, which is what lets a reader tell one answer's chunks from another's.
+ * Every chunk that carries a piece of the answer, or the `finish_reason` that ends it, has this
+ * shape. `usage` is stated as `null` on every one of these rather than left out, which is what
+ * the OpenAI Chat Completions interface does when a caller asked for a usage chunk with
+ * `stream_options: { include_usage: true }` — a caller reading each chunk's `usage` field in
+ * order sees `null` until the final chunk, never a field that is sometimes present and
+ * sometimes absent.
  */
-export type ChatCompletionChunk = {
+export type ChatCompletionAnswerChunk = {
 	id: string;
 	object: 'chat.completion.chunk';
 	created: number;
 	model: string;
 	choices: ChatCompletionChunkChoice[];
+	usage: null;
 };
+
+/**
+ * The final chunk of a chat completion stream, carrying usage and no answer.
+ *
+ * Sent only when the request asked for it with `stream_options: { include_usage: true }`, after
+ * the chunk that carried `finish_reason` and before the `data: [DONE]` line, exactly as the
+ * OpenAI Chat Completions interface defines it. See milestone 4 of
+ * [issue #150](https://github.com/webai-at-home/webai-at-home/issues/150).
+ */
+export type ChatCompletionUsageChunk = {
+	id: string;
+	object: 'chat.completion.chunk';
+	created: number;
+	model: string;
+	choices: [];
+	usage: ChatCompletionUsage;
+};
+
+/**
+ * One chunk of a chat completion sent as the answer is written.
+ *
+ * The stream is a sequence of these, each on its own `data:` line, ended by a `data: [DONE]`
+ * line. `id`, `created`, and `model` repeat on every chunk and are the same throughout one
+ * answer, which is what lets a reader tell one answer's chunks from another's. Every chunk is
+ * either an answer chunk, carrying one choice and `usage: null`, or the final usage chunk,
+ * carrying no choices and a `usage` object.
+ */
+export type ChatCompletionChunk = ChatCompletionAnswerChunk | ChatCompletionUsageChunk;
 
 /** One model in the list returned by `GET /v1/models`. */
 export type ModelDescription = {

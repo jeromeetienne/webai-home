@@ -22,10 +22,11 @@ import { FinishReasonTranslator } from '../api/finish_reason_translator.js';
 import { PromptFlattener } from '../api/prompt_flattener.js';
 import {
 	ChatCompletionRequestSchema,
-	type ChatCompletionChunk,
+	type ChatCompletionAnswerChunk,
 	type ChatCompletionChunkChoice,
 	type ChatCompletionResponse,
 	type ChatCompletionUsage,
+	type ChatCompletionUsageChunk,
 	type HealthResponse,
 } from '../api/openai_types.js';
 
@@ -274,6 +275,7 @@ export class OpenaiRoutes {
 				transaction,
 				abortController.signal,
 				onCorrelationIds,
+				body.stream_options?.include_usage === true,
 			);
 			return;
 		}
@@ -343,6 +345,10 @@ export class OpenaiRoutes {
 	 * @param transaction This request's transaction record, absent only in a test.
 	 * @param abortSignal Reports that whoever sent the request has gone.
 	 * @param onCorrelationIds Told the identifiers this request is submitted under.
+	 * @param includeUsage Whether the request asked for a final usage chunk with
+	 * `stream_options: { include_usage: true }`, an existing field of the OpenAI Chat Completions
+	 * interface. See milestone 4 of
+	 * [issue #150](https://github.com/webai-at-home/webai-at-home/issues/150).
 	 * @throws OpenaiError when the task fails before any chunk has been written.
 	 */
 	private async _streamChatCompletion(
@@ -352,6 +358,7 @@ export class OpenaiRoutes {
 		transaction: ChatCompletionTransaction | undefined,
 		abortSignal: AbortSignal,
 		onCorrelationIds: (ids: { taskRequestId: string; taskId?: string }) => void,
+		includeUsage: boolean,
 	): Promise<void> {
 		const completionId = `chatcmpl-${Crypto.randomUUID()}`;
 		const created = Math.floor(Date.now() / 1000);
@@ -383,12 +390,37 @@ export class OpenaiRoutes {
 					transaction.responseType = 'chat.completion.chunk';
 				}
 			}
-			const chunk: ChatCompletionChunk = {
+			// Every answer chunk carries `usage: null`, whether or not the caller asked for the
+			// final usage chunk, exactly as the OpenAI Chat Completions interface does it — a
+			// reader watching `usage` in order sees `null` on every chunk until the final one.
+			const chunk: ChatCompletionAnswerChunk = {
 				id: completionId,
 				object: 'chat.completion.chunk',
 				created,
 				model: modelId,
 				choices: [choice],
+				usage: null,
+			};
+			response.write(`data: ${JSON.stringify(chunk)}\n\n`);
+		};
+		/**
+		 * Writes the final usage chunk, carrying no choices, once the request asked for it with
+		 * `stream_options: { include_usage: true }`.
+		 */
+		const writeUsageChunk = (usage: ChatCompletionUsage): void => {
+			if (includeUsage === false) {
+				return;
+			}
+			if (response.writableEnded === true) {
+				return;
+			}
+			const chunk: ChatCompletionUsageChunk = {
+				id: completionId,
+				object: 'chat.completion.chunk',
+				created,
+				model: modelId,
+				choices: [],
+				usage,
 			};
 			response.write(`data: ${JSON.stringify(chunk)}\n\n`);
 		};
@@ -450,6 +482,12 @@ export class OpenaiRoutes {
 				logprobs: null,
 				finish_reason: finishReason,
 			});
+			// Rule 1 of this project's OpenAI compatibility requirement: the final usage chunk is
+			// sent only when both counts are known, never with an invented or estimated count.
+			const usage = OpenaiRoutes._usageOf(answer);
+			if (usage !== undefined) {
+				writeUsageChunk(usage);
+			}
 			if (transaction !== undefined) {
 				transaction.respondedAt = new Date();
 				transaction.outcome = 'completed';
