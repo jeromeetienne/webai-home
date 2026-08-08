@@ -15,8 +15,10 @@
         <!-- The browser only lets its own built-in language model be used by pages it has given
              that permission to, and a frame holding a page from a different address is not given
              it by default. This worker page is served from another port, so without allow the
-             model reports itself unavailable inside the frame even though the browser has it. -->
-        <iframe allow="language-model" data-worker-name="llm-gemma-nano-chrome-full"
+             model reports itself unavailable inside the frame even though the browser has it. The
+             screen-wake-lock permission is needed for the same reason, so the worker page can hold
+             the screen wake lock instead of the browser refusing the request. -->
+        <iframe allow="language-model; screen-wake-lock" data-worker-name="llm-gemma-nano-chrome-full"
             data-enabled-stages="stage_llm_gemma_nano_chrome_full"
             title="WebAI Chrome built-in language-model worker page"></iframe>
     </div>

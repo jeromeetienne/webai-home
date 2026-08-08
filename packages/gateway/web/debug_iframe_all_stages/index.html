@@ -15,9 +15,12 @@
          stage whose computation it implements: the development formula stages, all three
          Qwen3-0.6B shard stages, Chrome's built-in Gemma Nano language-model stage, and the
          complete Qwen3.5-0.8B language-model stage. The allow="language-model" permission is what
-         lets the Gemma Nano stage run inside this frame at all; see debug_iframe_llm_gemma_nano_chrome_full/index.html. -->
+         lets the Gemma Nano stage run inside this frame at all; see debug_iframe_llm_gemma_nano_chrome_full/index.html.
+         The allow="screen-wake-lock" permission is what lets this frame's worker page hold the
+         screen wake lock instead of the browser refusing the request with a permissions policy
+         violation. -->
     <div class="worker-column">
-        <iframe allow="language-model" data-worker-name="worker-all-stages"
+        <iframe allow="language-model; screen-wake-lock" data-worker-name="worker-all-stages"
             title="WebAI worker page offering every stage it can run"></iframe>
     </div>
 
