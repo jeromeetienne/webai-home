@@ -115,6 +115,29 @@ type TaskGenerationState = {
 	 * loading has no reader yet to cancel.
 	 */
 	isReleased: boolean;
+	/**
+	 * The exact number of tokens the prompt was encoded into, once known.
+	 *
+	 * Counted from `generator.tokenizer.apply_chat_template`, the same call `generate()` itself
+	 * makes to encode the prompt, so this is what was actually fed to the model rather than an
+	 * estimate. See milestone 3 of
+	 * https://github.com/webai-at-home/webai-at-home/issues/150.
+	 */
+	promptTokenCount: number | undefined;
+	/**
+	 * The exact number of tokens the model generated for this answer, once generation has
+	 * finished.
+	 *
+	 * Counted from `TextStreamer`'s `token_callback_function`, which is called with every raw
+	 * token id the model produces. See milestone 3 of
+	 * https://github.com/webai-at-home/webai-at-home/issues/150.
+	 */
+	completionTokenCount: number | undefined;
+	/**
+	 * Why generation stopped, once it has, in this stage's own word for it rather than an OpenAI
+	 * value. See milestone 3 of https://github.com/webai-at-home/webai-at-home/issues/150.
+	 */
+	stopReason: 'end_of_sequence' | 'max_new_tokens' | 'interrupted' | undefined;
 };
 
 /**
@@ -282,7 +305,7 @@ export class StageHelperLlmQwen3_5_0_8bFull {
 				}
 			}
 			StageHelperLlmQwen3_5_0_8bFull.refuseIfReplaced(state, stageAssignmentId);
-			return StagePayloadFactory.llmDone(state.text);
+			return StagePayloadFactory.llmDone(state.text, undefined, StageHelperLlmQwen3_5_0_8bFull.usageOf(state));
 		} finally {
 			if (leavesAnswerOpen === false) {
 				StageHelperLlmQwen3_5_0_8bFull.clearGeneration(taskId, stageAssignmentId);
@@ -369,6 +392,9 @@ export class StageHelperLlmQwen3_5_0_8bFull {
 			text: '',
 			pieceCount: 0,
 			isReleased: false,
+			promptTokenCount: undefined,
+			completionTokenCount: undefined,
+			stopReason: undefined,
 		};
 		StageHelperLlmQwen3_5_0_8bFull.stateByTaskId.set(taskId, state);
 		return state;
@@ -478,9 +504,23 @@ export class StageHelperLlmQwen3_5_0_8bFull {
 		if (state.isReleased === true) {
 			throw new Error('The answer this stage was to produce was abandoned before the model was ready.');
 		}
+		// The same encoding `generate()` itself applies to the prompt, so this is the exact count of
+		// what was fed to the model rather than an estimate. See milestone 0's de-risk gate for
+		// https://github.com/webai-at-home/webai-at-home/issues/150.
+		const promptTensor = (
+			generator.tokenizer as unknown as {
+				apply_chat_template: (messages: unknown[], options: Record<string, unknown>) => { data?: ArrayLike<number> };
+			}
+		).apply_chat_template(StageHelperLlmQwen3_5_0_8bFull.messagesOf(promptOrConversation), {
+			tokenize: true,
+			add_generation_prompt: true,
+			enable_thinking: false,
+			return_dict: false,
+		});
+		state.promptTokenCount = promptTensor.data?.length;
 		const criteria = new InterruptableStoppingCriteria();
 		state.criteria = criteria;
-		state.reader = StageHelperLlmQwen3_5_0_8bFull.createGenerationStream(generator, promptOrConversation, criteria).getReader();
+		state.reader = StageHelperLlmQwen3_5_0_8bFull.createGenerationStream(generator, promptOrConversation, criteria, state).getReader();
 		return state.reader;
 	}
 
@@ -506,17 +546,29 @@ export class StageHelperLlmQwen3_5_0_8bFull {
 	 * Builds a stream that delivers a generated answer one piece at a time, backed by
 	 * `@huggingface/transformers`'s own streaming callback.
 	 *
+	 * Also counts the raw tokens the model generates, through `TextStreamer`'s
+	 * `token_callback_function`, and works out why generation stopped once it has — the three
+	 * ways Milestone 0's de-risk gate found generation to end for this model, distinguished the
+	 * same way that gate did: `criteria.interrupted`, whether the last generated token id is one
+	 * of the model's own `eos_token_id` values, or otherwise the `MAX_NEW_TOKENS` cap. Both are
+	 * written onto `state` rather than returned, because a `ReadableStream<string>` has nowhere
+	 * else to carry them. See milestone 3 of
+	 * https://github.com/webai-at-home/webai-at-home/issues/150.
+	 *
 	 * @param generator The loaded text-generation pipeline.
 	 * @param promptOrConversation The prompt or conversation to generate an answer for.
 	 * @param criteria Stops generation early when the stream's reader is cancelled.
+	 * @param state The generation state to record the completion token count and stop reason on.
 	 * @returns A stream of the pieces of text the model produces, in order.
 	 */
 	private static createGenerationStream(
 		generator: TextGenerationPipeline,
 		promptOrConversation: string | ConversationInput,
 		criteria: InterruptableStoppingCriteria,
+		state: TaskGenerationState,
 	): ReadableStream<string> {
 		let isCancelled = false;
+		const tokenIds: number[] = [];
 		return new ReadableStream<string>({
 			start(controller) {
 				const streamer = new TextStreamer(generator.tokenizer, {
@@ -525,6 +577,11 @@ export class StageHelperLlmQwen3_5_0_8bFull {
 					callback_function: (chunk: string) => {
 						if (isCancelled === false) {
 							controller.enqueue(chunk);
+						}
+					},
+					token_callback_function: (newTokens: bigint[]) => {
+						for (const tokenId of newTokens) {
+							tokenIds.push(Number(tokenId));
 						}
 					},
 				});
@@ -536,6 +593,8 @@ export class StageHelperLlmQwen3_5_0_8bFull {
 					stopping_criteria: criteria,
 					streamer,
 				}).then(() => {
+					state.completionTokenCount = tokenIds.length;
+					state.stopReason = StageHelperLlmQwen3_5_0_8bFull.stopReasonOf(criteria, generator, tokenIds);
 					if (isCancelled === false) {
 						controller.close();
 					}
@@ -550,6 +609,77 @@ export class StageHelperLlmQwen3_5_0_8bFull {
 				criteria.interrupt();
 			},
 		});
+	}
+
+	/**
+	 * Builds the `usage` argument {@link StagePayloadFactory.llmDone} takes, from whatever this
+	 * state managed to record.
+	 *
+	 * Built field by field rather than by spreading `state` itself, because `state`'s own fields
+	 * are typed `| undefined` from being read before generation finishes, while
+	 * {@link StagePayloadFactory.llmDone}'s `usage` parameter types each field as merely
+	 * optional — the same distinction `exactOptionalPropertyTypes` enforces throughout this
+	 * repository.
+	 *
+	 * @param state The generation state to read.
+	 * @returns The usage to report, with a field left out rather than set to `undefined` when
+	 * this state has not recorded it.
+	 */
+	private static usageOf(
+		state: TaskGenerationState,
+	): { promptTokenCount?: number; completionTokenCount?: number; stopReason?: 'end_of_sequence' | 'max_new_tokens' | 'interrupted' } {
+		const usage: { promptTokenCount?: number; completionTokenCount?: number; stopReason?: 'end_of_sequence' | 'max_new_tokens' | 'interrupted' } = {};
+		if (state.promptTokenCount !== undefined) {
+			usage.promptTokenCount = state.promptTokenCount;
+		}
+		if (state.completionTokenCount !== undefined) {
+			usage.completionTokenCount = state.completionTokenCount;
+		}
+		if (state.stopReason !== undefined) {
+			usage.stopReason = state.stopReason;
+		}
+		return usage;
+	}
+
+	/**
+	 * Works out why generation stopped, in this stage's own vocabulary rather than an OpenAI
+	 * value, from the same three signals Milestone 0's de-risk gate proved cleanly distinguish
+	 * the three ways this model's generation can end.
+	 *
+	 * @param criteria The stopping criteria generation ran with.
+	 * @param generator The loaded text-generation pipeline, read for its model's own
+	 * `eos_token_id` values.
+	 * @param tokenIds The raw token ids generated for this answer, in order.
+	 * @returns Why generation stopped.
+	 */
+	private static stopReasonOf(
+		criteria: InterruptableStoppingCriteria,
+		generator: TextGenerationPipeline,
+		tokenIds: number[],
+	): 'end_of_sequence' | 'max_new_tokens' | 'interrupted' {
+		if (criteria.interrupted === true) {
+			return 'interrupted';
+		}
+		const lastTokenId = tokenIds.at(-1);
+		const eosTokenIds = StageHelperLlmQwen3_5_0_8bFull.eosTokenIdsOf(generator);
+		if (lastTokenId !== undefined && eosTokenIds.includes(lastTokenId)) {
+			return 'end_of_sequence';
+		}
+		return 'max_new_tokens';
+	}
+
+	/**
+	 * Reads the model's own end-of-sequence token identifiers, normalized to an array.
+	 *
+	 * @param generator The loaded text-generation pipeline.
+	 * @returns The end-of-sequence token identifiers this model's `generation_config` declares.
+	 */
+	private static eosTokenIdsOf(generator: TextGenerationPipeline): number[] {
+		const eosTokenId = (generator.model as unknown as { generation_config?: { eos_token_id?: number | number[] } }).generation_config?.eos_token_id;
+		if (eosTokenId === undefined) {
+			return [];
+		}
+		return Array.isArray(eosTokenId) ? eosTokenId : [eosTokenId];
 	}
 
 	/**

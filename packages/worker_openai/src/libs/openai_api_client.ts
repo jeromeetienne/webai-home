@@ -32,7 +32,32 @@ type ChatCompletionChunk = {
 		delta?: {
 			content?: string;
 		};
+		finish_reason?: string | null;
 	}[];
+	usage?: {
+		prompt_tokens?: number;
+		completion_tokens?: number;
+	};
+};
+
+/**
+ * The usage and finish reason a Chat Completions stream carries once it has finished, read from
+ * whichever streamed event happened to carry them.
+ *
+ * Milestone 0's de-risk gate for https://github.com/webai-at-home/webai-at-home/issues/150 found
+ * both Ollama and LM Studio send an exact `usage` and a real `finish_reason` (`stop` or
+ * `length`) already, but split across events: a `finish_reason`-carrying event with an empty
+ * delta, and — only when the request asks for it — a further, `choices`-empty event carrying
+ * `usage`. This client accumulates both across the whole stream rather than reading either from
+ * a single expected event.
+ */
+export type ChatCompletionStreamUsage = {
+	/** The exact number of tokens the prompt was encoded into, once the server has reported it. */
+	promptTokenCount: number | undefined;
+	/** The exact number of tokens the server generated for this answer, once it has reported it. */
+	completionTokenCount: number | undefined;
+	/** The server's own OpenAI `finish_reason` value, once an event has carried one. */
+	finishReason: string | undefined;
 };
 
 /** One message of the request this client sends to the local server, in the shape it expects. */
@@ -88,7 +113,14 @@ export class OpenaiApiClient {
 	}
 
 	/**
-	 * Starts a Chat Completions request and returns the pieces of the answer as they stream in.
+	 * Starts a Chat Completions request and returns the pieces of the answer as they stream in,
+	 * together with the usage and finish reason the server reports for the whole answer.
+	 *
+	 * Sends `stream_options: { include_usage: true }`, confirmed live against both Ollama and LM
+	 * Studio (see milestone 0's de-risk gate for
+	 * https://github.com/webai-at-home/webai-at-home/issues/150) to be what makes each of them
+	 * send the further, `choices`-empty event that carries `usage`; without it, only
+	 * `finish_reason` arrives.
 	 *
 	 * @param modelId The model to ask for, exactly as the local server names it.
 	 * @param promptOrConversation The prompt to answer, or the whole conversation to continue when
@@ -96,20 +128,22 @@ export class OpenaiApiClient {
 	 * @param abortController Aborts the request when the answer is no longer wanted. The stream's
 	 * own `cancel` calls this, so cancelling the reader stops the request to the local server
 	 * rather than only stopping this side from reading it.
-	 * @returns A stream of the pieces of text the model produces, in order.
+	 * @returns The stream of text pieces the model produces, in order, and the usage object that
+	 * is filled in as the stream is read and is only complete once the stream has closed.
 	 * @throws If the server cannot be reached, or answers with a failure status.
 	 */
 	async chatCompletionStream(
 		modelId: string,
 		promptOrConversation: string | ConversationInput,
 		abortController: AbortController,
-	): Promise<ReadableStream<string>> {
+	): Promise<{ stream: ReadableStream<string>; usage: ChatCompletionStreamUsage }> {
 		const response = await fetch(`${this.baseUrl}/chat/completions`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({
 				model: modelId,
 				stream: true,
+				stream_options: { include_usage: true },
 				messages: OpenaiApiClient.messagesOf(promptOrConversation),
 			}),
 			signal: abortController.signal,
@@ -122,7 +156,8 @@ export class OpenaiApiClient {
 		if (response.body === null) {
 			throw new Error(`The server at ${this.baseUrl} answered the chat completion with no body`);
 		}
-		return OpenaiApiClient.textPiecesOf(response.body, abortController);
+		const usage: ChatCompletionStreamUsage = { promptTokenCount: undefined, completionTokenCount: undefined, finishReason: undefined };
+		return { stream: OpenaiApiClient.textPiecesOf(response.body, abortController, usage), usage };
 	}
 
 	/**
@@ -150,9 +185,11 @@ export class OpenaiApiClient {
 	 * @param body The response body, a stream of raw bytes.
 	 * @param abortController Aborted when the returned stream is cancelled, so a reader giving up
 	 * on the answer stops the request rather than only stopping its own read.
+	 * @param usage Filled in with whatever `usage` and `finish_reason` fields each event carries,
+	 * as they arrive. Complete only once the returned stream has closed.
 	 * @returns A stream of the pieces of text the events carry, skipping events that carry none.
 	 */
-	private static textPiecesOf(body: ReadableStream<Uint8Array>, abortController: AbortController): ReadableStream<string> {
+	private static textPiecesOf(body: ReadableStream<Uint8Array>, abortController: AbortController, usage: ChatCompletionStreamUsage): ReadableStream<string> {
 		const bodyReader = body.getReader();
 		const decoder = new TextDecoder();
 		let buffer = '';
@@ -188,6 +225,16 @@ export class OpenaiApiClient {
 						continue;
 					}
 					const chunk = JSON.parse(data) as ChatCompletionChunk;
+					if (chunk.usage?.prompt_tokens !== undefined) {
+						usage.promptTokenCount = chunk.usage.prompt_tokens;
+					}
+					if (chunk.usage?.completion_tokens !== undefined) {
+						usage.completionTokenCount = chunk.usage.completion_tokens;
+					}
+					const finishReason = chunk.choices?.[0]?.finish_reason;
+					if (typeof finishReason === 'string') {
+						usage.finishReason = finishReason;
+					}
 					const content = chunk.choices?.[0]?.delta?.content;
 					if (typeof content === 'string' && content !== '') {
 						controller.enqueue(content);

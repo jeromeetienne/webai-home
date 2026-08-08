@@ -1,5 +1,5 @@
 import { StagePayloadFactory, type ConversationInput, type GenerationSettings, type LlmStagePayload } from '@webai/protocol';
-import type { OpenaiApiClient } from '../libs/openai_api_client.js';
+import type { ChatCompletionStreamUsage, OpenaiApiClient } from '../libs/openai_api_client.js';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -74,6 +74,12 @@ type TaskGenerationState = {
 	 * has no reader yet to cancel.
 	 */
 	isReleased: boolean;
+	/**
+	 * The usage and finish reason the local server reports for this answer, filled in as
+	 * `startGeneration`'s stream is read and complete only once it has closed. See milestone 3 of
+	 * https://github.com/webai-at-home/webai-at-home/issues/150.
+	 */
+	usage: ChatCompletionStreamUsage | undefined;
 };
 
 /**
@@ -211,7 +217,7 @@ export class StageHelperLlmLlama3_2_3bFull {
 				}
 			}
 			StageHelperLlmLlama3_2_3bFull.refuseIfReplaced(state, stageAssignmentId);
-			return StagePayloadFactory.llmDone(state.text);
+			return StagePayloadFactory.llmDone(state.text, undefined, StageHelperLlmLlama3_2_3bFull.usageOf(state.usage));
 		} finally {
 			if (leavesAnswerOpen === false) {
 				StageHelperLlmLlama3_2_3bFull.clearGeneration(taskId, stageAssignmentId);
@@ -266,6 +272,7 @@ export class StageHelperLlmLlama3_2_3bFull {
 			text: '',
 			pieceCount: 0,
 			isReleased: false,
+			usage: undefined,
 		};
 		StageHelperLlmLlama3_2_3bFull.stateByTaskId.set(taskId, state);
 		return state;
@@ -375,7 +382,7 @@ export class StageHelperLlmLlama3_2_3bFull {
 		}
 		const abortController = new AbortController();
 		state.abortController = abortController;
-		const stream = await openaiApiClient.chatCompletionStream(modelId, promptOrConversation, abortController);
+		const { stream, usage } = await openaiApiClient.chatCompletionStream(modelId, promptOrConversation, abortController);
 		// A release that arrives while the request is still connecting leaves this flag and
 		// nothing else, since no reader exists yet to cancel; reading it here is what stops this
 		// worker reading a whole answer for a task that was already given up on.
@@ -383,6 +390,7 @@ export class StageHelperLlmLlama3_2_3bFull {
 			abortController.abort();
 			throw new Error('The answer this stage was to produce was abandoned before the local server had answered.');
 		}
+		state.usage = usage;
 		state.reader = stream.getReader();
 		return state.reader;
 	}
@@ -403,5 +411,61 @@ export class StageHelperLlmLlama3_2_3bFull {
 			return promptOrConversation.trim() === '';
 		}
 		return promptOrConversation.messages.length === 0;
+	}
+
+	/**
+	 * Builds the `usage` argument {@link StagePayloadFactory.llmDone} takes, from what the local
+	 * server reported for this answer.
+	 *
+	 * Built field by field rather than by spreading `usage` itself, because `usage`'s own fields
+	 * are typed `| undefined` from being read before the server has reported them, while
+	 * {@link StagePayloadFactory.llmDone}'s `usage` parameter types each field as merely
+	 * optional — the same distinction `exactOptionalPropertyTypes` enforces throughout this
+	 * repository.
+	 *
+	 * @param usage The usage {@link OpenaiApiClient.chatCompletionStream} recorded, or `undefined`
+	 * if generation never started.
+	 * @returns The usage to report, with a field left out rather than set to `undefined` when the
+	 * local server did not report it.
+	 */
+	private static usageOf(
+		usage: ChatCompletionStreamUsage | undefined,
+	): { promptTokenCount?: number; completionTokenCount?: number; stopReason?: 'end_of_sequence' | 'max_new_tokens' | 'interrupted' } {
+		const result: { promptTokenCount?: number; completionTokenCount?: number; stopReason?: 'end_of_sequence' | 'max_new_tokens' | 'interrupted' } = {};
+		if (usage?.promptTokenCount !== undefined) {
+			result.promptTokenCount = usage.promptTokenCount;
+		}
+		if (usage?.completionTokenCount !== undefined) {
+			result.completionTokenCount = usage.completionTokenCount;
+		}
+		const stopReason = StageHelperLlmLlama3_2_3bFull.stopReasonOf(usage?.finishReason);
+		if (stopReason !== undefined) {
+			result.stopReason = stopReason;
+		}
+		return result;
+	}
+
+	/**
+	 * Translates the local server's own OpenAI `finish_reason` value into this stage's word for
+	 * why generation stopped.
+	 *
+	 * Milestone 0's de-risk gate for https://github.com/webai-at-home/webai-at-home/issues/150
+	 * found both Ollama and LM Studio distinguish `"stop"` from `"length"` already, in OpenAI's
+	 * own spelling. Confirmed by that gate: forcing a length cutoff never produced `"stop"`. Any
+	 * other value, including none reported at all, is left untranslated — Rule 1 of that issue
+	 * forbids inventing a value nobody reported.
+	 *
+	 * @param finishReason The local server's own `finish_reason` value, once it reported one.
+	 * @returns This stage's word for why generation stopped, or `undefined` when the local server
+	 * reported no `finish_reason` this stage recognises.
+	 */
+	private static stopReasonOf(finishReason: string | undefined): 'end_of_sequence' | 'max_new_tokens' | undefined {
+		if (finishReason === 'stop') {
+			return 'end_of_sequence';
+		}
+		if (finishReason === 'length') {
+			return 'max_new_tokens';
+		}
+		return undefined;
 	}
 }

@@ -4,7 +4,7 @@ import { protocolVersion, type ClientMessage, type GatewayMessage } from '@webai
 import { GatewayWorkerClient, type WorkerSocket } from '../src/libs/gateway_worker_client.js';
 import { WorkerStageOffer } from '../src/libs/worker_stage_offer.js';
 import { StageHelperLlmLlama3_2_3bFull } from '../src/stages/stage_helper_llm_llama3_2_3b_full.js';
-import type { OpenaiApiClient } from '../src/libs/openai_api_client.js';
+import type { ChatCompletionStreamUsage, OpenaiApiClient } from '../src/libs/openai_api_client.js';
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -30,21 +30,33 @@ const fakeOpenaiApiClient = (modelIds: string[] | Error): OpenaiApiClient => ({
 
 /**
  * A local server's Chat Completions stream, standing in for one Ollama or LM Studio would
- * answer with: it delivers the given pieces in order and tracks whether the request was aborted.
+ * answer with: it delivers the given pieces in order, tracks whether the request was aborted,
+ * and reports the usage it was given once the stream closes, the same way the real client fills
+ * in its own `usage` object as it reads.
  *
  * @param pieces The text pieces the fake stream delivers, one per `pull`.
+ * @param usage The usage to report once the stream closes. Defaults to nothing reported, the
+ * same as a server milestone 3 of https://github.com/webai-at-home/webai-at-home/issues/150 was
+ * not written for.
  * @returns The fake client, and the state tracking whether it was aborted.
  */
-const fakeChatClient = (pieces: string[]): { client: OpenaiApiClient; state: { abortedCount: number } } => {
+const fakeChatClient = (
+	pieces: string[],
+	usage?: ChatCompletionStreamUsage,
+): { client: OpenaiApiClient; state: { abortedCount: number } } => {
 	const state = { abortedCount: 0 };
 	const client = {
 		listModelIds: async (): Promise<string[]> => ['llama3.2:3b'],
-		chatCompletionStream: async (_modelId: string, _prompt: string, abortController: AbortController): Promise<ReadableStream<string>> => {
+		chatCompletionStream: async (
+			_modelId: string,
+			_prompt: string,
+			abortController: AbortController,
+		): Promise<{ stream: ReadableStream<string>; usage: ChatCompletionStreamUsage }> => {
 			abortController.signal.addEventListener('abort', () => {
 				state.abortedCount += 1;
 			});
 			let index = 0;
-			return new ReadableStream<string>({
+			const stream = new ReadableStream<string>({
 				pull(controller) {
 					if (index >= pieces.length) {
 						controller.close();
@@ -54,6 +66,7 @@ const fakeChatClient = (pieces: string[]): { client: OpenaiApiClient; state: { a
 					index += 1;
 				},
 			});
+			return { stream, usage: usage ?? { promptTokenCount: undefined, completionTokenCount: undefined, finishReason: undefined } };
 		},
 	};
 	return { client: client as unknown as OpenaiApiClient, state };
@@ -165,6 +178,28 @@ Test('reads the whole answer in one run when the consumer asked for nothing', as
 		'task-a', 'assignment-a', { text: 'What is the capital of France?' }, undefined, client, 'llama3.2:3b',
 	);
 	Assert.deepEqual(result, { text: 'Paris is the capital.', done: true });
+});
+
+Test('reports the usage and finish reason the local server sent, translated into this worker\'s own stopReason vocabulary', async () => {
+	const { client } = fakeChatClient(['Paris', ' is', ' the capital.'], { promptTokenCount: 32, completionTokenCount: 5, finishReason: 'stop' });
+	const result = await StageHelperLlmLlama3_2_3bFull.compute(
+		'task-usage-stop', 'assignment-usage-stop', { text: 'What is the capital of France?' }, undefined, client, 'llama3.2:3b',
+	);
+	Assert.deepEqual(result, { text: 'Paris is the capital.', done: true, promptTokenCount: 32, completionTokenCount: 5, stopReason: 'end_of_sequence' });
+});
+
+Test('translates a "length" finish reason into "max_new_tokens", and reports no stopReason for one it does not recognise', async () => {
+	const { client: lengthClient } = fakeChatClient(['In'], { promptTokenCount: 12, completionTokenCount: 1, finishReason: 'length' });
+	const lengthResult = await StageHelperLlmLlama3_2_3bFull.compute(
+		'task-usage-length', 'assignment-usage-length', { text: 'Write a long story.' }, undefined, lengthClient, 'llama3.2:3b',
+	);
+	Assert.deepEqual(lengthResult, { text: 'In', done: true, promptTokenCount: 12, completionTokenCount: 1, stopReason: 'max_new_tokens' });
+
+	const { client: unknownClient } = fakeChatClient(['hi'], { promptTokenCount: undefined, completionTokenCount: undefined, finishReason: 'content_filter' });
+	const unknownResult = await StageHelperLlmLlama3_2_3bFull.compute(
+		'task-usage-unknown', 'assignment-usage-unknown', { text: 'hello' }, undefined, unknownClient, 'llama3.2:3b',
+	);
+	Assert.deepEqual(unknownResult, { text: 'hi', done: true });
 });
 
 Test('reads one piece per run, and joins them across a continuation, when asked for pieces', async () => {

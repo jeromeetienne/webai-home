@@ -319,7 +319,16 @@ export class StageHelperLlmGemmaNanoChromeFull {
 			// that has been joining the pieces has already received every one of them, so this
 			// result adds no piece of its own and is instead what that consumer can check its own
 			// joining against.
-			return StagePayloadFactory.llmDone(state.text);
+			//
+			// Milestone 0's de-risk gate for https://github.com/webai-at-home/webai-at-home/issues/150
+			// found this engine reports no prompt or completion token count at all, only a single
+			// cumulative context-window usage number in its own unit, not tokens — so `usage` carries
+			// only `stopReason`, never a token count nobody reported. And it can only ever be
+			// `end_of_sequence` here: this engine found no cap-driven cutoff to distinguish, and a
+			// session destroyed mid-read (`release`, on task cancellation) throws out of the
+			// `reader.read()` above rather than letting this line run, so an interrupted answer never
+			// reaches this return at all.
+			return StagePayloadFactory.llmDone(state.text, undefined, { stopReason: 'end_of_sequence' });
 		} finally {
 			if (leavesAnswerOpen === false) {
 				StageHelperLlmGemmaNanoChromeFull.clearGeneration(taskId, stageAssignmentId);
